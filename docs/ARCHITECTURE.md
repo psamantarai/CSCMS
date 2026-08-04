@@ -1,11 +1,11 @@
-# RSCMS — Technical Architecture & Build Spec
+# CSCMS — Technical Architecture & Build Spec
 
 **Status:** Approved design, not yet implemented
 **Covers:** backend and frontend. One document, because the API contract and
 data model are the shared surface — splitting them into separate frontend and
 backend PRDs guarantees they drift apart.
 
-Read `RSCMS_PRD.md` for *what* the product does. This document is *how*.
+Read `CSCMS_PRD.md` for *what* the product does. This document is *how*.
 
 ---
 

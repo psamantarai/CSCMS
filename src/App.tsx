@@ -95,11 +95,11 @@ function AppShell() {
         <div style={{ padding: "20px 18px 16px", borderBottom: "1px solid rgba(255,255,255,0.07)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ width: 32, height: 32, background: "#f59e0b", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 800, color: "#1a1000", flexShrink: 0, fontFamily: "'Roboto Slab', serif" }}>
-              R
+              C
             </div>
             <div>
-              <div style={{ color: "#e2ebf5", fontWeight: 700, fontSize: 14, lineHeight: 1.1 }}>RSCMS</div>
-              <div style={{ color: "#5a7a9a", fontSize: 10, letterSpacing: "0.04em" }}>Rural Service Center</div>
+              <div style={{ color: "#e2ebf5", fontWeight: 700, fontSize: 14, lineHeight: 1.1 }}>CSCMS</div>
+              <div style={{ color: "#5a7a9a", fontSize: 10, letterSpacing: "0.04em" }}>Common Service Center</div>
             </div>
           </div>
         </div>
@@ -184,7 +184,7 @@ function AppShell() {
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
             </button>
-            <span className="topbar-hide-mobile">RSCMS</span>
+            <span className="topbar-hide-mobile">CSCMS</span>
             <span className="topbar-hide-mobile" style={{ color: "#d1d9e6" }}>›</span>
             <span style={{ color: "#1a2332", fontWeight: 500, textTransform: "capitalize", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {nav.find(n => n.path === activePath)?.label}

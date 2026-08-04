@@ -1,4 +1,4 @@
-# Rural Service Center Management System (RSCMS)
+# Common Service Center Management System (CSCMS)
 
 ## Product Requirements Document (PRD)
 

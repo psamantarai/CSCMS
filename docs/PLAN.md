@@ -1,4 +1,4 @@
-# RSCMS — Implementation Plan
+# CSCMS — Implementation Plan
 
 12 phases, 76 steps. Phases run in order; each depends on the one before.
 (Phase 2.5 was inserted after an edge-case audit of the shipped Phase 0–2
@@ -447,7 +447,7 @@ Deliberately last. Packaging a moving target does the work twice.
 process on a fixed loopback port, terminated on quit.
 *Verify:* no orphaned Python process remains after closing the app.
 
-**9.3 App data paths** — DB and backups in `%APPDATA%\RSCMS`; migrations run on
+**9.3 App data paths** — DB and backups in `%APPDATA%\CSCMS`; migrations run on
 version upgrade.
 *Verify:* installing a newer build over an older one migrates the existing DB
 without data loss.

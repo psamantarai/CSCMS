@@ -35,7 +35,7 @@ export default defineConfig(({ mode }) => {
       strictPort: true,
       watch: { ignored: ['**/.figma/**'] },
       proxy: {
-        '/api': process.env.RSCMS_API_URL || 'http://127.0.0.1:8000',
+        '/api': process.env.CSCMS_API_URL || 'http://127.0.0.1:8000',
       },
     },
     preview: {

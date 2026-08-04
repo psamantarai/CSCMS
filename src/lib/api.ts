@@ -1,4 +1,4 @@
-// Thin fetch wrapper for the RSCMS backend. Requests go through the Vite
+// Thin fetch wrapper for the CSCMS backend. Requests go through the Vite
 // dev proxy at /api (see vite.config.ts), so no base URL or CORS config
 // is needed in development.
 
