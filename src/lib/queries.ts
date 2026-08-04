@@ -11,4 +11,5 @@ export const queryKeys = {
   customerHistory: (id: number) => ["customers", id, "history"] as const,
   customerOutstanding: (id: number) => ["customers", id, "outstanding"] as const,
   services: ["services"] as const,
+  transactions: (filters: Record<string, string | number>) => ["transactions", filters] as const,
 }
