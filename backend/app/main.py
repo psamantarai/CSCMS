@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from app.accounts import router as accounts_router
 from app.customers import router as customers_router
 from app.db import get_connection, run_migrations
+from app.expenses import router as expenses_router
 from app.ledger import router as ledger_router
 from app.payments import router as payments_router
 from app.seed import run_seed
@@ -19,6 +20,7 @@ app.include_router(services_router)
 app.include_router(customers_router)
 app.include_router(transactions_router)
 app.include_router(payments_router)
+app.include_router(expenses_router)
 
 
 @app.on_event("startup")
