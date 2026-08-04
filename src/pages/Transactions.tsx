@@ -1,9 +1,6 @@
 import { useState } from "react"
 import { transactions } from "../data/mockData"
-
-function fmt(n: number) {
-  return "₹" + n.toLocaleString("en-IN")
-}
+import { fmt } from "../lib/format"
 
 const services = ["All", "Aadhaar", "PAN", "Utility Payments", "AEPS", "Printing", "Certificates", "Ticket Booking"]
 const statuses = ["All", "Completed", "Pending", "Partial"]

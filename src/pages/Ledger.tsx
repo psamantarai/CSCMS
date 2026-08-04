@@ -1,9 +1,5 @@
 import { ledgerEntries } from "../data/mockData"
 
-function fmt(n: number) {
-  return n > 0 ? "₹" + n.toLocaleString("en-IN") : "—"
-}
-
 const typeColors: Record<string, { bg: string; color: string }> = {
   "Service Income": { bg: "#f0fdf4", color: "#16a34a" },
   "Commission":     { bg: "#eff6ff", color: "#2563eb" },

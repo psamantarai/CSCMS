@@ -119,10 +119,35 @@ Custom skill under `.claude/skills/` (not part of `skills-lock.json`):
 
 - `progress-tracker` - use to update or check `docs/progress-tracker.html`, the work progress tracker. Keeps the in-progress task shown first, everything else after, with status filters.
 
+## Project Agents
+
+Custom subagent under `.claude/agents/` (Haiku model, not tracked by git - `.claude/` is gitignored):
+
+- `git-commit` - stages and commits current work with a concise message. Use when asked to commit changes.
+
+## Installed Plugins
+
+Enabled in `.claude/settings.local.json` (not tracked by git - `.claude/` is gitignored):
+
+- `ponytail` - lazy-first coding persona, active every session via a SessionStart hook. Favors the smallest thing that works (reuse existing code > stdlib > native platform feature > already-installed dependency > one-liner > new code) over speculative abstraction. It's why backend tests are plain `assert`-based scripts in `backend/tests/` rather than a pytest suite with fixtures - see `docs/ARCHITECTURE.md` §8.
+
 ## Plan Execution Workflow
 
 Work on one plan step at a time. After finishing a step:
-1. Update `docs/progress-tracker.html` using the `progress-tracker` skill. Keep the update's comment short and precise - one line, no fluff.
-2. Stop there and end the session - wait for the user to start the next step.
+1. Test it - unit, integration, and/or e2e, whichever tiers the step actually touches (see `docs/ARCHITECTURE.md` §8 for the tiers and existing conventions). Confirm the step's `docs/PLAN.md` *Verify* line genuinely passes before moving on.
+2. Update `docs/progress-tracker.html` using the `progress-tracker` skill. Record the same completion summary given to the user, as short bullet points (what was built, the verify result, any deviations) - not a one-line paragraph.
+3. Stop there and end the session - wait for the user to start the next step.
 
 Don't chain automatically into the next plan step.
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+A PreToolUse hook in `.claude/settings.json` (not tracked by git - `.claude/` is gitignored) enforces this: it runs `graphify hook-guard search` before Bash/Grep calls and `graphify hook-guard read` before Read/Glob calls, so prefer the `graphify` commands below over raw search/read when the graph exists.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).

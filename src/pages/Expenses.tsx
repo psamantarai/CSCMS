@@ -1,9 +1,6 @@
 import { useState } from "react"
 import { expenses } from "../data/mockData"
-
-function fmt(n: number) {
-  return "₹" + n.toLocaleString("en-IN")
-}
+import { fmt } from "../lib/format"
 
 const categories = ["Rent", "Internet", "Electricity", "Paper", "Ink", "Repairs", "Miscellaneous"]
 const catColors: Record<string, string> = {

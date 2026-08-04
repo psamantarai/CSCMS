@@ -1,4 +1,7 @@
-import { useState } from "react"
+import { BrowserRouter, Routes, Route, Navigate, NavLink, useNavigate, useLocation } from "react-router-dom"
+import { useQuery } from "@tanstack/react-query"
+import { api } from "./lib/api"
+import { queryKeys } from "./lib/queries"
 import Dashboard from "./pages/Dashboard"
 import Customers from "./pages/Customers"
 import Transactions from "./pages/Transactions"
@@ -9,62 +12,61 @@ import Ledger from "./pages/Ledger"
 import Reports from "./pages/Reports"
 import DailyClosing from "./pages/DailyClosing"
 
-type Page = "dashboard" | "customers" | "transactions" | "banking" | "accounts" | "expenses" | "ledger" | "reports" | "closing"
-
-const nav: { id: Page; label: string; icon: React.ReactNode; group?: string }[] = [
+const nav: { path: string; label: string; icon: React.ReactNode; group?: string }[] = [
   {
-    id: "dashboard", label: "Dashboard", group: "Overview",
+    path: "/dashboard", label: "Dashboard", group: "Overview",
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
   },
   {
-    id: "customers", label: "Customers", group: "Operations",
+    path: "/customers", label: "Customers", group: "Operations",
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
   },
   {
-    id: "transactions", label: "Transactions",
+    path: "/transactions", label: "Transactions",
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
   },
   {
-    id: "banking", label: "Banking",
+    path: "/banking", label: "Banking",
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
   },
   {
-    id: "expenses", label: "Expenses", group: "Finance",
+    path: "/expenses", label: "Expenses", group: "Finance",
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
   },
   {
-    id: "accounts", label: "Accounts",
+    path: "/accounts", label: "Accounts",
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
   },
   {
-    id: "ledger", label: "Ledger",
+    path: "/ledger", label: "Ledger",
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
   },
   {
-    id: "reports", label: "Reports", group: "Insights",
+    path: "/reports", label: "Reports", group: "Insights",
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
   },
   {
-    id: "closing", label: "Daily Closing",
+    path: "/closing", label: "Daily Closing",
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
   },
 ]
 
-const pageMap: Record<Page, React.ComponentType> = {
-  dashboard: Dashboard,
-  customers: Customers,
-  transactions: Transactions,
-  banking: Banking,
-  accounts: Accounts,
-  expenses: Expenses,
-  ledger: Ledger,
-  reports: Reports,
-  closing: DailyClosing,
+export default function App() {
+  return (
+    <BrowserRouter>
+      <AppShell />
+    </BrowserRouter>
+  )
 }
 
-export default function App() {
-  const [page, setPage] = useState<Page>("dashboard")
-  const PageComponent = pageMap[page]
+function AppShell() {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const activePath = nav.find(n => location.pathname.startsWith(n.path))?.path
+  const { data: health } = useQuery({
+    queryKey: queryKeys.health,
+    queryFn: () => api.get<{ status: string }>("/health"),
+  })
 
   let lastGroup = ""
 
@@ -105,16 +107,16 @@ export default function App() {
           {nav.map(item => {
             const showGroup = item.group && item.group !== lastGroup
             if (item.group) lastGroup = item.group
-            const active = page === item.id
+            const active = activePath === item.path
             return (
-              <div key={item.id}>
+              <div key={item.path}>
                 {showGroup && (
                   <div style={{ padding: "12px 16px 4px", fontSize: 10, color: "#3d5a78", textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 700 }}>
                     {item.group}
                   </div>
                 )}
-                <button
-                  onClick={() => setPage(item.id)}
+                <NavLink
+                  to={item.path}
                   style={{
                     width: "100%",
                     display: "flex",
@@ -129,6 +131,7 @@ export default function App() {
                     fontWeight: active ? 600 : 400,
                     cursor: "pointer",
                     textAlign: "left",
+                    textDecoration: "none",
                     transition: "all 0.12s",
                     fontFamily: "'Outfit', sans-serif",
                   }}
@@ -137,10 +140,10 @@ export default function App() {
                 >
                   <span style={{ opacity: active ? 1 : 0.7 }}>{item.icon}</span>
                   {item.label}
-                  {item.id === "closing" && (
+                  {item.path === "/closing" && (
                     <span style={{ marginLeft: "auto", background: "#f59e0b", color: "#1a1000", borderRadius: 10, padding: "1px 6px", fontSize: 10, fontWeight: 700 }}>!</span>
                   )}
-                </button>
+                </NavLink>
               </div>
             )
           })}
@@ -166,10 +169,14 @@ export default function App() {
             <span>RSCMS</span>
             <span style={{ color: "#d1d9e6" }}>›</span>
             <span style={{ color: "#1a2332", fontWeight: 500, textTransform: "capitalize" }}>
-              {nav.find(n => n.id === page)?.label}
+              {nav.find(n => n.path === activePath)?.label}
             </span>
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <span style={{ fontSize: 11, color: health?.status === "ok" ? "#16a34a" : "#dc2626", display: "flex", alignItems: "center", gap: 5 }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: health?.status === "ok" ? "#16a34a" : "#dc2626", display: "inline-block" }} />
+              {health?.status === "ok" ? "API Connected" : "API Offline"}
+            </span>
             <button style={{ background: "none", border: "1px solid #d1d9e6", borderRadius: 6, padding: "5px 10px", fontSize: 12, cursor: "pointer", color: "#475569", display: "flex", alignItems: "center", gap: 5 }}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               Search
@@ -178,7 +185,7 @@ export default function App() {
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
             </button>
             <button
-              onClick={() => setPage("closing")}
+              onClick={() => navigate("/closing")}
               style={{ background: "#1e3a5f", color: "#fff", border: "none", borderRadius: 6, padding: "5px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" }}
             >
               Close Day
@@ -188,7 +195,19 @@ export default function App() {
 
         {/* Page content */}
         <div style={{ flex: 1, overflow: "hidden" }}>
-          <PageComponent />
+          <Routes>
+            <Route path="/" element={<Navigate to="/dashboard" replace />} />
+            <Route path="/dashboard" element={<Dashboard />} />
+            <Route path="/customers" element={<Customers />} />
+            <Route path="/transactions" element={<Transactions />} />
+            <Route path="/banking" element={<Banking />} />
+            <Route path="/expenses" element={<Expenses />} />
+            <Route path="/accounts" element={<Accounts />} />
+            <Route path="/ledger" element={<Ledger />} />
+            <Route path="/reports" element={<Reports />} />
+            <Route path="/closing" element={<DailyClosing />} />
+            <Route path="*" element={<Navigate to="/dashboard" replace />} />
+          </Routes>
         </div>
       </main>
     </div>

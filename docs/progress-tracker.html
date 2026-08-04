@@ -21,7 +21,8 @@
   .task.completed { border-left-color: #2ea05e; opacity: 0.75; }
   .task-title { font-weight: 600; }
   .task-status { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em; color: #888; margin-left: 0.5rem; }
-  .task-detail { font-size: 0.9rem; color: #666; margin-top: 0.25rem; }
+  .task-detail { font-size: 0.9rem; color: #666; margin: 0.3rem 0 0; padding-left: 1.1rem; }
+  .task-detail li { margin-top: 0.15rem; }
   .empty { color: #888; font-style: italic; }
 </style>
 </head>
@@ -38,89 +39,77 @@
 
 <script id="tracker-data" type="application/json">
 [
-  { "title": "0.1 — Backend skeleton", "status": "in-progress", "detail": "P0 · FastAPI app, settings, /api/health, dev run script, backend/ layout. Verify: /api/health returns 200.", "updated": "2026-08-04" },
-
-  { "title": "0.2 — DB layer & migration runner", "status": "pending", "detail": "P0 · SQLite connection + PRAGMA user_version runner for numbered .sql files. Verify: running twice applies migrations once.", "updated": "2026-08-04" },
-  { "title": "0.3 — Migration 001, full schema", "status": "pending", "detail": "P0 · All ARCHITECTURE section 4 tables, ledger indexes, foreign keys on. Verify: integrity_check and foreign_key_check both clean.", "updated": "2026-08-04" },
-  { "title": "0.4 — Seed data", "status": "pending", "detail": "P0 · Cash Drawer, PRD services, admin user, default settings. Verify: re-running the seed does not duplicate rows.", "updated": "2026-08-04" },
-  { "title": "0.5 — Frontend router", "status": "pending", "detail": "P0 · react-router-dom replaces the useState page map; sidebar becomes NavLink. Verify: refresh on /transactions stays there, back button works.", "updated": "2026-08-04" },
-  { "title": "0.6 — Frontend data layer", "status": "pending", "detail": "P0 · react-query provider, lib/api.ts, lib/queries.ts, Vite dev proxy. Verify: a page fetches /api/health with no CORS error.", "updated": "2026-08-04" },
-  { "title": "0.7 — Shared formatting", "status": "pending", "detail": "P0 · lib/format.ts + paise conversion; delete the 9 duplicate fmt() definitions. Verify: grep finds no fmt in pages, currency renders identically.", "updated": "2026-08-04" },
-
-  { "title": "1.1 — Ledger core", "status": "pending", "detail": "P1 · Model, append-only insert, balance-by-summation. No update/delete path exists by construction. Verify: summation tests pass, update raises.", "updated": "2026-08-04" },
-  { "title": "1.2 — Accounts CRUD API", "status": "pending", "detail": "P1 · Opening balance seeds exactly one ledger entry. Verify: 9,200 opening gives one entry and a derived balance of 9,200.", "updated": "2026-08-04" },
-  { "title": "1.3 — Transfers API", "status": "pending", "detail": "P1 · Paired ledger rows in one DB transaction. Verify: rows sum to zero; a forced second-insert failure rolls back the first.", "updated": "2026-08-04" },
-  { "title": "1.4 — Reversal entries", "status": "pending", "detail": "P1 · reverses_id, reversible only once. Verify: reversal restores the prior balance; double-reversal rejected.", "updated": "2026-08-04" },
-  { "title": "1.5 — Ledger read API", "status": "pending", "detail": "P1 · Date/account/type filters, pagination, running balance. Verify: filtered sums match unfiltered when no filter applied.", "updated": "2026-08-04" },
-  { "title": "1.6 — Accounts page wiring", "status": "pending", "detail": "P1 · List, create, edit, deactivate against the API. Verify: an account created in the UI survives a restart.", "updated": "2026-08-04" },
-  { "title": "1.7 — Ledger page wiring", "status": "pending", "detail": "P1 · Real entries, filters, debit/credit derived from signed amount. Verify: page running balance matches the balance endpoint.", "updated": "2026-08-04" },
-  { "title": "1.8 — Transfer UI", "status": "pending", "detail": "P1 · Transfer form, rejects same-account transfers. Verify: 5,000 Cash to SBI moves both balances oppositely, two ledger rows shown.", "updated": "2026-08-04" },
-
-  { "title": "2.1 — Services CRUD API", "status": "pending", "detail": "P2 · Name, category, default fee/charge, active flag. Verify: deactivated service leaves pickers but stays on old transactions.", "updated": "2026-08-04" },
-  { "title": "2.2 — Customers CRUD API", "status": "pending", "detail": "P2 · With soft delete. Verify: soft-deleted customer leaves lists but their history remains intact.", "updated": "2026-08-04" },
-  { "title": "2.3 — Customer search", "status": "pending", "detail": "P2 · Partial match on name, phone, village. Verify: a partial phone fragment finds the right customer.", "updated": "2026-08-04" },
-  { "title": "2.4 — Customer detail endpoint", "status": "pending", "detail": "P2 · Service + banking history, outstanding derived from transactions minus payments. Verify: outstanding is never a stored column.", "updated": "2026-08-04" },
-  { "title": "2.5 — Customers page wiring", "status": "pending", "detail": "P2 · List, search, create, edit. Verify: a customer created in the UI persists across restart.", "updated": "2026-08-04" },
-  { "title": "2.6 — Customer detail view + NEW Services page", "status": "pending", "detail": "P2 · Drill-down, plus a net-new Services screen (no Services.tsx exists). Verify: editing a default fee changes form pre-fill without altering past transactions.", "updated": "2026-08-04" },
-
-  { "title": "3.1 — Transaction create API", "status": "pending", "detail": "P3 · Server computes total = fee + charge - discount. Verify: a tampered client total is rejected, not trusted.", "updated": "2026-08-04" },
-  { "title": "3.2 — Transaction ledger posting", "status": "pending", "detail": "P3 · Posts service_income for the amount paid, not billed. Verify: a 150 transaction paid in full raises cash by exactly 150.", "updated": "2026-08-04" },
-  { "title": "3.3 — Payments API", "status": "pending", "detail": "P3 · Settle one or several bills with a single amount. Verify: one 350 payment clears two separate outstanding bills correctly.", "updated": "2026-08-04" },
-  { "title": "3.4 — Derived transaction status", "status": "pending", "detail": "P3 · completed/partial/pending computed from payments, never hand-set. Verify: status flips on final payment with no explicit status write.", "updated": "2026-08-04" },
-  { "title": "3.5 — Transaction list API", "status": "pending", "detail": "P3 · Date, service, status, customer filters + pagination. Verify: filter combinations return consistent counts and totals.", "updated": "2026-08-04" },
-  { "title": "3.6 — Transaction correction", "status": "pending", "detail": "P3 · Edits post reversal + replacement, never mutate ledger rows. Verify: both rows retained, balance reflects only the corrected figure.", "updated": "2026-08-04" },
-  { "title": "3.7 — Transactions page wiring", "status": "pending", "detail": "P3 · Real list, filters, summary bar. Verify: collected and pending totals match the API.", "updated": "2026-08-04" },
-  { "title": "3.8 — Real transaction form", "status": "pending", "detail": "P3 · Replaces uncontrolled inputs + no-op Save. Pickers, live total. Verify: 107-of-357 leaves 250 outstanding and 107 in ledger; later 250 clears it.", "updated": "2026-08-04" },
-
-  { "title": "4.1 — Expenses CRUD API", "status": "pending", "detail": "P4 · Category, amount, paying account, note; posts a negative ledger entry. Verify: a 350 paper expense lowers cash by exactly 350.", "updated": "2026-08-04" },
-  { "title": "4.2 — Expense categories in settings", "status": "pending", "detail": "P4 · Operator-editable rather than hardcoded in the frontend. Verify: a category added in settings appears in the expense form.", "updated": "2026-08-04" },
-  { "title": "4.3 — Expenses page wiring", "status": "pending", "detail": "P4 · List, date/category filters, create, edit, delete. Verify: deleting an expense reverses its ledger entry rather than erasing it.", "updated": "2026-08-04" },
-
-  { "title": "5.1 — Banking ledger mapping", "status": "pending", "detail": "P5 · The ARCHITECTURE section 3 event table for all five types, one test each. Verify: principal sums to zero per type; only commission is income.", "updated": "2026-08-04" },
-  { "title": "5.2 — Banking CRUD API", "status": "pending", "detail": "P5 · Create, filtered list, correction via reversal. Verify: a corrected entry leaves both rows and a net-correct balance.", "updated": "2026-08-04" },
-  { "title": "5.3 — Commission tracking", "status": "pending", "detail": "P5 · Totals per account and period. Verify: sums match a direct ledger query for entry_type='commission'.", "updated": "2026-08-04" },
-  { "title": "5.4 — Banking page wiring", "status": "pending", "detail": "P5 · Real list and summary; page currently has zero interactivity. Verify: today's commission total matches the API.", "updated": "2026-08-04" },
-  { "title": "5.5 — Banking entry form", "status": "pending", "detail": "P5 · Fields vary by type. Verify: 5,000 AEPS withdrawal with 50 commission raises income by 50, NOT 5,050; settlement drops 5,000, cash rises 5,000.", "updated": "2026-08-04" },
-
-  { "title": "6.1 — business_days table & auto-open", "status": "pending", "detail": "P6 · First write of a date opens it. Verify: a transaction on a fresh date creates an open day row.", "updated": "2026-08-04" },
-  { "title": "6.2 — Opening balance derivation", "status": "pending", "detail": "P6 · Sum of ledger entries before the date; no carry-forward copying. Verify: opening for D equals closing for D-1 with no copy step.", "updated": "2026-08-04" },
-  { "title": "6.3 — Closed-day write guard", "status": "pending", "detail": "P6 · One guard in the shared write path, not per endpoint. Verify: every write endpoint 409s on a closed date; guard implemented once.", "updated": "2026-08-04" },
-  { "title": "6.4 — Close-day API", "status": "pending", "detail": "P6 · Cash variance, mandatory adjustment remarks, daily_account_balance snapshot. Verify: snapshot matches derived balances exactly at close.", "updated": "2026-08-04" },
-  { "title": "6.5 — Closing report generation", "status": "pending", "detail": "P6 · Opening, income, expenses, transfers, closing, variance per PRD section 8. Verify: figures reconcile against the ledger for that date.", "updated": "2026-08-04" },
-  { "title": "6.6 — DailyClosing page wiring", "status": "pending", "detail": "P6 · 6-step workflow driven by the API, replacing the useState mock where Lock Business Day flips a boolean. Verify: reopening the app shows the day closed.", "updated": "2026-08-04" },
-  { "title": "6.7 — Closing report print view", "status": "pending", "detail": "P6 · Print-friendly layout. Verify: prints legibly on A4 without the sidebar.", "updated": "2026-08-04" },
-
-  { "title": "7.1 — Dashboard API", "status": "pending", "detail": "P7 · The 8 PRD section 3 tiles in one response. Verify: each tile reconciles against a direct ledger query.", "updated": "2026-08-04" },
-  { "title": "7.2 — Dashboard page wiring", "status": "pending", "detail": "P7 · Real tiles with loading state. Verify: recording a transaction updates the dashboard with no manual refresh.", "updated": "2026-08-04" },
-  { "title": "7.3 — Daily & monthly reports", "status": "pending", "detail": "P7 · Query layer. Verify: totals equal a direct SUM over ledger for the period.", "updated": "2026-08-04" },
-  { "title": "7.4 — Customer & service reports", "status": "pending", "detail": "P7 · Query layer. Verify: totals equal a direct SUM over ledger for the period.", "updated": "2026-08-04" },
-  { "title": "7.5 — Commission & P&L reports", "status": "pending", "detail": "P7 · Query layer. Verify: totals equal a direct SUM over ledger for the period.", "updated": "2026-08-04" },
-  { "title": "7.6 — Reports page wiring", "status": "pending", "detail": "P7 · Report picker and date range. Verify: switching range refetches and totals change coherently.", "updated": "2026-08-04" },
-  { "title": "7.7 — CSV export & print layout", "status": "pending", "detail": "P7 · Export any report. Verify: exported CSV totals match on-screen totals.", "updated": "2026-08-04" },
-  { "title": "7.8 — Reconciliation test suite", "status": "pending", "detail": "P7 · PRD acceptance criterion 6, checked rather than assumed. Verify: suite passes against a scripted month of mixed activity.", "updated": "2026-08-04" },
-
-  { "title": "8.1 — Auth API", "status": "pending", "detail": "P8 · users table, bcrypt, login/logout, session token. Verify: password never stored or logged in plaintext.", "updated": "2026-08-04" },
-  { "title": "8.2 — Auth enforcement", "status": "pending", "detail": "P8 · Endpoint guard, login screen, protected routes, token in memory not localStorage. Verify: unauthenticated API call returns 401.", "updated": "2026-08-04" },
-  { "title": "8.3 — Audit log writer", "status": "pending", "detail": "P8 · Before/after JSON on every financial mutation. Verify: editing a transaction leaves a complete before/after row.", "updated": "2026-08-04" },
-  { "title": "8.4 — Audit log viewer", "status": "pending", "detail": "P8 · Filterable UI. Verify: shows the row written in 8.3.", "updated": "2026-08-04" },
-  { "title": "8.5 — Automatic backup", "status": "pending", "detail": "P8 · VACUUM INTO on app close, timestamped, retention from settings. Verify: backup is a valid SQLite file openable while the app runs.", "updated": "2026-08-04" },
-  { "title": "8.6 — Restore flow", "status": "pending", "detail": "P8 · Backs up current DB first, explicit confirmation. Verify: a restored backup reproduces all balances exactly.", "updated": "2026-08-04" },
-  { "title": "8.7 — Day reopen override", "status": "pending", "detail": "P8 · Admin-only, writes an audit row. Verify: impossible without admin, always leaves a trace.", "updated": "2026-08-04" },
-
-  { "title": "9.1 — Electron shell", "status": "pending", "detail": "P9 · Loads the built frontend, single window, app menu. Verify: npm run electron opens the built app.", "updated": "2026-08-04" },
-  { "title": "9.2 — Backend bundling & lifecycle", "status": "pending", "detail": "P9 · PyInstaller build, child process on fixed loopback port, killed on quit. Verify: no orphaned Python process after closing.", "updated": "2026-08-04" },
-  { "title": "9.3 — App data paths", "status": "pending", "detail": "P9 · DB and backups in APPDATA/RSCMS; migrations run on upgrade. Verify: installing a newer build migrates the existing DB without data loss.", "updated": "2026-08-04" },
-  { "title": "9.4 — Windows installer", "status": "pending", "detail": "P9 · electron-builder, icon, shortcuts. Verify: installer completes on a clean machine.", "updated": "2026-08-04" },
-  { "title": "9.5 — First-run setup wizard", "status": "pending", "detail": "P9 · Shop name, accounts, opening balances. Verify: a fresh install reaches a usable state without touching a terminal.", "updated": "2026-08-04" },
-  { "title": "9.6 — Clean-machine acceptance test", "status": "pending", "detail": "P9 · Full PRD section 12 pass. Verify: installs with no Python or Node, works with network disabled, transaction survives restart.", "updated": "2026-08-04" },
-
-  { "title": "Phase 10 — Deferred scope", "status": "pending", "detail": "Left unbroken deliberately. NEW Printing.tsx screen, attachments, receipt printing, and PRD section 11 future work (multi-user, cloud sync, GST, mobile).", "updated": "2026-08-04" },
-
-  { "title": "Plan & architecture docs", "status": "completed", "detail": "Wrote docs/ARCHITECTURE.md (ledger-as-single-source design, schema, API) and docs/PLAN.md (11 phases with verify criteria).", "updated": "2026-08-04" },
-  { "title": "Codebase analysis", "status": "completed", "detail": "9 React pages (~1,340 lines) confirmed as a mock: no router, no API, no persistence, non-submitting forms, fmt() duplicated 9 times, Tailwind at 0% usage.", "updated": "2026-08-04" },
-  { "title": "Resolve PRD stack conflict", "status": "completed", "detail": "PRD said Angular; repo is React. Confirmed React wins; PRD amended to v1.1 rather than rebuilding nine finished screens.", "updated": "2026-08-04" },
-  { "title": "Build progress-tracker skill", "status": "completed", "detail": "Added .claude/skills/progress-tracker (SKILL.md + template.html).", "updated": "2026-08-04" },
-  { "title": "Document skill + workflow in CLAUDE.md", "status": "completed", "detail": "Added Project Skills and Plan Execution Workflow sections.", "updated": "2026-08-04" }
+  {"title":"0.1 — Backend skeleton","status":"completed","updated":"2026-08-04","details":["backend/ with FastAPI app, settings module, /api/health, run.py dev script","Verified: GET /api/health returns 200 {\"status\":\"ok\"}","Used system Python 3.14, not 3.12 per spec — no 3.12 installed","settings.py uses a plain env-var dataclass, no pydantic-settings dependency"]},
+  {"title":"0.2 — DB layer & migration runner","status":"completed","updated":"2026-08-04","details":["app/db.py: get_connection() + run_migrations() over backend/migrations/*.sql","backend/migrations/README.md documents the NNN_description.sql convention","backend/tests/test_db.py: assert-based self-check, no test framework","Verified: 2 runs → user_version reaches 2 once, no duplicate rows or errors","Not wired into main.py startup yet — no real schema until 0.3"]},
+  {"title":"0.3 — Migration 001, full schema","status":"completed","updated":"2026-08-04","details":["backend/migrations/001_init.sql: all 15 ARCHITECTURE.md section 4 tables (accounts, customers, services, users, transactions, payments, banking_transactions, expenses, account_transfers, ledger, daily_account_balance, business_days, settings, audit_logs, attachments)","Index on ledger(business_date, account_id); foreign keys throughout; CHECK constraints on enumerated columns (account_type, transaction status, ledger entry_type, banking txn_type, business_days status)","backend/tests/test_schema.py: assert-based self-check","Verified: PRAGMA integrity_check = ok, PRAGMA foreign_key_check clean, all expected tables present"]},
+  {"title":"0.4 — Seed data","status":"completed","updated":"2026-08-04","details":["backend/app/seed.py: run_seed(conn) — Cash Drawer account, 7 PRD section 3 services (PAN, Aadhaar, Certificates, Utility Payments, Ticket Booking, Printing, Banking), admin user (bcrypt-hashed default password), settings (expense_categories, backup_retention_count)","Idempotent via check-before-insert per row, no schema-level UNIQUE constraints needed","Added bcrypt to requirements.txt — the one new dependency, for password hashing per ARCHITECTURE.md section 9","backend/tests/test_seed.py: assert-based self-check","Verified: running seed twice leaves exactly 1 Cash Drawer, 7 services, 1 admin user, 2 settings rows; password_hash is not the plaintext password"]},
+  {"title":"0.5 — Frontend router","status":"completed","updated":"2026-08-04","details":["react-router-dom v7 added via pnpm; App.tsx split into App (BrowserRouter) + AppShell (NavLink sidebar, useNavigate/useLocation for active state and Close Day button)","Each page now has its own route (/dashboard, /customers, /transactions, /banking, /expenses, /accounts, /ledger, /reports, /closing); root and unknown paths redirect to /dashboard","Verified: tsc --noEmit clean; dev server on :8443 returns 200 for both / and deep routes like /transactions and /banking (SPA fallback confirms refresh-stays-put)"]},
+  {"title":"0.6 — Frontend data layer","status":"completed","updated":"2026-08-04","details":["@tanstack/react-query added; QueryClientProvider wraps App in main.tsx","vite.config.ts: server.proxy routes /api -> http://127.0.0.1:8000 (RSCMS_API_URL overridable)","src/lib/api.ts: thin fetch wrapper (get/post/put/delete) against /api","src/lib/queries.ts: query key factory, starting with queryKeys.health","AppShell top bar now shows a live API Connected/Offline badge via useQuery(queryKeys.health)","Verified: tsc --noEmit clean; curl to :8443/api/health (through the Vite proxy) and :8000/api/health (direct backend) both return {\"status\":\"ok\"} — same-origin, no CORS"]},
+  {"title":"0.7 — Shared formatting","status":"completed","updated":"2026-08-04","details":["src/lib/format.ts: fmt() (identical output to the old duplicates), formatDate() (timezone-safe ISO parse), toPaise()/fromPaise() for the future paise API boundary (ARCHITECTURE.md §6)","Deleted the 8 duplicate function fmt definitions (Accounts, Customers, Banking, DailyClosing, Expenses, Reports, Dashboard, Transactions), each replaced with import { fmt } from \"../lib/format\"","Ledger.tsx's local fmt was dead code (defined, never called — the table used inline ternaries) — deleted outright, no import added","src/lib/format.test.ts: assert-based self-check for fmt/formatDate/paise round-trip, runnable via node src/lib/format.test.ts (Node 24 runs .ts natively) — matches backend/tests/ convention","Verified: grep \"function fmt\" src/pages/ returns nothing; tsc --noEmit clean; node src/lib/format.test.ts passes; dev server serves all 9 routes at 200 with Dashboard.tsx's transformed module correctly importing lib/format.ts"]},
+  {"title":"1.1 — Ledger core","status":"pending","updated":"2026-08-04","details":["P1 · Model, append-only insert, balance-by-summation. No update/delete path exists by construction.","Verify: summation tests pass, update raises."]},
+  {"title":"1.2 — Accounts CRUD API","status":"pending","updated":"2026-08-04","details":["P1 · Opening balance seeds exactly one ledger entry.","Verify: 9,200 opening gives one entry and a derived balance of 9,200."]},
+  {"title":"1.3 — Transfers API","status":"pending","updated":"2026-08-04","details":["P1 · Paired ledger rows in one DB transaction.","Verify: rows sum to zero; a forced second-insert failure rolls back the first."]},
+  {"title":"1.4 — Reversal entries","status":"pending","updated":"2026-08-04","details":["P1 · reverses_id, reversible only once.","Verify: reversal restores the prior balance; double-reversal rejected."]},
+  {"title":"1.5 — Ledger read API","status":"pending","updated":"2026-08-04","details":["P1 · Date/account/type filters, pagination, running balance.","Verify: filtered sums match unfiltered when no filter applied."]},
+  {"title":"1.6 — Accounts page wiring","status":"pending","updated":"2026-08-04","details":["P1 · List, create, edit, deactivate against the API.","Verify: an account created in the UI survives a restart."]},
+  {"title":"1.7 — Ledger page wiring","status":"pending","updated":"2026-08-04","details":["P1 · Real entries, filters, debit/credit derived from signed amount.","Verify: page running balance matches the balance endpoint."]},
+  {"title":"1.8 — Transfer UI","status":"pending","updated":"2026-08-04","details":["P1 · Transfer form, rejects same-account transfers.","Verify: 5,000 Cash to SBI moves both balances oppositely, two ledger rows shown."]},
+  {"title":"2.1 — Services CRUD API","status":"pending","updated":"2026-08-04","details":["P2 · Name, category, default fee/charge, active flag.","Verify: deactivated service leaves pickers but stays on old transactions."]},
+  {"title":"2.2 — Customers CRUD API","status":"pending","updated":"2026-08-04","details":["P2 · With soft delete.","Verify: soft-deleted customer leaves lists but their history remains intact."]},
+  {"title":"2.3 — Customer search","status":"pending","updated":"2026-08-04","details":["P2 · Partial match on name, phone, village.","Verify: a partial phone fragment finds the right customer."]},
+  {"title":"2.4 — Customer detail endpoint","status":"pending","updated":"2026-08-04","details":["P2 · Service + banking history, outstanding derived from transactions minus payments.","Verify: outstanding is never a stored column."]},
+  {"title":"2.5 — Customers page wiring","status":"pending","updated":"2026-08-04","details":["P2 · List, search, create, edit.","Verify: a customer created in the UI persists across restart."]},
+  {"title":"2.6 — Customer detail view + NEW Services page","status":"pending","updated":"2026-08-04","details":["P2 · Drill-down, plus a net-new Services screen (no Services.tsx exists).","Verify: editing a default fee changes form pre-fill without altering past transactions."]},
+  {"title":"3.1 — Transaction create API","status":"pending","updated":"2026-08-04","details":["P3 · Server computes total = fee + charge - discount.","Verify: a tampered client total is rejected, not trusted."]},
+  {"title":"3.2 — Transaction ledger posting","status":"pending","updated":"2026-08-04","details":["P3 · Posts service_income for the amount paid, not billed.","Verify: a 150 transaction paid in full raises cash by exactly 150."]},
+  {"title":"3.3 — Payments API","status":"pending","updated":"2026-08-04","details":["P3 · Settle one or several bills with a single amount.","Verify: one 350 payment clears two separate outstanding bills correctly."]},
+  {"title":"3.4 — Derived transaction status","status":"pending","updated":"2026-08-04","details":["P3 · completed/partial/pending computed from payments, never hand-set.","Verify: status flips on final payment with no explicit status write."]},
+  {"title":"3.5 — Transaction list API","status":"pending","updated":"2026-08-04","details":["P3 · Date, service, status, customer filters + pagination.","Verify: filter combinations return consistent counts and totals."]},
+  {"title":"3.6 — Transaction correction","status":"pending","updated":"2026-08-04","details":["P3 · Edits post reversal + replacement, never mutate ledger rows.","Verify: both rows retained, balance reflects only the corrected figure."]},
+  {"title":"3.7 — Transactions page wiring","status":"pending","updated":"2026-08-04","details":["P3 · Real list, filters, summary bar.","Verify: collected and pending totals match the API."]},
+  {"title":"3.8 — Real transaction form","status":"pending","updated":"2026-08-04","details":["P3 · Replaces uncontrolled inputs + no-op Save. Pickers, live total.","Verify: 107-of-357 leaves 250 outstanding and 107 in ledger; later 250 clears it."]},
+  {"title":"4.1 — Expenses CRUD API","status":"pending","updated":"2026-08-04","details":["P4 · Category, amount, paying account, note; posts a negative ledger entry.","Verify: a 350 paper expense lowers cash by exactly 350."]},
+  {"title":"4.2 — Expense categories in settings","status":"pending","updated":"2026-08-04","details":["P4 · Operator-editable rather than hardcoded in the frontend.","Verify: a category added in settings appears in the expense form."]},
+  {"title":"4.3 — Expenses page wiring","status":"pending","updated":"2026-08-04","details":["P4 · List, date/category filters, create, edit, delete.","Verify: deleting an expense reverses its ledger entry rather than erasing it."]},
+  {"title":"5.1 — Banking ledger mapping","status":"pending","updated":"2026-08-04","details":["P5 · The ARCHITECTURE section 3 event table for all five types, one test each.","Verify: principal sums to zero per type; only commission is income."]},
+  {"title":"5.2 — Banking CRUD API","status":"pending","updated":"2026-08-04","details":["P5 · Create, filtered list, correction via reversal.","Verify: a corrected entry leaves both rows and a net-correct balance."]},
+  {"title":"5.3 — Commission tracking","status":"pending","updated":"2026-08-04","details":["P5 · Totals per account and period.","Verify: sums match a direct ledger query for entry_type='commission'."]},
+  {"title":"5.4 — Banking page wiring","status":"pending","updated":"2026-08-04","details":["P5 · Real list and summary; page currently has zero interactivity.","Verify: today's commission total matches the API."]},
+  {"title":"5.5 — Banking entry form","status":"pending","updated":"2026-08-04","details":["P5 · Fields vary by type.","Verify: 5,000 AEPS withdrawal with 50 commission raises income by 50, NOT 5,050; settlement drops 5,000, cash rises 5,000."]},
+  {"title":"6.1 — business_days table & auto-open","status":"pending","updated":"2026-08-04","details":["P6 · First write of a date opens it.","Verify: a transaction on a fresh date creates an open day row."]},
+  {"title":"6.2 — Opening balance derivation","status":"pending","updated":"2026-08-04","details":["P6 · Sum of ledger entries before the date; no carry-forward copying.","Verify: opening for D equals closing for D-1 with no copy step."]},
+  {"title":"6.3 — Closed-day write guard","status":"pending","updated":"2026-08-04","details":["P6 · One guard in the shared write path, not per endpoint.","Verify: every write endpoint 409s on a closed date; guard implemented once."]},
+  {"title":"6.4 — Close-day API","status":"pending","updated":"2026-08-04","details":["P6 · Cash variance, mandatory adjustment remarks, daily_account_balance snapshot.","Verify: snapshot matches derived balances exactly at close."]},
+  {"title":"6.5 — Closing report generation","status":"pending","updated":"2026-08-04","details":["P6 · Opening, income, expenses, transfers, closing, variance per PRD section 8.","Verify: figures reconcile against the ledger for that date."]},
+  {"title":"6.6 — DailyClosing page wiring","status":"pending","updated":"2026-08-04","details":["P6 · 6-step workflow driven by the API, replacing the useState mock where Lock Business Day flips a boolean.","Verify: reopening the app shows the day closed."]},
+  {"title":"6.7 — Closing report print view","status":"pending","updated":"2026-08-04","details":["P6 · Print-friendly layout.","Verify: prints legibly on A4 without the sidebar."]},
+  {"title":"7.1 — Dashboard API","status":"pending","updated":"2026-08-04","details":["P7 · The 8 PRD section 3 tiles in one response.","Verify: each tile reconciles against a direct ledger query."]},
+  {"title":"7.2 — Dashboard page wiring","status":"pending","updated":"2026-08-04","details":["P7 · Real tiles with loading state.","Verify: recording a transaction updates the dashboard with no manual refresh."]},
+  {"title":"7.3 — Daily & monthly reports","status":"pending","updated":"2026-08-04","details":["P7 · Query layer.","Verify: totals equal a direct SUM over ledger for the period."]},
+  {"title":"7.4 — Customer & service reports","status":"pending","updated":"2026-08-04","details":["P7 · Query layer.","Verify: totals equal a direct SUM over ledger for the period."]},
+  {"title":"7.5 — Commission & P&L reports","status":"pending","updated":"2026-08-04","details":["P7 · Query layer.","Verify: totals equal a direct SUM over ledger for the period."]},
+  {"title":"7.6 — Reports page wiring","status":"pending","updated":"2026-08-04","details":["P7 · Report picker and date range.","Verify: switching range refetches and totals change coherently."]},
+  {"title":"7.7 — CSV export & print layout","status":"pending","updated":"2026-08-04","details":["P7 · Export any report.","Verify: exported CSV totals match on-screen totals."]},
+  {"title":"7.8 — Reconciliation test suite","status":"pending","updated":"2026-08-04","details":["P7 · PRD acceptance criterion 6, checked rather than assumed.","Verify: suite passes against a scripted month of mixed activity."]},
+  {"title":"8.1 — Auth API","status":"pending","updated":"2026-08-04","details":["P8 · users table, bcrypt, login/logout, session token.","Verify: password never stored or logged in plaintext."]},
+  {"title":"8.2 — Auth enforcement","status":"pending","updated":"2026-08-04","details":["P8 · Endpoint guard, login screen, protected routes, token in memory not localStorage.","Verify: unauthenticated API call returns 401."]},
+  {"title":"8.3 — Audit log writer","status":"pending","updated":"2026-08-04","details":["P8 · Before/after JSON on every financial mutation.","Verify: editing a transaction leaves a complete before/after row."]},
+  {"title":"8.4 — Audit log viewer","status":"pending","updated":"2026-08-04","details":["P8 · Filterable UI.","Verify: shows the row written in 8.3."]},
+  {"title":"8.5 — Automatic backup","status":"pending","updated":"2026-08-04","details":["P8 · VACUUM INTO on app close, timestamped, retention from settings.","Verify: backup is a valid SQLite file openable while the app runs."]},
+  {"title":"8.6 — Restore flow","status":"pending","updated":"2026-08-04","details":["P8 · Backs up current DB first, explicit confirmation.","Verify: a restored backup reproduces all balances exactly."]},
+  {"title":"8.7 — Day reopen override","status":"pending","updated":"2026-08-04","details":["P8 · Admin-only, writes an audit row.","Verify: impossible without admin, always leaves a trace."]},
+  {"title":"9.1 — Electron shell","status":"pending","updated":"2026-08-04","details":["P9 · Loads the built frontend, single window, app menu.","Verify: npm run electron opens the built app."]},
+  {"title":"9.2 — Backend bundling & lifecycle","status":"pending","updated":"2026-08-04","details":["P9 · PyInstaller build, child process on fixed loopback port, killed on quit.","Verify: no orphaned Python process after closing."]},
+  {"title":"9.3 — App data paths","status":"pending","updated":"2026-08-04","details":["P9 · DB and backups in APPDATA/RSCMS; migrations run on upgrade.","Verify: installing a newer build migrates the existing DB without data loss."]},
+  {"title":"9.4 — Windows installer","status":"pending","updated":"2026-08-04","details":["P9 · electron-builder, icon, shortcuts.","Verify: installer completes on a clean machine."]},
+  {"title":"9.5 — First-run setup wizard","status":"pending","updated":"2026-08-04","details":["P9 · Shop name, accounts, opening balances.","Verify: a fresh install reaches a usable state without touching a terminal."]},
+  {"title":"9.6 — Clean-machine acceptance test","status":"pending","updated":"2026-08-04","details":["P9 · Full PRD section 12 pass.","Verify: installs with no Python or Node, works with network disabled, transaction survives restart."]},
+  {"title":"Phase 10 — Deferred scope","status":"pending","updated":"2026-08-04","details":["Left unbroken deliberately. NEW Printing.tsx screen, attachments, receipt printing, and PRD section 11 future work (multi-user, cloud sync, GST, mobile)."]},
+  {"title":"Plan & architecture docs","status":"completed","updated":"2026-08-04","details":["Wrote docs/ARCHITECTURE.md (ledger-as-single-source design, schema, API) and docs/PLAN.md (11 phases with verify criteria)."]},
+  {"title":"Codebase analysis","status":"completed","updated":"2026-08-04","details":["9 React pages (~1,340 lines) confirmed as a mock: no router, no API, no persistence, non-submitting forms, fmt() duplicated 9 times, Tailwind at 0% usage."]},
+  {"title":"Resolve PRD stack conflict","status":"completed","updated":"2026-08-04","details":["PRD said Angular; repo is React. Confirmed React wins; PRD amended to v1.1 rather than rebuilding nine finished screens."]},
+  {"title":"Build progress-tracker skill","status":"completed","updated":"2026-08-04","details":["Added .claude/skills/progress-tracker (SKILL.md + template.html)."]},
+  {"title":"Document skill + workflow in CLAUDE.md","status":"completed","updated":"2026-08-04","details":["Added Project Skills and Plan Execution Workflow sections."]}
 ]
 </script>
 
@@ -140,7 +129,7 @@
       ? shown.map(t => `
         <div class="task ${t.status}">
           <span class="task-title">${t.title}</span><span class="task-status">${t.status.replace("-", " ")}</span>
-          ${t.detail ? `<div class="task-detail">${t.detail}</div>` : ""}
+          ${t.details && t.details.length ? `<ul class="task-detail">${t.details.map(d => `<li>${d}</li>`).join("")}</ul>` : ""}
         </div>`).join("")
       : `<div class="empty">No tasks in this filter.</div>`;
   }

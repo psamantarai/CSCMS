@@ -1,9 +1,6 @@
 import { useState } from "react"
 import { transactions, expenses, accounts } from "../data/mockData"
-
-function fmt(n: number) {
-  return "₹" + n.toLocaleString("en-IN")
-}
+import { fmt } from "../lib/format"
 
 const reportTypes = [
   { id: "daily", label: "Daily Report" },

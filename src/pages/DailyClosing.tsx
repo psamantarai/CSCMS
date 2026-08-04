@@ -1,9 +1,6 @@
 import { useState } from "react"
 import { accounts, transactions, expenses } from "../data/mockData"
-
-function fmt(n: number) {
-  return "₹" + n.toLocaleString("en-IN")
-}
+import { fmt } from "../lib/format"
 
 const steps = [
   { id: 1, label: "Verify Pending Work", desc: "Check all open transactions" },

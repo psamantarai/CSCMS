@@ -1,5 +1,6 @@
 import StatCard from "../components/StatCard"
 import { transactions, accounts, expenses } from "../data/mockData"
+import { fmt } from "../lib/format"
 
 const todayIncome = transactions.reduce((s, t) => s + t.payment, 0)
 const todayExpenses = expenses.filter(e => e.date === "2026-08-04").reduce((s, e) => s + e.amount, 0)
@@ -18,9 +19,6 @@ const serviceBreakdown = [
   { name: "Certificates", count: 3, income: 600 },
 ]
 
-function fmt(n: number) {
-  return "₹" + n.toLocaleString("en-IN")
-}
 
 export default function Dashboard() {
   return (

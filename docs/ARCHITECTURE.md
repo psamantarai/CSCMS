@@ -331,8 +331,23 @@ breaks:
 - AEPS withdrawal books commission as income and principal as a transfer.
 - Partial payment leaves the correct customer outstanding.
 
-`pytest` against an in-memory SQLite instance. Frontend tests only for
-`format.ts` and paise conversion — the rest is covered by the API tests.
+Three tiers, applied per step per its `PLAN.md` *Verify* line:
+
+- **Unit** — pure logic with no I/O (ledger summation, paise conversion,
+  status derivation). Runs instantly, no DB involved.
+- **Integration** — backend logic against a real (temp/in-memory) SQLite DB,
+  through the `app.db` / API layers. Most of the suite lives here; see
+  `backend/tests/` for the existing pattern.
+- **E2E** — a real browser driving the built frontend against the running
+  backend. Not meaningful until a step wires a page to the API (Phase 0.5+);
+  tooling (e.g. Playwright) gets added at that point, not speculatively now.
+
+Each backend test file is a plain `assert`-based script (`def test_x(): ...`
+plus an `if __name__ == "__main__":` block), runnable directly with
+`python tests/test_x.py` — no test-framework dependency for what a handful of
+scripts covers, though the naming keeps them pytest-discoverable if pytest is
+ever added. Frontend tests only for `format.ts` and paise conversion — the
+rest is covered by the API tests.
 
 ---
 
