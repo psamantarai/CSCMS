@@ -1,0 +1,131 @@
+import StatCard from "../components/StatCard"
+import { transactions, accounts, expenses } from "../data/mockData"
+
+const todayIncome = transactions.reduce((s, t) => s + t.payment, 0)
+const todayExpenses = expenses.filter(e => e.date === "2026-08-04").reduce((s, e) => s + e.amount, 0)
+const todayProfit = todayIncome - todayExpenses
+const cashInHand = accounts.find(a => a.name === "Cash Drawer")?.balance ?? 0
+const totalBank = accounts.filter(a => a.type !== "Cash").reduce((s, a) => s + a.balance, 0)
+const pendingCredits = 850
+
+const recentTxns = transactions.slice(0, 5)
+
+const serviceBreakdown = [
+  { name: "Aadhaar / PAN", count: 8, income: 1240 },
+  { name: "Banking (AEPS / Transfer)", count: 12, income: 3420 },
+  { name: "Utility Payments", count: 5, income: 4100 },
+  { name: "Printing / Photocopy", count: 22, income: 430 },
+  { name: "Certificates", count: 3, income: 600 },
+]
+
+function fmt(n: number) {
+  return "₹" + n.toLocaleString("en-IN")
+}
+
+export default function Dashboard() {
+  return (
+    <div style={{ padding: "28px 32px", overflowY: "auto", height: "100%" }}>
+      <div style={{ marginBottom: 24 }}>
+        <h1 style={{ fontSize: 22, margin: 0, color: "#1a2332" }}>Dashboard</h1>
+        <p style={{ margin: "4px 0 0", color: "#64748b", fontSize: 13 }}>Monday, 4 August 2026 · Business Day Open</p>
+      </div>
+
+      {/* Stats grid */}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 24 }}>
+        <StatCard label="Today's Income" value={fmt(todayIncome)} sub="22 transactions" color="green"
+          icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>} />
+        <StatCard label="Today's Expenses" value={fmt(todayExpenses)} sub="2 entries today" color="red"
+          icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 18 13.5 8.5 8.5 13.5 1 6"/><polyline points="17 18 23 18 23 12"/></svg>} />
+        <StatCard label="Today's Profit" value={fmt(todayProfit)} sub="Net after expenses" color="blue"
+          icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>} />
+        <StatCard label="Pending Credits" value={fmt(pendingCredits)} sub="3 customers" color="amber"
+          icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>} />
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 28 }}>
+        <StatCard label="Cash in Hand" value={fmt(cashInHand)} sub="Cash Drawer" color="default"
+          icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>} />
+        <StatCard label="Total Bank Balance" value={fmt(totalBank)} sub="4 accounts" color="default"
+          icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>} />
+        <StatCard label="Today's Customers" value="18" sub="+3 from yesterday" color="default"
+          icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>} />
+        <StatCard label="Closing Status" value="Open" sub="Day not yet closed" color="amber"
+          icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>} />
+      </div>
+
+      {/* Bottom two-col layout */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 20 }}>
+        {/* Recent transactions */}
+        <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, overflow: "hidden" }}>
+          <div style={{ padding: "16px 20px", borderBottom: "1px solid #eef1f7", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <h3 style={{ margin: 0, fontSize: 15, fontFamily: "'Roboto Slab', serif" }}>Today's Transactions</h3>
+            <span style={{ fontSize: 12, color: "#3b6cb7", cursor: "pointer", fontWeight: 500 }}>View All →</span>
+          </div>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ background: "#f8fafc" }}>
+                {["ID", "Customer", "Service", "Fees", "Charge", "Payment", "Status"].map(h => (
+                  <th key={h} style={{ padding: "8px 12px", textAlign: "left", fontSize: 11, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em", borderBottom: "1px solid #eef1f7" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {recentTxns.map((t, i) => (
+                <tr key={t.id} style={{ background: i % 2 === 0 ? "#fff" : "#fafbfd", borderBottom: "1px solid #f1f5f9" }}>
+                  <td style={{ padding: "9px 12px", fontFamily: "monospace", fontSize: 12, color: "#3b6cb7", fontWeight: 600 }}>{t.id}</td>
+                  <td style={{ padding: "9px 12px", fontSize: 13 }}>{t.customer}</td>
+                  <td style={{ padding: "9px 12px", fontSize: 13, color: "#475569" }}>{t.service}</td>
+                  <td style={{ padding: "9px 12px", fontFamily: "monospace", fontSize: 12 }}>{fmt(t.fees)}</td>
+                  <td style={{ padding: "9px 12px", fontFamily: "monospace", fontSize: 12, color: "#16a34a" }}>+{fmt(t.charge)}</td>
+                  <td style={{ padding: "9px 12px", fontFamily: "monospace", fontSize: 12, fontWeight: 600 }}>{fmt(t.payment)}</td>
+                  <td style={{ padding: "9px 12px" }}>
+                    <span style={{
+                      fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20,
+                      background: t.status === "Completed" ? "#dcfce7" : t.status === "Pending" ? "#fef3c7" : "#fee2e2",
+                      color: t.status === "Completed" ? "#16a34a" : t.status === "Pending" ? "#d97706" : "#dc2626",
+                    }}>{t.status}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Service breakdown */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+          <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, overflow: "hidden" }}>
+            <div style={{ padding: "14px 18px", borderBottom: "1px solid #eef1f7" }}>
+              <h3 style={{ margin: 0, fontSize: 14, fontFamily: "'Roboto Slab', serif" }}>Service Breakdown</h3>
+            </div>
+            <div style={{ padding: "6px 0" }}>
+              {serviceBreakdown.map(s => (
+                <div key={s.name} style={{ padding: "10px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #f8fafc" }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 500 }}>{s.name}</div>
+                    <div style={{ fontSize: 11, color: "#64748b" }}>{s.count} jobs</div>
+                  </div>
+                  <span style={{ fontFamily: "monospace", fontWeight: 600, fontSize: 13, color: "#16a34a" }}>{fmt(s.income)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ background: "#1e3a5f", borderRadius: 10, padding: "18px 20px", color: "#fff" }}>
+            <div style={{ fontSize: 12, color: "#93b4d4", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>Quick Actions</div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {["New Transaction", "New Banking Entry", "Record Expense", "Close Business Day"].map((a, i) => (
+                <button key={a} style={{
+                  background: i === 3 ? "#f59e0b" : "rgba(255,255,255,0.08)",
+                  border: "1px solid " + (i === 3 ? "#f59e0b" : "rgba(255,255,255,0.12)"),
+                  borderRadius: 7, padding: "9px 14px", color: i === 3 ? "#1a1000" : "#e2ebf5",
+                  fontSize: 13, fontWeight: 500, cursor: "pointer", textAlign: "left",
+                  transition: "background 0.15s",
+                }}>{a}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
