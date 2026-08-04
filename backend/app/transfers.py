@@ -12,6 +12,19 @@ from app.ledger import insert_transfer_pair
 router = APIRouter(prefix="/api/transfers", tags=["transfers"])
 
 
+@router.get("")
+def list_transfers(limit: int = 20, conn: sqlite3.Connection = Depends(get_db)):
+    rows = conn.execute(
+        "SELECT t.*, f.name AS from_account_name, o.name AS to_account_name "
+        "FROM account_transfers t "
+        "JOIN accounts f ON f.id = t.from_account_id "
+        "JOIN accounts o ON o.id = t.to_account_id "
+        "ORDER BY t.id DESC LIMIT ?",
+        (limit,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
 class TransferCreate(BaseModel):
     business_date: str
     from_account_id: int

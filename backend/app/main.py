@@ -2,6 +2,7 @@ from fastapi import FastAPI
 
 from app.accounts import router as accounts_router
 from app.db import get_connection, run_migrations
+from app.ledger import router as ledger_router
 from app.seed import run_seed
 from app.settings import settings
 from app.transfers import router as transfers_router
@@ -9,6 +10,7 @@ from app.transfers import router as transfers_router
 app = FastAPI(title=settings.app_name, debug=settings.debug)
 app.include_router(accounts_router)
 app.include_router(transfers_router)
+app.include_router(ledger_router)
 
 
 @app.on_event("startup")

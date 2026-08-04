@@ -3,4 +3,8 @@
 
 export const queryKeys = {
   health: ["health"] as const,
+  accounts: ["accounts"] as const,
+  accountBalance: (id: number) => ["accounts", id, "balance"] as const,
+  ledger: (filters: Record<string, string | number>) => ["ledger", filters] as const,
+  transfers: ["transfers"] as const,
 }

@@ -3,6 +3,12 @@ summation. No update or delete path exists here — the DB trigger in
 002_ledger_immutable.sql rejects both regardless."""
 import sqlite3
 
+from fastapi import APIRouter, Depends
+
+from app.db import get_db
+
+router = APIRouter(prefix="/api/ledger", tags=["ledger"])
+
 ENTRY_TYPES = {
     "service_income", "commission", "expense", "transfer",
     "customer_payment", "adjustment", "opening_balance", "reversal",
@@ -96,3 +102,36 @@ def reverse_entry(
         reverses_id=entry_id,
         created_by=created_by,
     )
+
+
+@router.get("")
+def list_ledger(
+    business_date: str | None = None,
+    account_id: int | None = None,
+    entry_type: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+    conn: sqlite3.Connection = Depends(get_db),
+):
+    """Date/account/type filters, pagination, and a running balance per
+    account computed over the filtered set (before the LIMIT is applied)."""
+    where = []
+    params: list = []
+    if business_date:
+        where.append("business_date = ?")
+        params.append(business_date)
+    if account_id is not None:
+        where.append("account_id = ?")
+        params.append(account_id)
+    if entry_type:
+        where.append("entry_type = ?")
+        params.append(entry_type)
+    clause = f"WHERE {' AND '.join(where)}" if where else ""
+
+    total = conn.execute(f"SELECT COUNT(*) FROM ledger {clause}", params).fetchone()[0]
+    rows = conn.execute(
+        f"SELECT *, SUM(amount_paise) OVER (PARTITION BY account_id ORDER BY business_date, id) AS running_balance "
+        f"FROM ledger {clause} ORDER BY business_date, id LIMIT ? OFFSET ?",
+        (*params, limit, offset),
+    ).fetchall()
+    return {"items": [dict(r) for r in rows], "total": total, "limit": limit, "offset": offset}

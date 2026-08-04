@@ -10,7 +10,7 @@ from app.accounts import AccountCreate, create_account
 from app.db import get_connection, run_migrations
 from app.ledger import account_balance
 from app.seed import run_seed
-from app.transfers import TransferCreate, create_transfer
+from app.transfers import TransferCreate, create_transfer, list_transfers
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
 
@@ -58,7 +58,29 @@ def test_transfer_to_same_account_rejected():
         conn.close()
 
 
+def test_list_transfers_includes_account_names():
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id = conn.execute("SELECT id FROM accounts WHERE name = 'Cash Drawer'").fetchone()[0]
+        sbi = create_account(AccountCreate(name="SBI", account_type="savings", opening_balance_paise=0), conn)
+
+        create_transfer(
+            TransferCreate(business_date="2026-08-04", from_account_id=cash_id,
+                            to_account_id=sbi["id"], amount_paise=500000),
+            conn,
+        )
+
+        rows = list_transfers(20, conn)
+        assert len(rows) == 1
+        assert rows[0]["from_account_name"] == "Cash Drawer"
+        assert rows[0]["to_account_name"] == "SBI"
+        assert rows[0]["amount_paise"] == 500000
+
+        conn.close()
+
+
 if __name__ == "__main__":
     test_transfer_moves_balance_between_accounts()
     test_transfer_to_same_account_rejected()
+    test_list_transfers_includes_account_names()
     print("OK")
