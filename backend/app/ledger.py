@@ -10,6 +10,8 @@ from app.db import get_db
 
 router = APIRouter(prefix="/api/ledger", tags=["ledger"])
 
+MAX_LEDGER_LIMIT = 500  # H.6: documented cap; out-of-range limit snaps here instead of hitting SQLite's "negative = no limit"
+
 ENTRY_TYPES = {
     "service_income", "commission", "expense", "transfer",
     "customer_payment", "adjustment", "opening_balance", "reversal",
@@ -123,7 +125,12 @@ def list_ledger(
     conn: sqlite3.Connection = Depends(get_db),
 ):
     """Date/account/type filters, pagination, and a running balance per
-    account computed over the filtered set (before the LIMIT is applied)."""
+    account that continues from the account's true prior balance (the window
+    function runs over the whole ledger, filters are applied after)."""
+    if limit < 1 or limit > MAX_LEDGER_LIMIT:
+        limit = MAX_LEDGER_LIMIT
+    offset = max(0, offset)
+
     where = []
     params: list = []
     if business_date:
@@ -139,8 +146,10 @@ def list_ledger(
 
     total = conn.execute(f"SELECT COUNT(*) FROM ledger {clause}", params).fetchone()[0]
     rows = conn.execute(
-        f"SELECT *, SUM(amount_paise) OVER (PARTITION BY account_id ORDER BY business_date, id) AS running_balance "
-        f"FROM ledger {clause} ORDER BY business_date, id LIMIT ? OFFSET ?",
+        f"WITH full_ledger AS ("
+        f"  SELECT *, SUM(amount_paise) OVER (PARTITION BY account_id ORDER BY business_date, id) AS running_balance "
+        f"  FROM ledger"
+        f") SELECT * FROM full_ledger {clause} ORDER BY business_date, id LIMIT ? OFFSET ?",
         (*params, limit, offset),
     ).fetchall()
     return {"items": [dict(r) for r in rows], "total": total, "limit": limit, "offset": offset}

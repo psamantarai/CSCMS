@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.db import get_connection, run_migrations
-from app.ledger import insert_entry, list_ledger
+from app.ledger import MAX_LEDGER_LIMIT, insert_entry, list_ledger
 from app.seed import run_seed
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
@@ -94,9 +94,39 @@ def test_pagination_limits_page_size():
         conn.close()
 
 
+def test_filtered_running_balance_continues_from_prior_balance():
+    """H.6: a date filter must not restart the window function mid-history."""
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id, _ = _populate(conn)
+
+        true_balance = conn.execute(
+            "SELECT SUM(amount_paise) FROM ledger WHERE account_id = ?", (cash_id,)
+        ).fetchone()[0]
+
+        filtered = list_ledger(account_id=cash_id, business_date="2026-08-02", limit=1000, conn=conn)
+        assert filtered["items"][-1]["running_balance"] == true_balance
+
+        conn.close()
+
+
+def test_limit_and_offset_are_clamped():
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        _populate(conn)
+
+        assert list_ledger(limit=-1, conn=conn)["limit"] == MAX_LEDGER_LIMIT
+        assert list_ledger(limit=10_000_000, conn=conn)["limit"] == MAX_LEDGER_LIMIT
+        assert list_ledger(limit=1000, offset=-5, conn=conn)["offset"] == 0
+
+        conn.close()
+
+
 if __name__ == "__main__":
     test_unfiltered_sum_matches_direct_sum()
     test_filters_narrow_results()
     test_running_balance_accumulates_per_account()
     test_pagination_limits_page_size()
+    test_filtered_running_balance_continues_from_prior_balance()
+    test_limit_and_offset_are_clamped()
     print("OK")
