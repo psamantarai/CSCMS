@@ -5,6 +5,7 @@ the moment it's recorded). Money-moving edits (account/amount/date) and
 deletes route through reversal rather than ever touching the posted ledger
 row, the same H.14/H.5 pattern account moves and overdrafts use elsewhere;
 category/note-only edits are a plain update."""
+import json
 import sqlite3
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -69,9 +70,15 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
 
 
 def _get_or_404(conn: sqlite3.Connection, expense_id: int) -> sqlite3.Row:
-    row = conn.execute(
-        "SELECT * FROM expenses WHERE id = ? AND deleted_at IS NULL", (expense_id,)
-    ).fetchone()
+    # H.26: an id outside SQLite's 64-bit range raises OverflowError when
+    # bound as a parameter, before the query even runs — no row could ever
+    # match it, so treat it the same as "not found".
+    try:
+        row = conn.execute(
+            "SELECT * FROM expenses WHERE id = ? AND deleted_at IS NULL", (expense_id,)
+        ).fetchone()
+    except OverflowError:
+        row = None
     if row is None:
         raise HTTPException(status_code=404, detail="expense not found")
     return row
@@ -150,14 +157,22 @@ def create_expense(body: ExpenseCreate, conn: sqlite3.Connection = Depends(get_d
     return _row_to_dict(_get_or_404(conn, expense_id))
 
 
-# PLAN 4.2: categories live in `settings` (seeded by app/seed.py) as a
-# comma-separated string, not hardcoded in the frontend, so the operator can
-# add their own. Routes registered ahead of /{expense_id} so "categories"
-# can't be mistaken for an expense id.
+# PLAN 4.2: categories live in `settings` (seeded by app/seed.py) as a JSON
+# array, not hardcoded in the frontend, so the operator can add their own.
+# Routes registered ahead of /{expense_id} so "categories" can't be mistaken
+# for an expense id.
 def _get_categories(conn: sqlite3.Connection) -> list[str]:
     row = conn.execute("SELECT value FROM settings WHERE key = 'expense_categories'").fetchone()
     value = row["value"] if row else ""
-    return [c.strip() for c in value.split(",") if c.strip()]
+    if not value:
+        return []
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError:
+        # H.22: rows written before this fix are comma-joined and broke on
+        # names containing a comma; read the legacy format once, add_category
+        # below rewrites the row as JSON on the next write.
+        return [c.strip() for c in value.split(",") if c.strip()]
 
 
 @router.get("/categories")
@@ -167,13 +182,20 @@ def list_categories(conn: sqlite3.Connection = Depends(get_db)):
 
 @router.post("/categories")
 def add_category(body: CategoryCreate, conn: sqlite3.Connection = Depends(get_db)):
-    categories = _get_categories(conn)
-    if body.name not in categories:
-        categories.append(body.name)
-        conn.execute(
-            "UPDATE settings SET value = ? WHERE key = 'expense_categories'", (",".join(categories),)
-        )
-        conn.commit()
+    # H.21/H.11: acquire the write lock before the read-append-write below,
+    # same reasoning as create_expense's overdraft guard.
+    begin_write(conn)
+    try:
+        categories = _get_categories(conn)
+        if body.name not in categories:
+            categories.append(body.name)
+            conn.execute(
+                "UPDATE settings SET value = ? WHERE key = 'expense_categories'", (json.dumps(categories),)
+            )
+    except Exception:
+        conn.rollback()
+        raise
+    conn.commit()
     return {"categories": categories}
 
 
@@ -192,9 +214,6 @@ def update_expense(expense_id: int, body: ExpenseUpdate, conn: sqlite3.Connectio
     if "business_date" in fields:
         validate_business_date(fields["business_date"])
     new_account_id = fields.get("account_id", expense["account_id"])
-    if "account_id" in fields:
-        _get_account_or_404(conn, new_account_id)
-
     new_amount = fields.get("amount_paise", expense["amount_paise"])
     new_business_date = fields.get("business_date", expense["business_date"])
     account_changed = new_account_id != expense["account_id"]
@@ -203,6 +222,14 @@ def update_expense(expense_id: int, body: ExpenseUpdate, conn: sqlite3.Connectio
 
     try:
         if account_changed or date_changed or amount_changed:
+            # H.24/H.25: the destination account only needs to be active
+            # when money is actually moving to it. Gating on "account_id in
+            # fields" instead (the old check) let a PATCH that omits
+            # account_id but changes amount/date leak money onto a
+            # deactivated account (H.24), while unconditionally requiring it
+            # blocked a note-only edit that merely repeats the unchanged
+            # account_id (H.25).
+            _get_account_or_404(conn, new_account_id)
             # H.11/H.9: acquire the write lock before the live-entry lookup
             # and the balance guard below, same reasoning as
             # correct_transaction.
@@ -220,7 +247,11 @@ def update_expense(expense_id: int, body: ExpenseUpdate, conn: sqlite3.Connectio
                 insert_entry(
                     conn, business_date=new_business_date, account_id=new_account_id,
                     amount_paise=-new_amount, entry_type="expense", source_type="expense",
-                    source_id=expense_id, description=fields.get("note", live_entry["description"]),
+                    # H.27: fall back to the expense's current note, not the
+                    # old ledger row's — a prior note-only PATCH already
+                    # updated `expenses.note` without touching the ledger,
+                    # so `live_entry["description"]` here would be stale.
+                    source_id=expense_id, description=fields.get("note", expense["note"]),
                     created_by=user_id,
                 )
 
@@ -239,8 +270,15 @@ def update_expense(expense_id: int, body: ExpenseUpdate, conn: sqlite3.Connectio
 
 @router.delete("/{expense_id}", status_code=204)
 def delete_expense(expense_id: int, conn: sqlite3.Connection = Depends(get_db)):
-    _get_or_404(conn, expense_id)
+    # H.23: acquire the write lock before the existence check and live-entry
+    # lookup, same reasoning as update_expense's money-changing branch
+    # (H.11/H.9) — without it, N concurrent deletes all read the same live
+    # entry as unreversed and race to reverse it, tripping ledger.py's
+    # already-reversed guard or the migration-003 unique index instead of
+    # cleanly 404ing.
+    begin_write(conn)
     try:
+        _get_or_404(conn, expense_id)
         live_entry = _live_ledger_entry(conn, expense_id)
         if live_entry is not None:
             reverse_entry(conn, entry_id=live_entry["id"], created_by=_system_user_id(conn),

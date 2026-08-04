@@ -1,7 +1,8 @@
-"""H.10 + H.20: regression tests for both hardening passes (PLAN.md H.1-H.9,
-then H.11-H.17). Each check already lives next to the fix it covers (test
-locality); this file just runs them together as one pass so the whole thing
-can be verified with a single command instead of a dozen. Run:
+"""H.10 + H.20 + H.28: regression tests for all three hardening passes
+(PLAN.md H.1-H.9, H.11-H.17, then H.21-H.27). Each check already lives next
+to the fix it covers (test locality); this file just runs them together as
+one pass so the whole thing can be verified with a single command instead of
+a dozen. Run:
 python tests/test_edge_cases.py
 
 H.3 (paise/date formatting) and H.8 (frontend loading/error states) have no
@@ -13,6 +14,10 @@ H.18 and H.19 are frontend-only too and not aggregated here: H.18 is covered
 by src/lib/api.test.ts (error detail extraction) plus the emptyForm fix being
 a one-line change tsc/build already catch; H.19 was verified with a live
 browser walkthrough of PLAN 3.8's Verify, not an automated check.
+
+H.25 is frontend-only too: update_expense's guard fix (H.24) is what
+unblocks it, and it was verified with a live browser walkthrough of PLAN.md's
+Verify rather than an automated check.
 """
 import sys
 from pathlib import Path
@@ -92,6 +97,22 @@ from test_transactions import (
 from test_transaction_correction import test_correction_to_overflowing_total_rejected
 from test_transactions import test_total_overflow_rejected_with_400_not_500
 
+# H.21: concurrent category writes no longer silently lose data
+# H.22: a comma in a category name no longer corrupts the stored list
+# H.23: concurrent/racing expense deletes no longer 500
+# H.24: an amount/date-only PATCH still guards against a deactivated account
+# H.26: an out-of-range expense id 404s instead of 500
+# H.27: a money edit's ledger row carries the expense's current note
+from test_expenses import (
+    test_amount_only_patch_onto_deactivated_account_rejected,
+    test_comma_in_category_name_does_not_corrupt_the_list,
+    test_concurrent_add_category_never_loses_a_write,
+    test_concurrent_delete_of_one_expense_yields_exactly_one_success,
+    test_concurrent_delete_racing_amount_correction_leaves_a_consistent_end_state,
+    test_note_correction_then_amount_correction_uses_current_note,
+    test_out_of_range_expense_id_returns_404_not_500,
+)
+
 CHECKS = [
     test_connection_usable_from_another_thread,
     test_concurrent_writers_do_not_error,
@@ -133,6 +154,13 @@ CHECKS = [
     test_zero_total_rejected,
     test_correction_to_overflowing_total_rejected,
     test_total_overflow_rejected_with_400_not_500,
+    test_concurrent_add_category_never_loses_a_write,
+    test_comma_in_category_name_does_not_corrupt_the_list,
+    test_concurrent_delete_of_one_expense_yields_exactly_one_success,
+    test_concurrent_delete_racing_amount_correction_leaves_a_consistent_end_state,
+    test_amount_only_patch_onto_deactivated_account_rejected,
+    test_out_of_range_expense_id_returns_404_not_500,
+    test_note_correction_then_amount_correction_uses_current_note,
 ]
 
 if __name__ == "__main__":

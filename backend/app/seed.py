@@ -1,5 +1,6 @@
 """Idempotent seed data: Cash Drawer account, PRD §3 services, admin user,
 default settings. Run standalone: python -m app.seed"""
+import json
 import sqlite3
 
 import bcrypt
@@ -7,7 +8,8 @@ import bcrypt
 SERVICES = ["PAN", "Aadhaar", "Certificates", "Utility Payments", "Ticket Booking", "Printing", "Banking"]
 
 DEFAULT_SETTINGS = {
-    "expense_categories": "Rent,Internet,Electricity,Paper,Ink,Repairs,Miscellaneous",
+    # H.22: JSON array, not comma-joined — a category name can contain a comma.
+    "expense_categories": json.dumps(["Rent", "Internet", "Electricity", "Paper", "Ink", "Repairs", "Miscellaneous"]),
     "backup_retention_count": "5",
 }
 

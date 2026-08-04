@@ -1,9 +1,10 @@
 # CSCMS — Implementation Plan
 
-13 phases, 86 steps. Phases run in order; each depends on the one before.
+14 phases, 94 steps. Phases run in order; each depends on the one before.
 (Phase 2.5 was inserted after an edge-case audit of the shipped Phase 0–2
 code — see that phase for what it found and why it blocks Phase 3. Phase 3.5
-came from the same pass repeated over the shipped Phase 3 code.)
+came from the same pass repeated over the shipped Phase 3 code. Phase 4.5
+repeated it again over the shipped Phase 4 code.)
 
 **A step is the unit of work.** Each is one sitting, independently verifiable,
 and leaves the app in a working state. Per `CLAUDE.md`, work stops after each
@@ -536,6 +537,140 @@ delete.
 
 ---
 
+## Phase 4.5 — Hardening expenses
+
+Inserted after an edge-case audit of the shipped Phase 4 code (backend run
+against a scratch DB on port 8123 — after moving off a stale port-8100
+listener left from before Phase 4 — via an Opus subagent per the audit's
+money/concurrency reasoning requirement). ~905 probes across `/expenses`,
+`/expenses/categories`, plus `/ledger` and `/accounts` for invariant checks:
+malformed input, dates, identity, concurrency and idempotency. The money
+invariant itself held throughout — every concurrency trial reconciled to
+the paise, no orphan half-reversals, no account went negative — but two
+write paths skip the `begin_write` lock H.11 introduced for exactly this
+class of bug, and two more let a PATCH bypass H.15's deactivated-account
+guard. Phase 5 (banking) and Phase 6 (closing) both read expense categories
+and the expenses ledger rows these paths write, so the gaps compound if
+carried forward.
+
+Ordered by severity.
+
+**H.21 Concurrent category writes silently lose data** — `add_category`
+(`backend/app/expenses.py:169-177`) reads `_get_categories`, appends, then
+`UPDATE settings` with no `begin_write` — the exact H.11 pattern, unapplied
+to this write path. 12 barrier-synced POSTs of 12 distinct category names,
+5 trials, persisted **1/12, 2/12, 4/12, 1/12, 3/12** — every losing request
+still returned **HTTP 200** with the submitted name echoed in the response
+body, so the client has no way to detect the loss. Downstream: Phase 5/6
+read this same `settings` row for expense reporting; a category an operator
+believes exists is silently gone.
+*Verify:* 12 parallel `POST /expenses/categories` with 12 distinct names
+against a clean settings row persist all 12, confirmed by a subsequent
+`GET /expenses/categories`.
+
+**H.22 A comma in a category name corrupts the stored list** —
+`_get_categories` splits on `,` (`expenses.py:160`) and `add_category`
+joins with `,` (`expenses.py:174`) with no escaping. `POST
+/expenses/categories {"name": "Rent, Utilities r1"}` returns 200, but a
+following `GET` shows the name split into two separate entries (`"Rent"`
+and `"Utilities r1"`) — `"Rent, Utilities r1" in categories` is `False`.
+Because the idempotency check (`if body.name not in categories`) can then
+never match its own input, reposting the same name **twice** grows the
+list from 37 to 41 entries — unbounded growth, not a no-op. Downstream:
+`src/pages/Expenses.tsx:173` and `:216` render `<option key={c}>` over this
+list, so the duplicate `"Rent"` produces duplicate React keys in both the
+expense form and the filter dropdown.
+*Verify:* `POST /expenses/categories {"name": "A, B"}` followed by `GET
+/expenses/categories` contains exactly one entry equal to `"A, B"`, and
+reposting the identical name twice leaves the list length unchanged.
+
+**H.23 Concurrent or edit-racing delete returns 500 instead of 204/404** —
+`delete_expense` (`expenses.py:241-248`) finds the live ledger entry and
+reverses it with no `begin_write`, unlike `update_expense`'s money-changing
+branch which locks at `expenses.py:209`. Two reproductions:
+- 12 parallel `DELETE` on one expense, 3 trials: **9/12, 11/12 and 4/12
+  requests returned 500** (`204` and `404` split the rest), the server log
+  showing `ValueError: ledger entry … has already been reversed`
+  (`ledger.py:114`) and `sqlite3.IntegrityError: UNIQUE constraint failed:
+  ledger.reverses_id` — the migration-003 unique index is the only thing
+  stopping a double reversal, not application logic.
+- 6 parallel `DELETE` racing 6 parallel money-changing `PATCH` on the same
+  expense, 4 trials: **every delete returned 500, every time**, and the
+  expense survived live with the patched amount — the delete never once
+  succeeded because `update_expense`'s lock always wins the race and the
+  unlocked delete always reads a stale live-entry id.
+The confirm-delete button in `Expenses.tsx:144` has no double-submit guard,
+so a double-click reproduces the first case directly from the UI.
+*Verify:* 12 parallel `DELETE` on one expense yield exactly one `204` and
+eleven `404`, never a `500`; 6 parallel `DELETE` racing 6 parallel
+money-changing `PATCH` on one expense leave the expense in a consistent
+end state (either deleted with its ledger entry reversed, or updated with
+exactly one live entry) with no `500` either side.
+
+**H.24 PATCH bypasses the H.15 deactivated-account guard when `account_id`
+is omitted** — `update_expense` only checks the account is active `if
+"account_id" in fields` (`expenses.py:195-196`), but the reversal + fresh
+`insert_entry` at `:216-225` runs whenever amount or date changed,
+regardless of whether `account_id` was in the payload. Reproduced: create
+an expense on account Z, deactivate Z (`PATCH /accounts/{id}
+{"is_active": false}`), then `PATCH /expenses/{id} {"amount_paise": 11000}`
+(no `account_id` key) — returns **200** and posts a fresh `-11000` entry to
+the now-deactivated account Z. `create_expense` and a PATCH that explicitly
+repeats the unchanged `account_id` both correctly reject with `400 account
+is deactivated`; only the omitted-key path leaks through.
+*Verify:* deactivate an account holding a live expense, then `PATCH` that
+expense's `amount_paise` without an `account_id` key — expect `400 account
+is deactivated`, not `200`.
+
+**H.25 UI cannot edit any field of an expense once its account is
+deactivated** — the flip side of H.24: `Expenses.tsx`'s `updateMutation`
+(`:91-97`) always sends all five fields including the current
+`account_id`, so `update_expense`'s unconditional check at `expenses.py:196`
+rejects even a note-only edit with `400 account is deactivated`. The
+account `<select>` at `Expenses.tsx:188` only lists active accounts, so
+there is no way to retarget the expense to a valid account either — the
+row is stuck. Share the fix with H.24: only require the *new* account be
+active when money is actually moving (the `account_changed || date_changed
+|| amount_changed` block already computed at `:200-202`), not whenever
+`account_id` is merely present in the payload.
+*Verify:* deactivate an account holding a live expense; editing only that
+expense's note from the UI succeeds, and the row's ledger entry is
+untouched.
+
+**H.26 Out-of-range expense id returns 500** — `_get_or_404`
+(`expenses.py:71-74`), reached from `GET/PATCH/DELETE /expenses/{id}`, does
+`WHERE id = ?` with the raw path int. An id outside SQLite's 64-bit integer
+range (`99999999999999999999`, or `-99999999999999999999`) raises
+`OverflowError: Python int too large to convert to SQLite INTEGER`,
+reproduced 11 times across `GET`/`PATCH`/`DELETE`. The int64 boundary
+itself is fine (`9223372036854775807` → correct `404`).
+*Verify:* `GET/PATCH/DELETE /expenses/99999999999999999999` return `404`,
+not `500`.
+
+**H.27 Ledger keeps the pre-edit note after a later money edit** — in
+`update_expense`'s money-changing branch, the new ledger entry's
+description is `fields.get("note", live_entry["description"])`
+(`expenses.py:223`) — it falls back to the *old ledger row's* text, not the
+expense's current note. Reproduced: create an expense with note "ORIGINAL
+NOTE"; `PATCH {"note": "CORRECTED NOTE"}` (no money change, correctly
+untouched); `PATCH {"amount_paise": 12000}` — the new, permanently
+immutable ledger row is written with description `"ORIGINAL NOTE"`, even
+though `GET /expenses/{id}` now shows `"CORRECTED NOTE"`.
+*Verify:* correct an expense's note, then edit its amount — the resulting
+ledger entry's `description` matches the expense's current note, not the
+one it had before the note edit.
+
+**H.28 Regression tests for the above** — extend
+`backend/tests/test_edge_cases.py` in the existing plain-`assert` style
+(`ARCHITECTURE.md` §8) to cover H.21, H.22, H.23 (both races, reusing the
+file's threadpool helper), H.24, H.26 and H.27. H.25 is frontend-only and
+cannot be covered there — walk its *Verify* in the browser once H.24 lands,
+since the backend fix for H.24 is what unblocks it.
+*Verify:* the file fails against today's code on every one of H.21–H.24 and
+H.26–H.27, and passes after they land.
+
+---
+
 ## Phase 5 — Banking
 
 The phase most likely to be modelled wrong. Principal and commission must not
@@ -746,3 +881,12 @@ easy half.
 
 **Step count is not effort.** 3.8, 6.6 and 9.2 are each worth several of the
 smaller steps.
+
+**`begin_write` is opt-in per write path, not automatic (H.21, H.23).** H.11
+added the helper and fixed every guarded write path that existed at the
+time; Phase 4 then added two new ones (`add_category`, `delete_expense`)
+that read-then-write without it, and both broke the same way H.11 already
+catalogued. There is no lint or test that catches "this new endpoint needs
+`begin_write`" short of a parallel probe in its *Verify* line — the same
+conclusion H.11's risk note already reached, restated because it recurred
+on the very next phase.

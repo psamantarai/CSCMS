@@ -3,6 +3,7 @@ directly against a temp DB. Run: python tests/test_expenses.py"""
 import sys
 import tempfile
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -42,6 +43,23 @@ def _funded_cash(conn) -> int:
     return create_account(
         AccountCreate(name="Cash Drawer Funded", account_type="cash", opening_balance_paise=100000), conn
     )["id"]
+
+
+def _run_barrier_synced(fns) -> list[tuple[str, object]]:
+    """Run each zero-arg callable in its own thread, barrier-synced so they
+    all fire together. Returns ("ok", return-value) or ("err", exception)
+    per callable, in order — shared by both H.23 races below."""
+    barrier = threading.Barrier(len(fns))
+
+    def wrap(fn):
+        barrier.wait()
+        try:
+            return ("ok", fn())
+        except Exception as e:  # noqa: BLE001 — capturing to assert from the main thread
+            return ("err", e)
+
+    with ThreadPoolExecutor(max_workers=len(fns)) as pool:
+        return list(pool.map(wrap, fns))
 
 
 def test_expense_lowers_balance_and_posts_negative_ledger_entry():
@@ -190,6 +208,32 @@ def test_amount_correction_moves_the_ledger_via_reversal_and_replacement():
         conn.close()
 
 
+def test_note_correction_then_amount_correction_uses_current_note():
+    # H.27: the money-changing branch's new ledger row must carry the
+    # expense's *current* note, not the pre-edit ledger row's description.
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id = _funded_cash(conn)
+        expense = create_expense(
+            ExpenseCreate(
+                business_date="2026-08-04", category="Paper", amount_paise=1000,
+                account_id=cash_id, note="ORIGINAL NOTE",
+            ), conn
+        )
+
+        update_expense(expense["id"], ExpenseUpdate(note="CORRECTED NOTE"), conn)
+        updated = update_expense(expense["id"], ExpenseUpdate(amount_paise=1200), conn)
+        assert updated["note"] == "CORRECTED NOTE"
+
+        entry = conn.execute(
+            "SELECT description FROM ledger WHERE source_type = 'expense' AND source_id = ? "
+            "ORDER BY id DESC LIMIT 1", (expense["id"],)
+        ).fetchone()
+        assert entry["description"] == "CORRECTED NOTE", entry["description"]
+
+        conn.close()
+
+
 def test_account_correction_moves_the_ledger_between_accounts():
     with tempfile.TemporaryDirectory() as tmp:
         conn = _seeded_conn(Path(tmp))
@@ -205,6 +249,27 @@ def test_account_correction_moves_the_ledger_between_accounts():
         assert updated["account_id"] == sbi["id"]
         assert account_balance(conn, cash_id) == cash_before + 1000
         assert account_balance(conn, sbi["id"]) == sbi_before - 1000
+
+        conn.close()
+
+
+def test_amount_only_patch_onto_deactivated_account_rejected():
+    # H.24: the destination-account check must fire whenever money moves,
+    # not only when account_id is present in the payload — an amount-only
+    # PATCH implicitly keeps paying from the (now deactivated) account.
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id = _funded_cash(conn)
+        expense = create_expense(
+            ExpenseCreate(business_date="2026-08-04", category="Paper", amount_paise=1000, account_id=cash_id), conn
+        )
+        update_account(cash_id, AccountUpdate(is_active=False), conn)
+
+        try:
+            update_expense(expense["id"], ExpenseUpdate(amount_paise=1500), conn)
+            assert False, "an amount edit that keeps paying from a deactivated account must be rejected"
+        except HTTPException as e:
+            assert e.status_code == 400
 
         conn.close()
 
@@ -244,6 +309,21 @@ def test_unknown_expense_rejected():
             assert False, "an unknown expense_id must be rejected"
         except HTTPException as e:
             assert e.status_code == 404
+        conn.close()
+
+
+def test_out_of_range_expense_id_returns_404_not_500():
+    # H.26: an id outside SQLite's 64-bit range used to raise OverflowError
+    # from _get_or_404, shared by GET/PATCH/DELETE — checking it once here
+    # covers all three.
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        for expense_id in (99999999999999999999, -99999999999999999999):
+            try:
+                get_expense(expense_id, conn)
+                assert False, f"expected 404 for out-of-range id {expense_id}"
+            except HTTPException as e:
+                assert e.status_code == 404, e.status_code
         conn.close()
 
 
@@ -299,6 +379,88 @@ def test_concurrent_expenses_never_drive_balance_negative():
         check.close()
 
 
+def test_concurrent_delete_of_one_expense_yields_exactly_one_success():
+    # H.23: without begin_write, N concurrent deletes all read the same live
+    # entry as unreversed and race to reverse it, tripping ledger.py's
+    # already-reversed guard or the migration-003 unique index as a 500.
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = Path(tmp) / "test.db"
+        setup = _seeded_conn(Path(tmp))
+        cash_id = _funded_cash(setup)
+        expense = create_expense(
+            ExpenseCreate(business_date="2026-08-04", category="Paper", amount_paise=1000, account_id=cash_id), setup
+        )
+        setup.close()
+
+        def delete_once():
+            conn = get_connection(db_path)
+            try:
+                delete_expense(expense["id"], conn)
+            finally:
+                conn.close()
+
+        results = _run_barrier_synced([delete_once] * 12)
+        crashes = [e for kind, e in results if kind == "err" and not isinstance(e, HTTPException)]
+        assert not crashes, f"expected only HTTPExceptions (404s), got a crash: {crashes}"
+        not_founds = [e for kind, e in results if kind == "err" and e.status_code == 404]
+        oks = [r for kind, r in results if kind == "ok"]
+        assert len(oks) == 1, f"expected exactly one successful delete, got {len(oks)}"
+        assert len(not_founds) == 11, f"expected eleven 404s, got {len(not_founds)}"
+
+        check = get_connection(db_path)
+        rows = check.execute(
+            "SELECT * FROM ledger WHERE source_type = 'expense' AND source_id = ? ORDER BY id", (expense["id"],)
+        ).fetchall()
+        assert len(rows) == 2 and rows[1]["entry_type"] == "reversal"
+        check.close()
+
+
+def test_concurrent_delete_racing_amount_correction_leaves_a_consistent_end_state():
+    # H.23: the same lock also has to hold across a delete racing a
+    # money-changing PATCH on the same expense — either the delete wins
+    # (reversed, soft-deleted) or the correction wins (exactly one live
+    # entry), never a 500 on either side and never both.
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = Path(tmp) / "test.db"
+        setup = _seeded_conn(Path(tmp))
+        cash_id = _funded_cash(setup)
+        expense = create_expense(
+            ExpenseCreate(business_date="2026-08-04", category="Paper", amount_paise=1000, account_id=cash_id), setup
+        )
+        setup.close()
+
+        def delete_once():
+            conn = get_connection(db_path)
+            try:
+                delete_expense(expense["id"], conn)
+            finally:
+                conn.close()
+
+        def correct_once():
+            conn = get_connection(db_path)
+            try:
+                update_expense(expense["id"], ExpenseUpdate(amount_paise=1200), conn)
+            finally:
+                conn.close()
+
+        results = _run_barrier_synced([delete_once] * 6 + [correct_once] * 6)
+        crashes = [e for kind, e in results if kind == "err" and not isinstance(e, HTTPException)]
+        assert not crashes, f"expected only HTTPExceptions on the losing side, got a crash: {crashes}"
+
+        check = get_connection(db_path)
+        expense_row = check.execute("SELECT deleted_at FROM expenses WHERE id = ?", (expense["id"],)).fetchone()
+        live_rows = check.execute(
+            "SELECT * FROM ledger WHERE source_type = 'expense' AND source_id = ? "
+            "AND entry_type = 'expense' AND id NOT IN "
+            "(SELECT reverses_id FROM ledger WHERE reverses_id IS NOT NULL)", (expense["id"],)
+        ).fetchall()
+        if expense_row["deleted_at"] is not None:
+            assert len(live_rows) == 0, "a deleted expense must have no live ledger entry"
+        else:
+            assert len(live_rows) == 1, f"expected exactly one live ledger entry, found {len(live_rows)}"
+        check.close()
+
+
 def test_seeded_categories_listed():
     with tempfile.TemporaryDirectory() as tmp:
         conn = _seeded_conn(Path(tmp))
@@ -340,6 +502,58 @@ def test_blank_category_name_rejected():
         assert "ValidationError" in type(e).__name__
 
 
+def test_comma_in_category_name_does_not_corrupt_the_list():
+    # H.22: categories used to be comma-joined with no escaping, so a name
+    # containing a comma split into extra entries on read.
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        add_category(CategoryCreate(name="A, B"), conn)
+        cats = list_categories(conn)["categories"]
+        assert cats.count("A, B") == 1, cats
+
+        add_category(CategoryCreate(name="A, B"), conn)
+        after = list_categories(conn)["categories"]
+        assert after == cats, "reposting the identical name must be a no-op"
+
+        conn.close()
+
+
+def test_concurrent_add_category_never_loses_a_write():
+    # H.21: same read-append-write race as H.11, on the settings row instead
+    # of the ledger. 12 distinct names in parallel must all persist.
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = Path(tmp) / "test.db"
+        setup = _seeded_conn(Path(tmp))
+        setup.close()
+
+        barrier = threading.Barrier(12)
+        errors = []
+
+        def add(name):
+            conn = get_connection(db_path)
+            try:
+                barrier.wait()
+                add_category(CategoryCreate(name=name), conn)
+            except Exception as e:  # noqa: BLE001 — capturing to assert from the main thread
+                errors.append(e)
+            finally:
+                conn.close()
+
+        names = [f"Cat{i}" for i in range(12)]
+        threads = [threading.Thread(target=add, args=(n,)) for n in names]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert not errors, f"unexpected errors: {errors}"
+        check = get_connection(db_path)
+        persisted = list_categories(check)["categories"]
+        check.close()
+        for n in names:
+            assert n in persisted, f"{n} lost — persisted only {persisted}"
+
+
 if __name__ == "__main__":
     test_expense_lowers_balance_and_posts_negative_ledger_entry()
     test_malformed_business_date_rejected()
@@ -348,13 +562,20 @@ if __name__ == "__main__":
     test_list_and_get_and_filters()
     test_category_and_note_update_does_not_touch_ledger()
     test_amount_correction_moves_the_ledger_via_reversal_and_replacement()
+    test_note_correction_then_amount_correction_uses_current_note()
     test_account_correction_moves_the_ledger_between_accounts()
+    test_amount_only_patch_onto_deactivated_account_rejected()
     test_delete_reverses_ledger_entry_and_soft_deletes()
     test_unknown_expense_rejected()
+    test_out_of_range_expense_id_returns_404_not_500()
     test_explicit_null_on_not_null_field_rejected()
     test_concurrent_expenses_never_drive_balance_negative()
+    test_concurrent_delete_of_one_expense_yields_exactly_one_success()
+    test_concurrent_delete_racing_amount_correction_leaves_a_consistent_end_state()
     test_seeded_categories_listed()
     test_add_category_persists_and_appears_in_expense_form_options()
     test_add_duplicate_category_is_a_no_op()
     test_blank_category_name_rejected()
+    test_comma_in_category_name_does_not_corrupt_the_list()
+    test_concurrent_add_category_never_loses_a_write()
     print("OK")
