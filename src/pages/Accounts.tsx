@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "../lib/api"
 import { queryKeys } from "../lib/queries"
 import { fmt, formatDate, formatTime, fromPaise, localDateISO, toPaise } from "../lib/format"
+import { BlockState, InlineState, TableRowState } from "../components/QueryState"
 
 type AccountType = "cash" | "savings" | "current" | "wallet" | "settlement"
 
@@ -62,11 +63,13 @@ const emptyForm = {
 }
 
 function AccountBalance({ id }: { id: number }) {
-  const { data } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: queryKeys.accountBalance(id),
     queryFn: () => api.get<{ balance_paise: number }>(`/accounts/${id}/balance`),
   })
-  return <>{fmt(data ? fromPaise(data.balance_paise) : 0)}</>
+  return isLoading || error
+    ? <InlineState isLoading={isLoading} error={error} />
+    : <>{fmt(fromPaise(data!.balance_paise))}</>
 }
 
 export default function Accounts() {
@@ -78,12 +81,12 @@ export default function Accounts() {
   const [transferError, setTransferError] = useState("")
   const queryClient = useQueryClient()
 
-  const { data: accounts = [] } = useQuery({
+  const { data: accounts = [], isLoading: accountsLoading, error: accountsError } = useQuery({
     queryKey: queryKeys.accounts,
     queryFn: () => api.get<Account[]>("/accounts"),
   })
 
-  const { data: transfers = [] } = useQuery({
+  const { data: transfers = [], isLoading: transfersLoading, error: transfersError } = useQuery({
     queryKey: queryKeys.transfers,
     queryFn: () => api.get<Transfer[]>("/transfers"),
   })
@@ -201,7 +204,7 @@ export default function Accounts() {
         <div>
           <h1 style={{ fontSize: 22, margin: 0 }}>Accounts & Balances</h1>
           <p style={{ margin: "4px 0 0", color: "#64748b", fontSize: 13 }}>
-            {accounts.length} account{accounts.length === 1 ? "" : "s"}
+            {accountsLoading ? "Loading…" : accountsError ? "Could not load accounts" : `${accounts.length} account${accounts.length === 1 ? "" : "s"}`}
           </p>
         </div>
         <div style={{ display: "flex", gap: 10 }}>
@@ -294,6 +297,8 @@ export default function Accounts() {
       )}
 
       {/* Account cards */}
+      <BlockState isLoading={accountsLoading} error={accountsError} />
+      {!accountsLoading && !accountsError && (
       <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 28 }}>
         {accounts.map(a => (
           <div key={a.id} style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, padding: "20px 22px", position: "relative", overflow: "hidden", opacity: a.is_active ? 1 : 0.6 }}>
@@ -327,6 +332,7 @@ export default function Accounts() {
           </div>
         ))}
       </div>
+      )}
 
       {/* Transfer history */}
       <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, overflow: "hidden" }}>
@@ -343,7 +349,8 @@ export default function Accounts() {
             </tr>
           </thead>
           <tbody>
-            {transfers.map((t, i) => (
+            <TableRowState isLoading={transfersLoading} error={transfersError} colSpan={6} />
+            {!transfersLoading && !transfersError && transfers.map((t, i) => (
               <tr key={t.id} style={{ background: i % 2 === 0 ? "#fff" : "#fafbfd", borderBottom: "1px solid #f1f5f9" }}>
                 <td style={{ padding: "9px 14px", fontFamily: "monospace", fontSize: 12, color: "#3b6cb7" }}>TRF-{t.id}</td>
                 <td style={{ padding: "9px 14px", fontSize: 13 }}>{t.from_account_name}</td>
@@ -353,7 +360,7 @@ export default function Accounts() {
                 <td style={{ padding: "9px 14px", fontSize: 12, color: "#94a3b8" }}>{formatTime(t.created_at)}</td>
               </tr>
             ))}
-            {transfers.length === 0 && (
+            {!transfersLoading && !transfersError && transfers.length === 0 && (
               <tr><td colSpan={6} style={{ padding: "18px 14px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No transfers yet.</td></tr>
             )}
           </tbody>

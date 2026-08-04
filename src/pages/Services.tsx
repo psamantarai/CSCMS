@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "../lib/api"
 import { queryKeys } from "../lib/queries"
 import { fmt, fromPaise, toPaise } from "../lib/format"
+import { TableRowState } from "../components/QueryState"
 
 type Service = {
   id: number
@@ -21,7 +22,7 @@ export default function Services() {
   const [form, setForm] = useState(emptyForm)
   const queryClient = useQueryClient()
 
-  const { data: services = [] } = useQuery({
+  const { data: services = [], isLoading: servicesLoading, error: servicesError } = useQuery({
     queryKey: queryKeys.services,
     queryFn: () => api.get<Service[]>("/services"),
   })
@@ -91,7 +92,7 @@ export default function Services() {
         <div>
           <h1 style={{ fontSize: 22, margin: 0 }}>Services</h1>
           <p style={{ margin: "4px 0 0", color: "#64748b", fontSize: 13 }}>
-            {services.length} service{services.length === 1 ? "" : "s"}
+            {servicesLoading ? "Loading…" : servicesError ? "Could not load services" : `${services.length} service${services.length === 1 ? "" : "s"}`}
           </p>
         </div>
         <button onClick={() => (formOpen ? closeForm() : openCreate())} style={{ background: "#1e3a5f", color: "#fff", border: "none", borderRadius: 7, padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
@@ -140,7 +141,8 @@ export default function Services() {
               </tr>
             </thead>
             <tbody>
-              {services.map((s, i) => (
+              <TableRowState isLoading={servicesLoading} error={servicesError} colSpan={6} />
+              {!servicesLoading && !servicesError && services.map((s, i) => (
                 <tr key={s.id} style={{ background: i % 2 === 0 ? "#fff" : "#fafbfd", borderBottom: "1px solid #f1f5f9", opacity: s.is_active ? 1 : 0.6 }}>
                   <td style={{ padding: "9px 14px", fontSize: 13, fontWeight: 600 }}>{s.name}</td>
                   <td style={{ padding: "9px 14px", fontSize: 13, color: "#475569" }}>{s.category}</td>
@@ -162,7 +164,7 @@ export default function Services() {
                   </td>
                 </tr>
               ))}
-              {services.length === 0 && (
+              {!servicesLoading && !servicesError && services.length === 0 && (
                 <tr><td colSpan={6} style={{ padding: "18px 14px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No services yet.</td></tr>
               )}
             </tbody>

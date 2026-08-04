@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "../lib/api"
 import { queryKeys } from "../lib/queries"
 import { fmt, formatDate, fromPaise } from "../lib/format"
+import { BlockState, InlineState, TableRowState } from "../components/QueryState"
 
 type Customer = {
   id: number
@@ -38,19 +39,21 @@ const statusColor: Record<Transaction["status"], { bg: string; fg: string }> = {
 }
 
 function CustomerHistory({ id }: { id: number }) {
-  const { data } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: queryKeys.customerHistory(id),
     queryFn: () => api.get<{ transactions: Transaction[]; banking_transactions: BankingTransaction[] }>(`/customers/${id}/history`),
   })
   const txns = data?.transactions ?? []
   const banking = data?.banking_transactions ?? []
+  const loaded = !isLoading && !error
 
   return (
     <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, overflow: "hidden" }}>
       <div style={{ padding: "14px 18px", borderBottom: "1px solid #eef1f7" }}>
         <h3 style={{ margin: 0, fontSize: 14, fontFamily: "'Roboto Slab', serif" }}>Service History</h3>
       </div>
-      {txns.length > 0 ? (
+      {!loaded && <BlockState isLoading={isLoading} error={error} />}
+      {loaded && (txns.length > 0 ? (
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
@@ -77,12 +80,14 @@ function CustomerHistory({ id }: { id: number }) {
         </div>
       ) : (
         <div style={{ padding: 24, color: "#94a3b8", fontSize: 13 }}>No transactions yet.</div>
-      )}
+      ))}
 
+      {loaded && (
       <div style={{ padding: "14px 18px", borderTop: "1px solid #eef1f7", borderBottom: "1px solid #eef1f7" }}>
         <h3 style={{ margin: 0, fontSize: 14, fontFamily: "'Roboto Slab', serif" }}>Banking History</h3>
       </div>
-      {banking.length > 0 ? (
+      )}
+      {loaded && (banking.length > 0 ? (
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
@@ -107,17 +112,19 @@ function CustomerHistory({ id }: { id: number }) {
         </div>
       ) : (
         <div style={{ padding: 24, color: "#94a3b8", fontSize: 13 }}>No banking transactions yet.</div>
-      )}
+      ))}
     </div>
   )
 }
 
 function CustomerOutstanding({ id }: { id: number }) {
-  const { data } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: queryKeys.customerOutstanding(id),
     queryFn: () => api.get<{ outstanding_paise: number }>(`/customers/${id}/outstanding`),
   })
-  return <>{fmt(data ? fromPaise(data.outstanding_paise) : 0)}</>
+  return isLoading || error
+    ? <InlineState isLoading={isLoading} error={error} />
+    : <>{fmt(fromPaise(data!.outstanding_paise))}</>
 }
 
 export default function Customers() {
@@ -127,7 +134,7 @@ export default function Customers() {
   const [form, setForm] = useState(emptyForm)
   const queryClient = useQueryClient()
 
-  const { data: customers = [] } = useQuery({
+  const { data: customers = [], isLoading: customersLoading, error: customersError } = useQuery({
     queryKey: queryKeys.customers(search),
     queryFn: () => api.get<Customer[]>(`/customers${search ? `?q=${encodeURIComponent(search)}` : ""}`),
   })
@@ -208,7 +215,8 @@ export default function Customers() {
           </div>
         </div>
         <div style={{ overflowY: "auto", flex: 1 }}>
-          {customers.map(c => (
+          <BlockState isLoading={customersLoading} error={customersError} />
+          {!customersLoading && !customersError && customers.map(c => (
             <div
               key={c.id}
               onClick={() => { setSelected(c.id); setFormMode("view") }}
@@ -225,7 +233,7 @@ export default function Customers() {
               <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{c.phone || "—"} · {c.village || "—"}</div>
             </div>
           ))}
-          {customers.length === 0 && (
+          {!customersLoading && !customersError && customers.length === 0 && (
             <div style={{ padding: 24, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No customers found</div>
           )}
         </div>

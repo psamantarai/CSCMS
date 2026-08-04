@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query"
 import { api } from "../lib/api"
 import { queryKeys } from "../lib/queries"
 import { fmt, formatDate, formatTime, fromPaise } from "../lib/format"
+import { TableRowState } from "../components/QueryState"
 
 type Account = { id: number; name: string }
 
@@ -54,7 +55,7 @@ export default function Ledger() {
   if (accountId) filters.account_id = accountId
   if (entryType) filters.entry_type = entryType
 
-  const { data } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: queryKeys.ledger(filters),
     queryFn: () => {
       const params = new URLSearchParams(filters as Record<string, string>)
@@ -63,6 +64,7 @@ export default function Ledger() {
   })
   const items = data?.items ?? []
   const total = data?.total ?? 0
+  const showFigures = !isLoading && !error
 
   const totalCredit = items.reduce((s, e) => s + (e.amount_paise > 0 ? e.amount_paise : 0), 0)
   const totalDebit = items.reduce((s, e) => s + (e.amount_paise < 0 ? -e.amount_paise : 0), 0)
@@ -111,16 +113,16 @@ export default function Ledger() {
       <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 24 }}>
         <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 9, padding: "16px 18px" }}>
           <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Total Credits (this page)</div>
-          <div style={{ fontFamily: "monospace", fontSize: 22, fontWeight: 700, color: "#16a34a" }}>{fmt(fromPaise(totalCredit))}</div>
+          <div style={{ fontFamily: "monospace", fontSize: 22, fontWeight: 700, color: "#16a34a" }}>{showFigures ? fmt(fromPaise(totalCredit)) : "—"}</div>
         </div>
         <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 9, padding: "16px 18px" }}>
           <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Total Debits (this page)</div>
-          <div style={{ fontFamily: "monospace", fontSize: 22, fontWeight: 700, color: "#dc2626" }}>{fmt(fromPaise(totalDebit))}</div>
+          <div style={{ fontFamily: "monospace", fontSize: 22, fontWeight: 700, color: "#dc2626" }}>{showFigures ? fmt(fromPaise(totalDebit)) : "—"}</div>
         </div>
         <div style={{ background: net >= 0 ? "#eff6ff" : "#fef2f2", border: `1px solid ${net >= 0 ? "#bfdbfe" : "#fecaca"}`, borderRadius: 9, padding: "16px 18px" }}>
           <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Net (this page)</div>
           <div style={{ fontFamily: "monospace", fontSize: 22, fontWeight: 700, color: net >= 0 ? "#2563eb" : "#dc2626" }}>
-            {net >= 0 ? "+" : "-"}{fmt(fromPaise(Math.abs(net)))}
+            {showFigures ? `${net >= 0 ? "+" : "-"}${fmt(fromPaise(Math.abs(net)))}` : "—"}
           </div>
         </div>
       </div>
@@ -137,7 +139,8 @@ export default function Ledger() {
             </tr>
           </thead>
           <tbody>
-            {items.map((e, i) => {
+            <TableRowState isLoading={isLoading} error={error} colSpan={9} />
+            {showFigures && items.map((e, i) => {
               const tc = typeColors[e.entry_type] || { bg: "#f8fafc", color: "#475569" }
               const debit = e.amount_paise < 0 ? -e.amount_paise : 0
               const credit = e.amount_paise > 0 ? e.amount_paise : 0
@@ -163,7 +166,7 @@ export default function Ledger() {
                 </tr>
               )
             })}
-            {items.length === 0 && (
+            {showFigures && items.length === 0 && (
               <tr><td colSpan={9} style={{ padding: "24px 14px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No ledger entries match these filters.</td></tr>
             )}
           </tbody>
@@ -171,7 +174,7 @@ export default function Ledger() {
         </div>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderTop: "1px solid #eef1f7" }}>
           <span style={{ fontSize: 12, color: "#64748b" }}>
-            {total === 0 ? "0 entries" : `${offset + 1}–${Math.min(offset + PAGE_SIZE, total)} of ${total}`}
+            {!showFigures ? "—" : total === 0 ? "0 entries" : `${offset + 1}–${Math.min(offset + PAGE_SIZE, total)} of ${total}`}
           </span>
           <div style={{ display: "flex", gap: 8 }}>
             <button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))} style={{ border: "1px solid #d1d9e6", background: "#fff", borderRadius: 6, padding: "5px 12px", fontSize: 12, cursor: offset === 0 ? "default" : "pointer", opacity: offset === 0 ? 0.5 : 1 }}>Prev</button>
