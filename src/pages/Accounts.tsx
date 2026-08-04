@@ -91,7 +91,10 @@ export default function Accounts() {
     queryFn: () => api.get<Transfer[]>("/transfers"),
   })
 
-  const invalidate = () => queryClient.invalidateQueries({ queryKey: queryKeys.accounts })
+  const invalidate = () => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.accounts })
+    queryClient.invalidateQueries({ queryKey: ["dashboard"] }) // account create/edit/delete can move opening-balance ledger rows
+  }
 
   const createMutation = useMutation({
     mutationFn: () =>
@@ -134,6 +137,7 @@ export default function Accounts() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.transfers })
       queryClient.invalidateQueries({ queryKey: queryKeys.accounts }) // prefix match also covers accountBalance(id)
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] })
       setTransferForm(emptyTransferForm)
       setTransferError("")
       setShowTransfer(false)

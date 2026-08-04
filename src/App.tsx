@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, NavLink, useNavigate, useLocati
 import { useQuery } from "@tanstack/react-query"
 import { api } from "./lib/api"
 import { queryKeys } from "./lib/queries"
+import { formatDate, localDateISO } from "./lib/format"
 import Dashboard from "./pages/Dashboard"
 import Customers from "./pages/Customers"
 import Services from "./pages/Services"
@@ -74,6 +75,12 @@ function AppShell() {
     queryKey: queryKeys.health,
     queryFn: () => api.get<{ status: string }>("/health"),
   })
+  const today = localDateISO()
+  const { data: dayStatus } = useQuery({
+    queryKey: queryKeys.dayStatus(today),
+    queryFn: () => api.get<{ status: "open" | "closed" }>(`/day/${today}`),
+  })
+  const dayClosed = dayStatus?.status === "closed"
 
   let lastGroup = ""
 
@@ -106,9 +113,15 @@ function AppShell() {
 
         {/* Business day badge */}
         <div style={{ padding: "10px 14px", borderBottom: "1px solid rgba(255,255,255,0.06)" }}>
-          <div style={{ background: "rgba(245, 158, 11, 0.12)", border: "1px solid rgba(245, 158, 11, 0.25)", borderRadius: 6, padding: "6px 10px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <span style={{ fontSize: 11, color: "#f59e0b", fontWeight: 500 }}>4 Aug 2026</span>
-            <span style={{ fontSize: 10, color: "#f59e0b", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>OPEN</span>
+          <div style={{
+            background: dayClosed ? "rgba(22, 163, 74, 0.12)" : "rgba(245, 158, 11, 0.12)",
+            border: `1px solid ${dayClosed ? "rgba(22, 163, 74, 0.3)" : "rgba(245, 158, 11, 0.25)"}`,
+            borderRadius: 6, padding: "6px 10px", display: "flex", justifyContent: "space-between", alignItems: "center",
+          }}>
+            <span style={{ fontSize: 11, color: dayClosed ? "#16a34a" : "#f59e0b", fontWeight: 500 }}>{formatDate(today)}</span>
+            <span style={{ fontSize: 10, color: dayClosed ? "#16a34a" : "#f59e0b", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>
+              {dayStatus ? (dayClosed ? "CLOSED" : "OPEN") : "…"}
+            </span>
           </div>
         </div>
 
@@ -175,7 +188,7 @@ function AppShell() {
       {/* Main content */}
       <main style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column", background: "#f0f4f8" }}>
         {/* Top bar */}
-        <div style={{ height: 48, background: "#fff", borderBottom: "1px solid #d1d9e6", display: "flex", alignItems: "center", padding: "0 24px", justifyContent: "space-between", flexShrink: 0, gap: 12 }}>
+        <div className="app-topbar" style={{ height: 48, background: "#fff", borderBottom: "1px solid #d1d9e6", display: "flex", alignItems: "center", padding: "0 24px", justifyContent: "space-between", flexShrink: 0, gap: 12 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#64748b", minWidth: 0 }}>
             <button
               className="hamburger-btn"

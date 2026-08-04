@@ -32,6 +32,28 @@ def validate_business_date(business_date: str) -> None:
         raise HTTPException(status_code=400, detail=f"invalid business_date: {business_date!r}")
 
 
+def ensure_business_day_open(conn: sqlite3.Connection, business_date: str) -> None:
+    """PLAN 6.1/6.3: the business_days lifecycle's single choke point. Lazily
+    opens business_date on its first write (no row is seeded up front —
+    ARCHITECTURE.md §5.1) and rejects the write with 409 once that date is
+    closed. Called from insert_entry (skipped for entry_type='reversal' —
+    see there) plus each write path's own boundary for requests that might
+    never reach insert_entry, the same two-tier pattern validate_business_date
+    already uses for H.2/H.13."""
+    row = conn.execute(
+        "SELECT status FROM business_days WHERE business_date = ?", (business_date,)
+    ).fetchone()
+    if row is None:
+        # OR IGNORE: two concurrent first-writers to the same fresh date can
+        # both see no row and both try to insert it; the loser's insert is a
+        # no-op against the business_date PK instead of an IntegrityError —
+        # harmless, since both agree the date should end up open.
+        conn.execute("INSERT OR IGNORE INTO business_days (business_date, status) VALUES (?, 'open')", (business_date,))
+        return
+    if row["status"] == "closed":
+        raise HTTPException(status_code=409, detail=f"business day {business_date} is closed")
+
+
 def insert_entry(
     conn: sqlite3.Connection,
     *,
@@ -48,6 +70,21 @@ def insert_entry(
     if entry_type not in ENTRY_TYPES:
         raise ValueError(f"invalid entry_type: {entry_type}")
     validate_business_date(business_date)
+    # A reversal is exempt: ARCHITECTURE.md §5's back-dating note has it
+    # referencing the original (possibly now-closed) entry's own date, and
+    # reverse_entry() defaults business_date to exactly that — the guard
+    # would otherwise make even a pure deletion of anything dated on a
+    # closed day permanently impossible. Fresh entries and correction
+    # *replacements* (same entry_type as the resource, e.g.
+    # 'expense'/'transfer'/'commission') still go through the guard below —
+    # so today, a money-changing correction of a closed-day resource is
+    # rejected outright rather than posted onto the closed date.
+    # ponytail: §5 actually wants that replacement redirected onto the
+    # current *open* date instead of rejected; that redirect isn't built
+    # (no phase step names it yet) — add it if/when back-dated corrections
+    # need to succeed rather than fail.
+    if entry_type != "reversal":
+        ensure_business_day_open(conn, business_date)
     cur = conn.execute(
         "INSERT INTO ledger "
         "(business_date, account_id, amount_paise, entry_type, source_type, source_id, description, reverses_id, created_by) "
@@ -62,6 +99,47 @@ def account_balance(conn: sqlite3.Connection, account_id: int) -> int:
         "SELECT SUM(amount_paise) FROM ledger WHERE account_id = ?", (account_id,)
     ).fetchone()
     return row[0] or 0
+
+
+def opening_balance(conn: sqlite3.Connection, account_id: int, business_date: str) -> int:
+    """PLAN 6.2: day D's opening balance is the sum of every ledger entry
+    strictly before D — no daily_account_balance row is copied forward. This
+    also means it equals D-1's closing balance for free (D-1's closing is
+    the sum of everything up to and including D-1, i.e. everything < D)."""
+    row = conn.execute(
+        "SELECT SUM(amount_paise) FROM ledger WHERE account_id = ? AND business_date < ?",
+        (account_id, business_date),
+    ).fetchone()
+    return row[0] or 0
+
+
+def closing_balance(conn: sqlite3.Connection, account_id: int, business_date: str) -> int:
+    """PLAN 6.4/6.5: day D's closing balance — every entry dated on or
+    before D. The authoritative figure daily_account_balance snapshots and
+    the closing report both use; opening_balance(D+1) == closing_balance(D)."""
+    row = conn.execute(
+        "SELECT SUM(amount_paise) FROM ledger WHERE account_id = ? AND business_date <= ?",
+        (account_id, business_date),
+    ).fetchone()
+    return row[0] or 0
+
+
+def income_expenses(conn: sqlite3.Connection, start_date: str, end_date: str) -> tuple[int, int]:
+    """PLAN 7.1/7.3: income (service_income + commission) and expenses for
+    [start_date, end_date] inclusive. ARCHITECTURE.md §4 lists "Customer
+    payments" as a ledger source distinct from "Service income"/"Banking
+    commission" — settling an old bill is debt collection, not new revenue —
+    so entry_type='customer_payment' is deliberately excluded here. Shared by
+    the dashboard tiles and the daily/monthly reports so both agree on what
+    "income" means."""
+    row = conn.execute(
+        "SELECT "
+        "COALESCE(SUM(CASE WHEN entry_type IN ('service_income','commission') THEN amount_paise ELSE 0 END), 0) AS income_paise, "
+        "COALESCE(SUM(CASE WHEN entry_type = 'expense' THEN -amount_paise ELSE 0 END), 0) AS expenses_paise "
+        "FROM ledger WHERE business_date BETWEEN ? AND ?",
+        (start_date, end_date),
+    ).fetchone()
+    return row["income_paise"], row["expenses_paise"]
 
 
 def insert_transfer_pair(
@@ -92,6 +170,51 @@ def insert_transfer_pair(
         conn.rollback()
         raise
     return out_id, in_id
+
+
+def insert_banking_entries(
+    conn: sqlite3.Connection,
+    *,
+    business_date: str,
+    txn_type: str,
+    principal_paise: int,
+    commission_paise: int,
+    settlement_account_id: int,
+    cash_account_id: int,
+    source_id: int,
+    created_by: int,
+    description: str | None = None,
+) -> list[int]:
+    """ARCHITECTURE.md §3 banking event -> ledger mapping (PLAN 5.1). Every
+    txn_type except balance_enquiry moves `principal_paise` from the
+    settlement account to the cash drawer as a same-shape pair to
+    insert_transfer_pair's (entry_type=transfer, sums to zero); commission is
+    always separate cash-drawer income (entry_type=commission), never folded
+    into the principal — booking a withdrawal's principal as income is the
+    class of bug this table exists to prevent."""
+    ids = []
+    try:
+        if txn_type != "balance_enquiry" and principal_paise:
+            ids.append(insert_entry(
+                conn, business_date=business_date, account_id=settlement_account_id,
+                amount_paise=-principal_paise, entry_type="transfer", source_type="banking",
+                source_id=source_id, description=description, created_by=created_by,
+            ))
+            ids.append(insert_entry(
+                conn, business_date=business_date, account_id=cash_account_id,
+                amount_paise=principal_paise, entry_type="transfer", source_type="banking",
+                source_id=source_id, description=description, created_by=created_by,
+            ))
+        if commission_paise:
+            ids.append(insert_entry(
+                conn, business_date=business_date, account_id=cash_account_id,
+                amount_paise=commission_paise, entry_type="commission", source_type="banking",
+                source_id=source_id, description=description, created_by=created_by,
+            ))
+    except Exception:
+        conn.rollback()
+        raise
+    return ids
 
 
 def reverse_entry(

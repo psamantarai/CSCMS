@@ -103,6 +103,7 @@ export default function Transactions() {
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["transactions"] })
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] })
       if (form.customerId) queryClient.invalidateQueries({ queryKey: queryKeys.customerOutstanding(form.customerId) })
       setForm(emptyForm())
       setFormError("")

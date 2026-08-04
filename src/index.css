@@ -110,6 +110,26 @@ h1, h2, h3, h4 {
   }
 }
 
+/* PLAN 6.7: print-friendly closing report — hide the app chrome and let
+   .print-report's full height render instead of being clipped by the
+   scrollable panes it normally sits in. */
+@media print {
+  @page {
+    size: A4;
+    margin: 12mm;
+  }
+  .app-sidebar, .app-sidebar-backdrop, .app-topbar, .no-print {
+    display: none !important;
+  }
+  #root, main, .print-report {
+    height: auto !important;
+    overflow: visible !important;
+  }
+  body {
+    background: #fff !important;
+  }
+}
+
 /* Scrollbar polish */
 ::-webkit-scrollbar {
   width: 5px;

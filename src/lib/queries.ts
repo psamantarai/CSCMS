@@ -14,4 +14,9 @@ export const queryKeys = {
   transactions: (filters: Record<string, string | number>) => ["transactions", filters] as const,
   expenses: (filters: Record<string, string | number>) => ["expenses", filters] as const,
   expenseCategories: ["expenses", "categories"] as const,
+  banking: (filters: Record<string, string | number>) => ["banking", filters] as const,
+  bankingCommissionSummary: (filters: Record<string, string | number>) => ["banking", "commission-summary", filters] as const,
+  dayStatus: (date: string) => ["day", date, "status"] as const,
+  dayReport: (date: string) => ["day", date, "report"] as const,
+  dashboard: (date: string) => ["dashboard", date] as const,
 }

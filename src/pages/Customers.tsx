@@ -202,6 +202,7 @@ export default function Customers() {
       queryClient.invalidateQueries({ queryKey: queryKeys.customerOutstanding(selected!) })
       queryClient.invalidateQueries({ queryKey: queryKeys.customerHistory(selected!) })
       queryClient.invalidateQueries({ queryKey: ["transactions"] })
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] })
       setSettleForm(emptySettleForm)
       setSettleError("")
       setShowSettle(false)

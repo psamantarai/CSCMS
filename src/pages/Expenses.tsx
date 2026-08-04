@@ -71,6 +71,7 @@ export default function Expenses() {
   function invalidate() {
     queryClient.invalidateQueries({ queryKey: ["expenses"] })
     queryClient.invalidateQueries({ queryKey: queryKeys.accounts }) // prefix match also covers accountBalance(id)
+    queryClient.invalidateQueries({ queryKey: ["dashboard"] })
   }
 
   const createMutation = useMutation({

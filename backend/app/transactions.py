@@ -31,7 +31,7 @@ from app.accounts import _get_active_or_404 as _get_account_or_404
 from app.accounts import _system_user_id
 from app.customers import _get_or_404 as _get_customer_or_404
 from app.db import begin_write, get_db
-from app.ledger import insert_entry, reverse_entry, validate_business_date
+from app.ledger import ensure_business_day_open, insert_entry, reverse_entry, validate_business_date
 from app.services import _get_active_or_404 as _get_service_or_404
 
 router = APIRouter(prefix="/api/transactions", tags=["transactions"])
@@ -201,8 +201,11 @@ def list_transactions(
 def create_transaction(body: TransactionCreate, conn: sqlite3.Connection = Depends(get_db)):
     # H.13: this row is written before insert_entry ever runs, and
     # insert_entry is skipped entirely for an unpaid bill — so business_date
-    # has to be checked here too, not only inside the ledger.
+    # has to be checked here too, not only inside the ledger. PLAN 6.1/6.3:
+    # same reasoning for open/closed — an unpaid transaction never reaches
+    # insert_entry's own guard.
     validate_business_date(body.business_date)
+    ensure_business_day_open(conn, body.business_date)
     _get_service_or_404(conn, body.service_id)
     _get_account_or_404(conn, body.account_id)
     if body.customer_id is not None:
@@ -301,6 +304,15 @@ def correct_transaction(transaction_id: int, body: TransactionCorrection, conn: 
             # below, so N concurrent corrections of the same transaction
             # can't all find and reverse the same live entry.
             begin_write(conn)
+            # PLAN 6.3: a fully-pending (unpaid) transaction has no live
+            # entry, so insert_entry's own guard below would never fire for
+            # a pure date move — same gap H.13 names for format validation.
+            # Must run after begin_write: ensure_business_day_open does its
+            # own write (auto-open), and sqlite3 auto-BEGINs on that, so a
+            # begin_write() afterwards would hit "transaction within a
+            # transaction".
+            if date_changed:
+                ensure_business_day_open(conn, new_business_date)
             live_entry = conn.execute(
                 "SELECT * FROM ledger WHERE source_type = 'transaction' AND source_id = ? "
                 "AND entry_type = 'service_income' AND id NOT IN "
