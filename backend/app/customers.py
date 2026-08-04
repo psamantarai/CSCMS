@@ -4,11 +4,21 @@ stays intact — deleted_at is set, never a real DELETE."""
 import sqlite3
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 
 from app.db import get_db
 
 router = APIRouter(prefix="/api/customers", tags=["customers"])
+
+
+# H.4: name is the only NOT NULL column here — phone/village/aadhaar_masked/
+# notes are nullable, so explicit null on those is a legitimate "clear this
+# field" update. Runs only when the client sends a value, not on omission
+# (see accounts.py for the same pattern).
+def _required_str(v: str | None) -> str:
+    if v is None or not v.strip():
+        raise ValueError("must not be null or blank")
+    return v.strip()
 
 
 class CustomerCreate(BaseModel):
@@ -18,6 +28,8 @@ class CustomerCreate(BaseModel):
     aadhaar_masked: str | None = None
     notes: str | None = None
 
+    _v_name = field_validator("name")(_required_str)
+
 
 class CustomerUpdate(BaseModel):
     name: str | None = None
@@ -25,6 +37,8 @@ class CustomerUpdate(BaseModel):
     village: str | None = None
     aadhaar_masked: str | None = None
     notes: str | None = None
+
+    _v_name = field_validator("name")(_required_str)
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict:

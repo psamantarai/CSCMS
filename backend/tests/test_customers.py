@@ -7,6 +7,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from pydantic import ValidationError
+
 from app.customers import (
     CustomerCreate,
     CustomerUpdate,
@@ -149,6 +151,24 @@ def test_history_and_outstanding_derived_from_transactions_and_payments():
         conn.close()
 
 
+def test_null_and_blank_name_rejected():
+    # H.4: explicit null / whitespace-only must not reach the DB as a NOT NULL violation.
+    for bad_name in (None, "   "):
+        try:
+            CustomerCreate(name=bad_name)
+            assert False, f"name={bad_name!r} must be rejected on create"
+        except ValidationError:
+            pass
+        try:
+            CustomerUpdate(name=bad_name)
+            assert False, f"name={bad_name!r} must be rejected on update"
+        except ValidationError:
+            pass
+
+    # nullable columns (phone/village/etc.) may still be explicitly cleared
+    assert CustomerUpdate(phone=None).model_dump(exclude_unset=True) == {"phone": None}
+
+
 if __name__ == "__main__":
     test_create_and_get_customer()
     test_update_customer()
@@ -156,4 +176,5 @@ if __name__ == "__main__":
     test_search_matches_partial_name_phone_or_village()
     test_outstanding_zero_for_new_customer()
     test_history_and_outstanding_derived_from_transactions_and_payments()
+    test_null_and_blank_name_rejected()
     print("OK")

@@ -7,6 +7,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from pydantic import ValidationError
+
 from app.accounts import AccountCreate, AccountUpdate, create_account, get_account_balance, list_accounts, update_account
 from app.db import get_connection, run_migrations
 from app.seed import run_seed
@@ -66,8 +68,53 @@ def test_update_deactivates_account():
         conn.close()
 
 
+def test_null_and_blank_name_rejected():
+    # H.4: explicit null / whitespace-only must not reach the DB as a NOT NULL violation.
+    for bad_name in (None, "   "):
+        try:
+            AccountCreate(name=bad_name, account_type="savings")
+            assert False, f"name={bad_name!r} must be rejected on create"
+        except ValidationError:
+            pass
+        try:
+            AccountUpdate(name=bad_name)
+            assert False, f"name={bad_name!r} must be rejected on update"
+        except ValidationError:
+            pass
+
+    # omitting name on update (partial PATCH) must still work
+    assert AccountUpdate().model_dump(exclude_unset=True) == {}
+
+
+def test_null_account_type_and_is_active_rejected_on_update():
+    # H.4: same NOT NULL trap for the other optional-but-required Update fields.
+    try:
+        AccountUpdate(account_type=None)
+        assert False, "account_type=None must be rejected"
+    except ValidationError:
+        pass
+    try:
+        AccountUpdate(is_active=None)
+        assert False, "is_active=None must be rejected"
+    except ValidationError:
+        pass
+
+
+def test_opening_balance_overflow_rejected():
+    # H.4: a value beyond SQLite's INTEGER range used to reach conn.execute()
+    # and raise an uncaught OverflowError (500) instead of a clean 400/422.
+    try:
+        AccountCreate(name="SBI", account_type="savings", opening_balance_paise=10**19)
+        assert False, "opening_balance_paise beyond int64 range must be rejected"
+    except ValidationError:
+        pass
+
+
 if __name__ == "__main__":
     test_opening_balance_seeds_exactly_one_ledger_entry()
     test_list_excludes_nothing_soft_deleted_yet_and_includes_created()
     test_update_deactivates_account()
+    test_null_and_blank_name_rejected()
+    test_null_account_type_and_is_active_rejected_on_update()
+    test_opening_balance_overflow_rejected()
     print("OK")

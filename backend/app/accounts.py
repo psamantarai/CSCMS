@@ -6,7 +6,7 @@ from datetime import date
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from app.db import get_db
 from app.ledger import account_balance, insert_entry
@@ -15,6 +15,26 @@ router = APIRouter(prefix="/api/accounts", tags=["accounts"])
 
 AccountType = Literal["cash", "savings", "current", "wallet", "settlement"]
 
+# H.4: name/account_type/is_active/sort_order are all NOT NULL columns, but
+# the Update model has to accept them as optional so PATCH can omit fields
+# it isn't changing. That leaves an explicit {"field": null} indistinguishable
+# from "not provided" at the type level — these validators only run when the
+# client actually sends a value (pydantic skips them for the unset default),
+# so they catch the explicit-null case without breaking omission.
+_INT64_MIN, _INT64_MAX = -(2**63), 2**63 - 1
+
+
+def _required_str(v: str | None) -> str:
+    if v is None or not v.strip():
+        raise ValueError("must not be null or blank")
+    return v.strip()
+
+
+def _not_null(v):
+    if v is None:
+        raise ValueError("must not be null")
+    return v
+
 
 class AccountCreate(BaseModel):
     name: str
@@ -22,8 +42,10 @@ class AccountCreate(BaseModel):
     bank_name: str | None = None
     account_number_masked: str | None = None
     ifsc: str | None = None
-    opening_balance_paise: int = 0
-    sort_order: int = 0
+    opening_balance_paise: int = Field(0, ge=_INT64_MIN, le=_INT64_MAX)
+    sort_order: int = Field(0, ge=_INT64_MIN, le=_INT64_MAX)
+
+    _v_name = field_validator("name")(_required_str)
 
 
 class AccountUpdate(BaseModel):
@@ -32,8 +54,13 @@ class AccountUpdate(BaseModel):
     bank_name: str | None = None
     account_number_masked: str | None = None
     ifsc: str | None = None
-    sort_order: int | None = None
+    sort_order: int | None = Field(default=None, ge=_INT64_MIN, le=_INT64_MAX)
     is_active: bool | None = None
+
+    _v_name = field_validator("name")(_required_str)
+    _v_account_type = field_validator("account_type")(_not_null)
+    _v_sort_order = field_validator("sort_order")(_not_null)
+    _v_is_active = field_validator("is_active")(_not_null)
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict:

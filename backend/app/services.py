@@ -4,26 +4,52 @@ past transactions keep referencing it."""
 import sqlite3
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, field_validator
 
 from app.db import get_db
 
 router = APIRouter(prefix="/api/services", tags=["services"])
 
+# H.4: name/category/default_fee_paise/default_charge_paise/is_active are all
+# NOT NULL columns; see accounts.py for why these validators only fire on an
+# explicit value, not on an omitted PATCH field.
+_INT64_MIN, _INT64_MAX = -(2**63), 2**63 - 1
+
+
+def _required_str(v: str | None) -> str:
+    if v is None or not v.strip():
+        raise ValueError("must not be null or blank")
+    return v.strip()
+
+
+def _not_null(v):
+    if v is None:
+        raise ValueError("must not be null")
+    return v
+
 
 class ServiceCreate(BaseModel):
     name: str
     category: str
-    default_fee_paise: int = 0
-    default_charge_paise: int = 0
+    default_fee_paise: int = Field(0, ge=_INT64_MIN, le=_INT64_MAX)
+    default_charge_paise: int = Field(0, ge=_INT64_MIN, le=_INT64_MAX)
+
+    _v_name = field_validator("name")(_required_str)
+    _v_category = field_validator("category")(_required_str)
 
 
 class ServiceUpdate(BaseModel):
     name: str | None = None
     category: str | None = None
-    default_fee_paise: int | None = None
-    default_charge_paise: int | None = None
+    default_fee_paise: int | None = Field(default=None, ge=_INT64_MIN, le=_INT64_MAX)
+    default_charge_paise: int | None = Field(default=None, ge=_INT64_MIN, le=_INT64_MAX)
     is_active: bool | None = None
+
+    _v_name = field_validator("name")(_required_str)
+    _v_category = field_validator("category")(_required_str)
+    _v_default_fee_paise = field_validator("default_fee_paise")(_not_null)
+    _v_default_charge_paise = field_validator("default_charge_paise")(_not_null)
+    _v_is_active = field_validator("is_active")(_not_null)
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict:

@@ -4,7 +4,10 @@
 // still work in rupees.
 
 export function fmt(rupees: number): string {
-  return "₹" + rupees.toLocaleString("en-IN")
+  // Force 2 decimal places — bare toLocaleString drops trailing zeros, so
+  // paise silently vanished from every amount on every page (₹1,234.50
+  // rendered as "₹1,234.5", ₹1.00 as "₹1").
+  return "₹" + rupees.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 export function formatDate(iso: string): string {
@@ -25,6 +28,16 @@ export function formatTime(sqlDatetime: string): string {
     hour: "numeric",
     minute: "2-digit",
   })
+}
+
+export function localDateISO(): string {
+  // new Date().toISOString() is UTC — in IST that rolls to the previous
+  // calendar day for any local time before 05:30. Build the date from
+  // local getFullYear/Month/Date instead.
+  const d = new Date()
+  const mm = String(d.getMonth() + 1).padStart(2, "0")
+  const dd = String(d.getDate()).padStart(2, "0")
+  return `${d.getFullYear()}-${mm}-${dd}`
 }
 
 export function toPaise(rupees: number): number {

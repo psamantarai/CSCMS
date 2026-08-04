@@ -2,11 +2,14 @@
 // No test framework, matching backend/tests/ convention.
 
 import assert from "node:assert"
-import { fmt, formatDate, toPaise, fromPaise } from "./format.ts"
+import { fmt, formatDate, localDateISO, toPaise, fromPaise } from "./format.ts"
 
 function testFmt() {
-  assert.strictEqual(fmt(1500), "₹1,500")
-  assert.strictEqual(fmt(0), "₹0")
+  // H.3: paise must never be dropped, even when they're .00 or a round number.
+  assert.strictEqual(fmt(1500), "₹1,500.00")
+  assert.strictEqual(fmt(0), "₹0.00")
+  assert.strictEqual(fmt(fromPaise(123450)), "₹1,234.50")
+  assert.strictEqual(fmt(fromPaise(100)), "₹1.00")
 }
 
 function testFormatDate() {
@@ -20,7 +23,18 @@ function testPaiseRoundTrip() {
   assert.strictEqual(toPaise(19.99), 1999)
 }
 
+function testLocalDateISO() {
+  // H.3: must be built from local date fields, not new Date().toISOString()
+  // (which is UTC and rolls back a day before 05:30 IST). Can't fake the
+  // clock without a new dependency, so this checks the YYYY-MM-DD shape and
+  // cross-checks against the same local fields the browser would report.
+  const d = new Date()
+  const expected = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`
+  assert.strictEqual(localDateISO(), expected)
+}
+
 testFmt()
 testFormatDate()
 testPaiseRoundTrip()
+testLocalDateISO()
 console.log("format.test.ts: all assertions passed")

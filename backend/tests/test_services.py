@@ -7,6 +7,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from pydantic import ValidationError
+
 from app.db import get_connection, run_migrations
 from app.seed import run_seed
 from app.services import ServiceCreate, ServiceUpdate, create_service, get_service, list_services, update_service
@@ -98,9 +100,52 @@ def test_editing_default_fee_does_not_alter_past_transactions():
         conn.close()
 
 
+def test_null_and_blank_name_and_category_rejected():
+    # H.4: explicit null / whitespace-only must not reach the DB as a NOT NULL violation.
+    for bad in (None, "   "):
+        try:
+            ServiceCreate(name=bad, category="Printing")
+            assert False, f"name={bad!r} must be rejected on create"
+        except ValidationError:
+            pass
+        try:
+            ServiceCreate(name="Photocopy", category=bad)
+            assert False, f"category={bad!r} must be rejected on create"
+        except ValidationError:
+            pass
+        try:
+            ServiceUpdate(name=bad)
+            assert False, f"name={bad!r} must be rejected on update"
+        except ValidationError:
+            pass
+
+
+def test_null_fee_and_is_active_rejected_on_update():
+    # H.4: same NOT NULL trap for the other optional-but-required Update fields.
+    for kwargs in ({"default_fee_paise": None}, {"default_charge_paise": None}, {"is_active": None}):
+        try:
+            ServiceUpdate(**kwargs)
+            assert False, f"{kwargs} must be rejected"
+        except ValidationError:
+            pass
+
+
+def test_fee_overflow_rejected():
+    # H.4: a value beyond SQLite's INTEGER range used to reach conn.execute()
+    # and raise an uncaught OverflowError (500) instead of a clean 400/422.
+    try:
+        ServiceCreate(name="Photocopy", category="Printing", default_fee_paise=10**19)
+        assert False, "default_fee_paise beyond int64 range must be rejected"
+    except ValidationError:
+        pass
+
+
 if __name__ == "__main__":
     test_seeded_services_are_listable()
     test_create_and_get_service()
     test_deactivated_service_excluded_from_active_only_but_still_gettable()
     test_editing_default_fee_does_not_alter_past_transactions()
+    test_null_and_blank_name_and_category_rejected()
+    test_null_fee_and_is_active_rejected_on_update()
+    test_fee_overflow_rejected()
     print("OK")

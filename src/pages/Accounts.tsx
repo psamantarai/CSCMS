@@ -2,7 +2,7 @@ import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "../lib/api"
 import { queryKeys } from "../lib/queries"
-import { fmt, formatDate, formatTime, fromPaise, toPaise } from "../lib/format"
+import { fmt, formatDate, formatTime, fromPaise, localDateISO, toPaise } from "../lib/format"
 
 type AccountType = "cash" | "savings" | "current" | "wallet" | "settlement"
 
@@ -123,7 +123,7 @@ export default function Accounts() {
   const transferMutation = useMutation({
     mutationFn: () =>
       api.post("/transfers", {
-        business_date: new Date().toISOString().slice(0, 10),
+        business_date: localDateISO(),
         from_account_id: Number(transferForm.from_account_id),
         to_account_id: Number(transferForm.to_account_id),
         amount_paise: toPaise(Number(transferForm.amount) || 0),
