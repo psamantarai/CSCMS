@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 from app.accounts import _get_or_404, _system_user_id
 from app.db import get_db
-from app.ledger import insert_transfer_pair
+from app.ledger import account_balance, insert_transfer_pair
 
 router = APIRouter(prefix="/api/transfers", tags=["transfers"])
 
@@ -39,8 +39,15 @@ def create_transfer(body: TransferCreate, conn: sqlite3.Connection = Depends(get
         raise HTTPException(status_code=400, detail="cannot transfer to the same account")
     if body.amount_paise <= 0:
         raise HTTPException(status_code=400, detail="amount must be positive")
-    _get_or_404(conn, body.from_account_id)
-    _get_or_404(conn, body.to_account_id)
+    from_account = _get_or_404(conn, body.from_account_id)
+    to_account = _get_or_404(conn, body.to_account_id)
+    if not from_account["is_active"] or not to_account["is_active"]:
+        raise HTTPException(status_code=400, detail="cannot transfer with a deactivated account")
+    # H.5: no account here is a real bank with an overdraft facility — it's an
+    # internal record of money on hand, so a negative balance is never valid,
+    # not just for cash. Reject rather than record-and-warn.
+    if account_balance(conn, body.from_account_id) < body.amount_paise:
+        raise HTTPException(status_code=400, detail="insufficient balance in source account")
 
     user_id = _system_user_id(conn)
     cur = conn.execute(

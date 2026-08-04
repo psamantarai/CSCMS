@@ -266,7 +266,7 @@ export default function Accounts() {
               <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>From Account</label>
               <select value={transferForm.from_account_id} onChange={e => setTransferForm({ ...transferForm, from_account_id: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, background: "#fff", outline: "none" }}>
                 <option value="">Select…</option>
-                {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                {accounts.filter(a => a.is_active).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
               </select>
             </div>
             <div style={{ textAlign: "center", paddingBottom: 8, fontSize: 18, color: "#64748b" }}>→</div>
@@ -274,7 +274,7 @@ export default function Accounts() {
               <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>To Account</label>
               <select value={transferForm.to_account_id} onChange={e => setTransferForm({ ...transferForm, to_account_id: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, background: "#fff", outline: "none" }}>
                 <option value="">Select…</option>
-                {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                {accounts.filter(a => a.is_active).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
               </select>
             </div>
             <div>

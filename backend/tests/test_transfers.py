@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from app.accounts import AccountCreate, create_account
+from app.accounts import AccountCreate, AccountUpdate, create_account, update_account
 from app.db import get_connection, run_migrations
 from app.ledger import account_balance
 from app.seed import run_seed
@@ -26,16 +26,16 @@ def test_transfer_moves_balance_between_accounts():
     with tempfile.TemporaryDirectory() as tmp:
         conn = _seeded_conn(Path(tmp))
         cash_id = conn.execute("SELECT id FROM accounts WHERE name = 'Cash Drawer'").fetchone()[0]
-        sbi = create_account(AccountCreate(name="SBI", account_type="savings", opening_balance_paise=0), conn)
+        sbi = create_account(AccountCreate(name="SBI", account_type="savings", opening_balance_paise=500000), conn)
 
         create_transfer(
-            TransferCreate(business_date="2026-08-04", from_account_id=cash_id,
-                            to_account_id=sbi["id"], amount_paise=500000),
+            TransferCreate(business_date="2026-08-04", from_account_id=sbi["id"],
+                            to_account_id=cash_id, amount_paise=500000),
             conn,
         )
 
-        assert account_balance(conn, cash_id) == -500000
-        assert account_balance(conn, sbi["id"]) == 500000
+        assert account_balance(conn, sbi["id"]) == 0
+        assert account_balance(conn, cash_id) == 500000
 
         conn.close()
 
@@ -62,12 +62,12 @@ def test_transfer_with_malformed_business_date_rejected():
     with tempfile.TemporaryDirectory() as tmp:
         conn = _seeded_conn(Path(tmp))
         cash_id = conn.execute("SELECT id FROM accounts WHERE name = 'Cash Drawer'").fetchone()[0]
-        sbi = create_account(AccountCreate(name="SBI", account_type="savings", opening_balance_paise=0), conn)
+        sbi = create_account(AccountCreate(name="SBI", account_type="savings", opening_balance_paise=500000), conn)
 
         try:
             create_transfer(
-                TransferCreate(business_date="2026-13-45", from_account_id=cash_id,
-                                to_account_id=sbi["id"], amount_paise=500000),
+                TransferCreate(business_date="2026-13-45", from_account_id=sbi["id"],
+                                to_account_id=cash_id, amount_paise=500000),
                 conn,
             )
             assert False, "a malformed business_date must be rejected"
@@ -79,22 +79,84 @@ def test_transfer_with_malformed_business_date_rejected():
         conn.close()
 
 
-def test_list_transfers_includes_account_names():
+def test_transfer_from_deactivated_account_rejected():
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id = conn.execute("SELECT id FROM accounts WHERE name = 'Cash Drawer'").fetchone()[0]
+        sbi = create_account(AccountCreate(name="SBI", account_type="savings", opening_balance_paise=500000), conn)
+        update_account(sbi["id"], AccountUpdate(is_active=False), conn)
+
+        try:
+            create_transfer(
+                TransferCreate(business_date="2026-08-04", from_account_id=sbi["id"],
+                                to_account_id=cash_id, amount_paise=100),
+                conn,
+            )
+            assert False, "a transfer from a deactivated account must be rejected"
+        except Exception as e:
+            assert "400" in str(e)
+
+        conn.close()
+
+
+def test_transfer_to_deactivated_account_rejected():
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        hdfc = create_account(AccountCreate(name="HDFC", account_type="savings", opening_balance_paise=500000), conn)
+        sbi = create_account(AccountCreate(name="SBI", account_type="savings", opening_balance_paise=0), conn)
+        update_account(sbi["id"], AccountUpdate(is_active=False), conn)
+
+        try:
+            create_transfer(
+                TransferCreate(business_date="2026-08-04", from_account_id=hdfc["id"],
+                                to_account_id=sbi["id"], amount_paise=100),
+                conn,
+            )
+            assert False, "a transfer to a deactivated account must be rejected"
+        except Exception as e:
+            assert "400" in str(e)
+
+        conn.close()
+
+
+def test_transfer_exceeding_balance_rejected():
     with tempfile.TemporaryDirectory() as tmp:
         conn = _seeded_conn(Path(tmp))
         cash_id = conn.execute("SELECT id FROM accounts WHERE name = 'Cash Drawer'").fetchone()[0]
         sbi = create_account(AccountCreate(name="SBI", account_type="savings", opening_balance_paise=0), conn)
+        balance_before = account_balance(conn, cash_id)
+
+        try:
+            create_transfer(
+                TransferCreate(business_date="2026-08-04", from_account_id=cash_id,
+                                to_account_id=sbi["id"], amount_paise=balance_before + 100),
+                conn,
+            )
+            assert False, "a transfer exceeding the source balance must be rejected"
+        except Exception as e:
+            assert "400" in str(e) or "insufficient" in str(e)
+
+        assert account_balance(conn, cash_id) == balance_before
+
+        conn.close()
+
+
+def test_list_transfers_includes_account_names():
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id = conn.execute("SELECT id FROM accounts WHERE name = 'Cash Drawer'").fetchone()[0]
+        sbi = create_account(AccountCreate(name="SBI", account_type="savings", opening_balance_paise=500000), conn)
 
         create_transfer(
-            TransferCreate(business_date="2026-08-04", from_account_id=cash_id,
-                            to_account_id=sbi["id"], amount_paise=500000),
+            TransferCreate(business_date="2026-08-04", from_account_id=sbi["id"],
+                            to_account_id=cash_id, amount_paise=500000),
             conn,
         )
 
         rows = list_transfers(20, conn)
         assert len(rows) == 1
-        assert rows[0]["from_account_name"] == "Cash Drawer"
-        assert rows[0]["to_account_name"] == "SBI"
+        assert rows[0]["from_account_name"] == "SBI"
+        assert rows[0]["to_account_name"] == "Cash Drawer"
         assert rows[0]["amount_paise"] == 500000
 
         conn.close()
@@ -104,5 +166,8 @@ if __name__ == "__main__":
     test_transfer_moves_balance_between_accounts()
     test_transfer_to_same_account_rejected()
     test_transfer_with_malformed_business_date_rejected()
+    test_transfer_from_deactivated_account_rejected()
+    test_transfer_to_deactivated_account_rejected()
+    test_transfer_exceeding_balance_rejected()
     test_list_transfers_includes_account_names()
     print("OK")
