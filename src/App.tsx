@@ -5,6 +5,7 @@ import { api } from "./lib/api"
 import { queryKeys } from "./lib/queries"
 import Dashboard from "./pages/Dashboard"
 import Customers from "./pages/Customers"
+import Services from "./pages/Services"
 import Transactions from "./pages/Transactions"
 import Banking from "./pages/Banking"
 import Accounts from "./pages/Accounts"
@@ -21,6 +22,10 @@ const nav: { path: string; label: string; icon: React.ReactNode; group?: string 
   {
     path: "/customers", label: "Customers", group: "Operations",
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+  },
+  {
+    path: "/services", label: "Services",
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z"/><line x1="16" y1="8" x2="2" y2="22"/><line x1="17.5" y1="15" x2="9" y2="15"/></svg>
   },
   {
     path: "/transactions", label: "Transactions",
@@ -212,6 +217,7 @@ function AppShell() {
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/customers" element={<Customers />} />
+            <Route path="/services" element={<Services />} />
             <Route path="/transactions" element={<Transactions />} />
             <Route path="/banking" element={<Banking />} />
             <Route path="/expenses" element={<Expenses />} />

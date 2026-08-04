@@ -92,3 +92,39 @@ def delete_customer(customer_id: int, conn: sqlite3.Connection = Depends(get_db)
         "UPDATE customers SET deleted_at = datetime('now') WHERE id = ?", (customer_id,)
     )
     conn.commit()
+
+
+@router.get("/{customer_id}/history")
+def get_customer_history(customer_id: int, conn: sqlite3.Connection = Depends(get_db)):
+    _get_or_404(conn, customer_id)
+    transactions = conn.execute(
+        "SELECT t.*, s.name AS service_name FROM transactions t "
+        "JOIN services s ON s.id = t.service_id "
+        "WHERE t.customer_id = ? AND t.deleted_at IS NULL "
+        "ORDER BY t.business_date DESC, t.id DESC",
+        (customer_id,),
+    ).fetchall()
+    banking = conn.execute(
+        "SELECT * FROM banking_transactions "
+        "WHERE customer_id = ? AND deleted_at IS NULL "
+        "ORDER BY business_date DESC, id DESC",
+        (customer_id,),
+    ).fetchall()
+    return {
+        "transactions": [_row_to_dict(r) for r in transactions],
+        "banking_transactions": [_row_to_dict(r) for r in banking],
+    }
+
+
+@router.get("/{customer_id}/outstanding")
+def get_customer_outstanding(customer_id: int, conn: sqlite3.Connection = Depends(get_db)):
+    _get_or_404(conn, customer_id)
+    billed = conn.execute(
+        "SELECT COALESCE(SUM(total_paise), 0) FROM transactions WHERE customer_id = ? AND deleted_at IS NULL",
+        (customer_id,),
+    ).fetchone()[0]
+    paid = conn.execute(
+        "SELECT COALESCE(SUM(amount_paise), 0) FROM payments WHERE customer_id = ? AND deleted_at IS NULL",
+        (customer_id,),
+    ).fetchone()[0]
+    return {"outstanding_paise": billed - paid}

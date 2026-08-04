@@ -7,4 +7,8 @@ export const queryKeys = {
   accountBalance: (id: number) => ["accounts", id, "balance"] as const,
   ledger: (filters: Record<string, string | number>) => ["ledger", filters] as const,
   transfers: ["transfers"] as const,
+  customers: (q: string) => ["customers", q] as const,
+  customerHistory: (id: number) => ["customers", id, "history"] as const,
+  customerOutstanding: (id: number) => ["customers", id, "outstanding"] as const,
+  services: ["services"] as const,
 }
