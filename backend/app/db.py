@@ -6,7 +6,12 @@ from app.settings import settings
 
 def get_connection(db_path: Path) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(db_path)
+    # check_same_thread=False: FastAPI's sync endpoints run each request on a
+    # threadpool worker, not necessarily the thread that opened the
+    # connection (H.1) — WAL + a busy timeout let concurrent readers/writers
+    # coexist instead of hitting "database is locked".
+    conn = sqlite3.connect(db_path, check_same_thread=False, timeout=10)
+    conn.execute("PRAGMA journal_mode = WAL")
     conn.execute("PRAGMA foreign_keys = ON")
     conn.row_factory = sqlite3.Row
     return conn

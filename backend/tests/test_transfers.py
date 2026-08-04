@@ -58,6 +58,27 @@ def test_transfer_to_same_account_rejected():
         conn.close()
 
 
+def test_transfer_with_malformed_business_date_rejected():
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id = conn.execute("SELECT id FROM accounts WHERE name = 'Cash Drawer'").fetchone()[0]
+        sbi = create_account(AccountCreate(name="SBI", account_type="savings", opening_balance_paise=0), conn)
+
+        try:
+            create_transfer(
+                TransferCreate(business_date="2026-13-45", from_account_id=cash_id,
+                                to_account_id=sbi["id"], amount_paise=500000),
+                conn,
+            )
+            assert False, "a malformed business_date must be rejected"
+        except Exception as e:
+            assert "400" in str(e)
+
+        assert conn.execute("SELECT COUNT(*) FROM account_transfers").fetchone()[0] == 0
+
+        conn.close()
+
+
 def test_list_transfers_includes_account_names():
     with tempfile.TemporaryDirectory() as tmp:
         conn = _seeded_conn(Path(tmp))
@@ -82,5 +103,6 @@ def test_list_transfers_includes_account_names():
 if __name__ == "__main__":
     test_transfer_moves_balance_between_accounts()
     test_transfer_to_same_account_rejected()
+    test_transfer_with_malformed_business_date_rejected()
     test_list_transfers_includes_account_names()
     print("OK")

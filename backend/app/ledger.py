@@ -2,8 +2,9 @@
 summation. No update or delete path exists here — the DB trigger in
 002_ledger_immutable.sql rejects both regardless."""
 import sqlite3
+from datetime import date
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from app.db import get_db
 
@@ -30,6 +31,14 @@ def insert_entry(
 ) -> int:
     if entry_type not in ENTRY_TYPES:
         raise ValueError(f"invalid entry_type: {entry_type}")
+    try:
+        date.fromisoformat(business_date)
+    except (TypeError, ValueError):
+        # H.2: business_date is TEXT and every query orders/filters on it
+        # lexically, so one malformed value silently corrupts ordering,
+        # date filters and opening-balance/day-close derivation downstream.
+        # Checked once here — the only path anything reaches the ledger by.
+        raise HTTPException(status_code=400, detail=f"invalid business_date: {business_date!r}")
     cur = conn.execute(
         "INSERT INTO ledger "
         "(business_date, account_id, amount_paise, entry_type, source_type, source_id, description, reverses_id, created_by) "

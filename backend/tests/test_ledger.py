@@ -139,6 +139,28 @@ def test_reversal_nets_account_back_to_prior_balance():
         conn.close()
 
 
+def test_insert_entry_rejects_malformed_business_date():
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        account_id = conn.execute("SELECT id FROM accounts WHERE name = 'Cash Drawer'").fetchone()[0]
+        user_id = conn.execute("SELECT id FROM users WHERE username = 'admin'").fetchone()[0]
+
+        for bad_date in ("not-a-date", "2026-13-45", ""):
+            try:
+                insert_entry(conn, business_date=bad_date, account_id=account_id, amount_paise=100,
+                             entry_type="opening_balance", source_type="account", created_by=user_id)
+                assert False, f"business_date {bad_date!r} must be rejected"
+            except Exception as e:
+                assert "400" in str(e), f"expected a 400 for {bad_date!r}, got {e}"
+
+        insert_entry(conn, business_date="2026-08-04", account_id=account_id, amount_paise=100,
+                     entry_type="opening_balance", source_type="account", created_by=user_id)
+        conn.commit()
+        assert conn.execute("SELECT COUNT(*) FROM ledger").fetchone()[0] == 1
+
+        conn.close()
+
+
 def test_reversal_rejected_twice():
     with tempfile.TemporaryDirectory() as tmp:
         conn = _seeded_conn(Path(tmp))
@@ -166,6 +188,7 @@ if __name__ == "__main__":
     test_ledger_rows_are_immutable()
     test_transfer_pair_sums_to_zero()
     test_transfer_pair_rolls_back_on_forced_failure()
+    test_insert_entry_rejects_malformed_business_date()
     test_reversal_nets_account_back_to_prior_balance()
     test_reversal_rejected_twice()
     print("OK")

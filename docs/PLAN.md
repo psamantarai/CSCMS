@@ -1,6 +1,8 @@
 # RSCMS — Implementation Plan
 
-11 phases, 66 steps. Phases run in order; each depends on the one before.
+12 phases, 76 steps. Phases run in order; each depends on the one before.
+(Phase 2.5 was inserted after an edge-case audit of the shipped Phase 0–2
+code — see that phase for what it found and why it blocks Phase 3.)
 
 **A step is the unit of work.** Each is one sitting, independently verifiable,
 and leaves the app in a working state. Per `CLAUDE.md`, work stops after each
@@ -125,6 +127,134 @@ outstanding derived from transactions minus payments.
 the router and sidebar.
 *Verify:* editing a service's default fee changes what the transaction form
 pre-fills, without altering past transactions.
+
+---
+
+## Phase 2.5 — Hardening the money core
+
+Inserted after an edge-case audit of the shipped Phase 0–2 code (backend run
+against a scratch DB, ~70 probes across every live endpoint plus the ledger
+core directly). Every item below is a **reproduced** failure, not a review
+opinion. Phases 3+ build transactions, payments and banking on exactly these
+paths, so the defects compound if they are carried forward — H.1 in particular
+makes the app unusable the moment two requests overlap, which react-query
+already does on the Accounts page today.
+
+Ordered by severity. H.1–H.3 are the ones that damage money or block use.
+
+**H.1 Per-request connection thread safety** — sync FastAPI endpoints and their
+sync dependencies run on *different* threadpool workers, so the `sqlite3`
+connection `get_db` yields is used off its creating thread and raises
+`ProgrammingError: SQLite objects created in a thread can only be used in that
+same thread`. Measured: **20 of 24 parallel reads returned 500**. It passes
+today only because sequential requests happen to reuse one worker. Fix in
+`db.get_connection`: `check_same_thread=False`, `PRAGMA journal_mode = WAL`,
+and a connect `timeout` for writer contention. Confirmed during the audit to
+take a patched server to 24/24 reads and 12/12 concurrent writes with exactly
+two ledger rows per transfer.
+*Verify:* 24 parallel GETs across `/accounts`, `/ledger`, `/customers` and
+`/accounts/{id}/balance` all return 200; 12 concurrent transfers yield 12×201
+and exactly 24 transfer ledger rows — no partial pair.
+
+**H.2 business_date validation on the write path** — `business_date` is an
+unvalidated `str`. `"not-a-date"`, `"2026-13-45"` and `""` are all accepted and
+written to `ledger` (all returned 201). Because the column is TEXT and every
+query orders and filters on it lexically, one bad row silently corrupts ledger
+ordering, date filters, opening-balance derivation (6.2) and day close (6.4) —
+the audit reproduced `ORDER BY business_date` yielding
+`['', '04-08-2026', '2026-08-04', …]`. One shared validator on the write path,
+not per endpoint, matching the 6.3 guard's placement.
+*Verify:* each of the three malformed dates returns 400; a valid `YYYY-MM-DD`
+still passes; no ledger row exists whose `business_date` fails `date.fromisoformat`.
+
+**H.3 Local business date, and paise in the UI** — two client-side money/date
+defects:
+- `Accounts.tsx:126` sends `new Date().toISOString().slice(0, 10)` — that is
+  the **UTC** date. In IST the local day starts 5½ hours before UTC's, so any
+  entry made before 05:30 IST is stamped to the previous business day. This
+  lands directly on Phase 6's day-close correctness.
+- `fmt()` uses bare `toLocaleString("en-IN")`, so paise are dropped from the
+  display: ₹1,234.50 renders as **"₹1,234.5"** and ₹1.00 as **"₹1"**. Every
+  amount on every page goes through this.
+*Verify:* with the clock at 00:30 IST a transfer is stamped with the local
+date, not yesterday's; `fmt(fromPaise(123450)) === "₹1,234.50"` and
+`fmt(fromPaise(100)) === "₹1.00"`.
+
+**H.4 Reject invalid writes instead of 500ing** — a PATCH that explicitly sends
+`null` for a NOT NULL column (`{"name": null}`) hits the DB constraint and
+returns **500** on accounts, customers and services alike; an out-of-range
+integer (`10**19`) 500s the same way. Empty and whitespace-only names are
+accepted everywhere (`""` and `"   "` both created accounts). Fix at the
+pydantic boundary so the rejection is uniform, not endpoint-by-endpoint.
+*Verify:* `{"name": null}` and `{"name": "   "}` each return 422/400 on all
+three resources; `opening_balance_paise: 10**19` returns 400, not 500.
+
+**H.5 Inactive accounts and overdrafts in transfers** — `_get_or_404` checks
+only `deleted_at`, so a **deactivated account still accepts transfers** (a
+transfer out of a deactivated account returned 201), and the frontend pickers
+list it because `GET /api/accounts` has no active filter. Separately, a
+transfer of ₹999,999.99 from a ₹0 cash drawer succeeded and drove the balance
+to **−₹999,503.99** with no warning. Decide the overdraft policy explicitly:
+cash cannot go negative in the physical world, and a silent negative drawer
+misstates every downstream report.
+*Verify:* a transfer touching a deactivated account returns 400; the transfer
+form lists active accounts only; a cash transfer exceeding the derived balance
+is rejected (or, if allowed by decision, is recorded and surfaced as a warning
+in the UI — pick one and state it).
+
+**H.6 Ledger read hardening** — two defects in `GET /api/ledger`:
+- The running balance is a window function over the **filtered** set, so under
+  a date or type filter it restarts mid-history rather than continuing from the
+  account's prior balance. Measured on the same account: date-filtered last
+  running balance −₹999,499.99 vs. a true balance of −₹999,503.99. This breaks
+  PLAN 1.7's *Verify* for every case except the unfiltered one.
+- `limit` and `offset` are unbounded and unchecked: `limit=-1` is passed
+  straight to SQLite, which reads it as *no limit* and returns the whole table.
+*Verify:* a date-filtered running balance ends at the value
+`GET /api/accounts/{id}/balance` reports; `limit=-1` and `limit=10000000` are
+both clamped to the documented maximum, and `offset=-5` is rejected or floored
+to 0.
+
+**H.7 Customer search and soft-delete reachability** — two defects in
+`customers.py`:
+- Search interpolates `q` into a `LIKE` pattern without escaping, so `%` and
+  `_` act as wildcards — `q=%` returns every customer.
+- `/history` and `/outstanding` both call `_get_or_404`, which filters on
+  `deleted_at`, so a soft-deleted customer's history returns **404**. PLAN 2.2
+  claims "their history remains intact"; the data is intact in the DB but no
+  API path reaches it, so the criterion is not actually met.
+*Verify:* `q=%` returns only customers whose text literally contains `%`;
+`GET /customers/{id}/history` on a soft-deleted customer returns their rows
+(flagged as deleted) rather than 404, making 2.2's *Verify* genuinely pass.
+
+**H.8 Frontend loading and error states** — no page handles a failed query.
+Every call site is `const { data = [] } = useQuery(...)`, so a backend 500
+renders as an empty table and `AccountBalance` renders **"₹0"** — a *wrong
+balance* presented as fact. There is exactly one loading indicator in the whole
+frontend (the transfer button). For a cash-handling app, "I could not load
+this" and "this is ₹0" must never look the same.
+*Verify:* with the backend stopped, every wired page shows an explicit error
+state and no page displays a monetary figure; while in flight, pages show a
+loading state rather than a zeroed one.
+
+**H.9 Reversal chain guard** — `reverse_entry` blocks reversing the same entry
+twice, but happily reverses a *reversal*: the audit reversed entry B (itself
+the reversal of A) and the balance went back to ₹1,000, silently re-applying
+the original. Reversal is the only correction mechanism in the system (3.6,
+5.2), so an un-auditable way to re-apply a reversed entry is a real hole.
+*Verify:* reversing a row whose `entry_type` is `reversal` is rejected; the
+existing single-reversal rule still holds.
+
+**H.10 Regression tests for the above** — one `backend/tests/test_edge_cases.py`
+in the existing plain-`assert` style (ARCHITECTURE.md §8), covering H.1–H.2 and
+H.4–H.9, plus the two `fmt`/date assertions in `src/lib/format.test.ts`.
+*Verify:* the file fails against today's code and passes after H.1–H.9 land.
+
+**Not scheduled, recorded deliberately.** Duplicate account names, duplicate
+service names, and two customers sharing a phone number are all accepted. These
+are plausibly *correct* for a village shop (two family members, one phone), so
+they are listed as findings rather than steps — decide before Phase 3 whether
+the customer picker needs a duplicate warning.
 
 ---
 
@@ -358,6 +488,18 @@ explicit rebuild command, never as a second writable source.
 **Banking commission modelling (5.1, 5.5) is the most common correctness bug**
 in this class of application. Booking the ₹5,000 principal of an AEPS
 withdrawal as income overstates daily profit by a hundredfold.
+
+**Concurrency was assumed away and it does not hold (H.1).** "Single operator,
+single machine" was read as "one request at a time", but react-query issues
+parallel queries by default — the Accounts page alone fires one balance request
+per account card. The threading defect was invisible to sequential tests and to
+manual clicking, and only appeared under a parallel probe. Any future assumption
+of serialised access needs the same treatment.
+
+**A missing error state is a wrong number (H.8).** The frontend's `data = []`
+default turns a failed fetch into a confident "₹0". In a ledger app, silence and
+zero must be visually distinct, or the operator reconciles against a figure the
+system never actually had.
 
 **The existing UI is a mock, not a partial implementation.** Its forms don't
 submit and its numbers come from `mockData.ts`. Steps that say "wiring" are
