@@ -1,3 +1,4 @@
+import { useState } from "react"
 import { BrowserRouter, Routes, Route, Navigate, NavLink, useNavigate, useLocation } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import { api } from "./lib/api"
@@ -62,6 +63,7 @@ export default function App() {
 function AppShell() {
   const navigate = useNavigate()
   const location = useLocation()
+  const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const activePath = nav.find(n => location.pathname.startsWith(n.path))?.path
   const { data: health } = useQuery({
     queryKey: queryKeys.health,
@@ -72,8 +74,11 @@ function AppShell() {
 
   return (
     <div style={{ display: "flex", height: "100vh", overflow: "hidden", fontFamily: "'Outfit', system-ui, sans-serif" }}>
+      {/* Backdrop for mobile sidebar */}
+      {mobileNavOpen && <div className="app-sidebar-backdrop" onClick={() => setMobileNavOpen(false)} />}
+
       {/* Sidebar */}
-      <aside style={{
+      <aside className={`app-sidebar${mobileNavOpen ? " open" : ""}`} style={{
         width: 220,
         background: "#0f2035",
         display: "flex",
@@ -117,6 +122,7 @@ function AppShell() {
                 )}
                 <NavLink
                   to={item.path}
+                  onClick={() => setMobileNavOpen(false)}
                   style={{
                     width: "100%",
                     display: "flex",
@@ -164,20 +170,27 @@ function AppShell() {
       {/* Main content */}
       <main style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column", background: "#f0f4f8" }}>
         {/* Top bar */}
-        <div style={{ height: 48, background: "#fff", borderBottom: "1px solid #d1d9e6", display: "flex", alignItems: "center", padding: "0 24px", justifyContent: "space-between", flexShrink: 0 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#64748b" }}>
-            <span>RSCMS</span>
-            <span style={{ color: "#d1d9e6" }}>›</span>
-            <span style={{ color: "#1a2332", fontWeight: 500, textTransform: "capitalize" }}>
+        <div style={{ height: 48, background: "#fff", borderBottom: "1px solid #d1d9e6", display: "flex", alignItems: "center", padding: "0 24px", justifyContent: "space-between", flexShrink: 0, gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#64748b", minWidth: 0 }}>
+            <button
+              className="hamburger-btn"
+              onClick={() => setMobileNavOpen(o => !o)}
+              style={{ background: "none", border: "1px solid #d1d9e6", borderRadius: 6, width: 28, height: 28, alignItems: "center", justifyContent: "center", cursor: "pointer", color: "#475569", flexShrink: 0, marginRight: 4 }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+            </button>
+            <span className="topbar-hide-mobile">RSCMS</span>
+            <span className="topbar-hide-mobile" style={{ color: "#d1d9e6" }}>›</span>
+            <span style={{ color: "#1a2332", fontWeight: 500, textTransform: "capitalize", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {nav.find(n => n.path === activePath)?.label}
             </span>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexShrink: 0 }}>
             <span style={{ fontSize: 11, color: health?.status === "ok" ? "#16a34a" : "#dc2626", display: "flex", alignItems: "center", gap: 5 }}>
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: health?.status === "ok" ? "#16a34a" : "#dc2626", display: "inline-block" }} />
-              {health?.status === "ok" ? "API Connected" : "API Offline"}
+              <span className="topbar-hide-mobile">{health?.status === "ok" ? "API Connected" : "API Offline"}</span>
             </span>
-            <button style={{ background: "none", border: "1px solid #d1d9e6", borderRadius: 6, padding: "5px 10px", fontSize: 12, cursor: "pointer", color: "#475569", display: "flex", alignItems: "center", gap: 5 }}>
+            <button className="topbar-hide-mobile" style={{ background: "none", border: "1px solid #d1d9e6", borderRadius: 6, padding: "5px 10px", fontSize: 12, cursor: "pointer", color: "#475569", display: "flex", alignItems: "center", gap: 5 }}>
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
               Search
             </button>

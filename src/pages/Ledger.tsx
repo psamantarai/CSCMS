@@ -20,7 +20,7 @@ export default function Ledger() {
       </div>
 
       {/* Net summary */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 24 }}>
+      <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 24 }}>
         <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 9, padding: "16px 18px" }}>
           <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Total Credits</div>
           <div style={{ fontFamily: "monospace", fontSize: 22, fontWeight: 700, color: "#16a34a" }}>₹{totalCredit.toLocaleString("en-IN")}</div>
@@ -39,6 +39,7 @@ export default function Ledger() {
 
       {/* Ledger table */}
       <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, overflow: "hidden" }}>
+        <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ background: "#f8fafc" }}>
@@ -77,6 +78,7 @@ export default function Ledger() {
             </tr>
           </tfoot>
         </table>
+        </div>
       </div>
     </div>
   )

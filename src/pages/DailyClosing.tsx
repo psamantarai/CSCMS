@@ -57,7 +57,7 @@ export default function DailyClosing() {
         <p style={{ margin: "4px 0 0", color: "#64748b", fontSize: 13 }}>4 August 2026 · Walk through each step to close the business day</p>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 20 }}>
+      <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "220px 1fr", gap: 20 }}>
         {/* Step sidebar */}
         <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, padding: "12px 0", height: "fit-content" }}>
           {steps.map(s => (
@@ -120,7 +120,7 @@ export default function DailyClosing() {
           {currentStep === 2 && (
             <div>
               <h3 style={{ margin: "0 0 16px", fontSize: 15, fontFamily: "'Roboto Slab', serif" }}>Verify Cash</h3>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
+              <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
                 <div style={{ background: "#f0f4f8", borderRadius: 8, padding: "16px 18px" }}>
                   <div style={{ fontSize: 12, color: "#64748b", marginBottom: 6 }}>System Cash Balance</div>
                   <div style={{ fontFamily: "monospace", fontSize: 24, fontWeight: 700, color: "#1e3a5f" }}>{fmt(cashAccount.balance)}</div>
@@ -173,7 +173,7 @@ export default function DailyClosing() {
           {currentStep === 4 && (
             <div>
               <h3 style={{ margin: "0 0 16px", fontSize: 15, fontFamily: "'Roboto Slab', serif" }}>Record Adjustments</h3>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 20 }}>
+              <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14, marginBottom: 20 }}>
                 <div>
                   <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>Adjustment Amount (₹)</label>
                   <input type="number" placeholder="0 (positive = surplus, negative = shortage)" style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box" }} />

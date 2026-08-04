@@ -29,7 +29,7 @@ export default function Dashboard() {
       </div>
 
       {/* Stats grid */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 24 }}>
+      <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 24 }}>
         <StatCard label="Today's Income" value={fmt(todayIncome)} sub="22 transactions" color="green"
           icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>} />
         <StatCard label="Today's Expenses" value={fmt(todayExpenses)} sub="2 entries today" color="red"
@@ -40,7 +40,7 @@ export default function Dashboard() {
           icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>} />
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 28 }}>
+      <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 28 }}>
         <StatCard label="Cash in Hand" value={fmt(cashInHand)} sub="Cash Drawer" color="default"
           icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>} />
         <StatCard label="Total Bank Balance" value={fmt(totalBank)} sub="4 accounts" color="default"
@@ -52,13 +52,14 @@ export default function Dashboard() {
       </div>
 
       {/* Bottom two-col layout */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 20 }}>
+      <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 20 }}>
         {/* Recent transactions */}
         <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, overflow: "hidden" }}>
           <div style={{ padding: "16px 20px", borderBottom: "1px solid #eef1f7", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <h3 style={{ margin: 0, fontSize: 15, fontFamily: "'Roboto Slab', serif" }}>Today's Transactions</h3>
             <span style={{ fontSize: 12, color: "#3b6cb7", cursor: "pointer", fontWeight: 500 }}>View All →</span>
           </div>
+          <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ background: "#f8fafc" }}>
@@ -87,6 +88,7 @@ export default function Dashboard() {
               ))}
             </tbody>
           </table>
+          </div>
         </div>
 
         {/* Service breakdown */}

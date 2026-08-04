@@ -16,9 +16,9 @@ export default function Customers() {
   const custTxns = customer ? transactions.filter(t => t.customer === customer.name) : []
 
   return (
-    <div style={{ display: "flex", height: "100%", overflow: "hidden" }}>
+    <div className="rs-flex-split" style={{ display: "flex", height: "100%", overflow: "hidden" }}>
       {/* List panel */}
-      <div style={{ width: 320, borderRight: "1px solid #d1d9e6", display: "flex", flexDirection: "column", flexShrink: 0 }}>
+      <div className="rs-flex-side" style={{ width: 320, borderRight: "1px solid #d1d9e6", display: "flex", flexDirection: "column", flexShrink: 0 }}>
         <div style={{ padding: "20px 16px 12px", borderBottom: "1px solid #eef1f7" }}>
           <h2 style={{ margin: "0 0 12px", fontSize: 16, fontFamily: "'Roboto Slab', serif" }}>Customers</h2>
           <div style={{ position: "relative" }}>
@@ -86,7 +86,7 @@ export default function Customers() {
             </div>
 
             {/* Profile cards */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 24 }}>
+            <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 24 }}>
               {[
                 { label: "Aadhaar", value: customer.aadhaar },
                 { label: "Outstanding Balance", value: fmt(customer.outstanding), highlight: customer.outstanding > 0 },
@@ -105,6 +105,7 @@ export default function Customers() {
                 <h3 style={{ margin: 0, fontSize: 14, fontFamily: "'Roboto Slab', serif" }}>Service History</h3>
               </div>
               {custTxns.length > 0 ? (
+                <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <thead>
                     <tr style={{ background: "#f8fafc" }}>
@@ -132,6 +133,7 @@ export default function Customers() {
                     ))}
                   </tbody>
                 </table>
+                </div>
               ) : (
                 <div style={{ padding: 24, color: "#94a3b8", fontSize: 13 }}>No transactions found for today.</div>
               )}

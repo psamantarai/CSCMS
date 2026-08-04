@@ -42,7 +42,7 @@ export default function Accounts() {
       {showTransfer && (
         <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, padding: "20px 24px", marginBottom: 22 }}>
           <h3 style={{ margin: "0 0 16px", fontSize: 15 }}>Internal Fund Transfer</h3>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 60px 1fr 160px", gap: 10, alignItems: "end" }}>
+          <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "1fr 60px 1fr 160px", gap: 10, alignItems: "end" }}>
             <div>
               <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>From Account</label>
               <select style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, background: "#fff", outline: "none" }}>
@@ -70,7 +70,7 @@ export default function Accounts() {
       )}
 
       {/* Account cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 28 }}>
+      <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 28 }}>
         {accounts.map(a => (
           <div key={a.id} style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, padding: "20px 22px", position: "relative", overflow: "hidden" }}>
             <div style={{ position: "absolute", top: 0, left: 0, width: 4, height: "100%", background: a.type === "Cash" ? "#f59e0b" : a.type === "Savings" ? "#1e3a5f" : a.type === "Current" ? "#7c3aed" : a.type === "Wallet" ? "#0891b2" : "#059669" }} />
@@ -98,6 +98,7 @@ export default function Accounts() {
         <div style={{ padding: "14px 18px", borderBottom: "1px solid #eef1f7" }}>
           <h3 style={{ margin: 0, fontSize: 14, fontFamily: "'Roboto Slab', serif" }}>Recent Internal Transfers</h3>
         </div>
+        <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ background: "#f8fafc" }}>
@@ -119,6 +120,7 @@ export default function Accounts() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   )

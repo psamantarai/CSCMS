@@ -38,7 +38,7 @@ export default function Transactions() {
       {showForm && (
         <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, padding: "20px 24px", marginBottom: 20 }}>
           <h3 style={{ margin: "0 0 16px", fontSize: 15 }}>New Transaction</h3>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 14 }}>
+          <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 14 }}>
             {[
               { label: "Customer", placeholder: "Search customer…", type: "text" },
               { label: "Service", placeholder: "Select service…", type: "text" },
@@ -86,6 +86,7 @@ export default function Transactions() {
 
       {/* Table */}
       <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, overflow: "hidden" }}>
+        <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ background: "#f8fafc" }}>
@@ -118,6 +119,7 @@ export default function Transactions() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   )

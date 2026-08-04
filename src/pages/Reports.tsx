@@ -52,7 +52,7 @@ export default function Reports() {
 
       {activeReport === "daily" && (
         <>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 24 }}>
+          <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 24 }}>
             {/* Daily summary */}
             <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, padding: "20px 24px" }}>
               <h3 style={{ margin: "0 0 16px", fontSize: 14, fontFamily: "'Roboto Slab', serif" }}>Daily Summary — 4 August 2026</h3>
@@ -86,6 +86,7 @@ export default function Reports() {
             <div style={{ padding: "14px 18px", borderBottom: "1px solid #eef1f7" }}>
               <h3 style={{ margin: 0, fontSize: 14, fontFamily: "'Roboto Slab', serif" }}>Transaction Register</h3>
             </div>
+            <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse" }}>
               <thead>
                 <tr style={{ background: "#f8fafc" }}>
@@ -110,6 +111,7 @@ export default function Reports() {
                 ))}
               </tbody>
             </table>
+            </div>
           </div>
         </>
       )}

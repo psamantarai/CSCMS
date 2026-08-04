@@ -27,7 +27,7 @@ export default function Expenses() {
       {showForm && (
         <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, padding: "20px 24px", marginBottom: 20 }}>
           <h3 style={{ margin: "0 0 14px", fontSize: 15 }}>Record Expense</h3>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
+          <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 12 }}>
             <div>
               <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>Category</label>
               <select style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, background: "#fff" }}>
@@ -55,7 +55,7 @@ export default function Expenses() {
       )}
 
       {/* Category summary */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 24 }}>
+      <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 24 }}>
         {categories.slice(0, 4).map(cat => {
           const catExpenses = expenses.filter(e => e.category === cat)
           const catTotal = catExpenses.reduce((s, e) => s + e.amount, 0)
@@ -75,6 +75,7 @@ export default function Expenses() {
 
       {/* Expense list */}
       <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, overflow: "hidden" }}>
+        <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ background: "#f8fafc" }}>
@@ -109,6 +110,7 @@ export default function Expenses() {
             </tr>
           </tfoot>
         </table>
+        </div>
       </div>
     </div>
   )

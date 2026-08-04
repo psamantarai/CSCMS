@@ -25,7 +25,7 @@ export default function Banking() {
       </div>
 
       {/* Summary */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 24 }}>
+      <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 24 }}>
         {[
           { label: "Total Volume", value: fmt(totalVolume), color: "#1e3a5f", bg: "#eff6ff" },
           { label: "Total Commission", value: fmt(totalCommission), color: "#16a34a", bg: "#f0fdf4" },
@@ -40,7 +40,7 @@ export default function Banking() {
       </div>
 
       {/* Service type cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 24 }}>
+      <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 24 }}>
         {[
           { label: "AEPS Withdrawal", icon: "💳", desc: "Biometric cash" },
           { label: "Money Transfer", icon: "↗", desc: "IMPS / NEFT" },
@@ -64,6 +64,7 @@ export default function Banking() {
         <div style={{ padding: "14px 18px", borderBottom: "1px solid #eef1f7" }}>
           <h3 style={{ margin: 0, fontSize: 14, fontFamily: "'Roboto Slab', serif" }}>Today's Banking Transactions</h3>
         </div>
+        <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ background: "#f8fafc" }}>
@@ -91,6 +92,7 @@ export default function Banking() {
             })}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   )
