@@ -2,7 +2,7 @@ import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { api } from "../lib/api"
 import { queryKeys } from "../lib/queries"
-import { fmt, formatDate, fromPaise } from "../lib/format"
+import { fmt, formatDate, formatTime, fromPaise } from "../lib/format"
 
 type Account = { id: number; name: string }
 
@@ -13,6 +13,7 @@ type LedgerEntry = {
   amount_paise: number
   entry_type: string
   description: string | null
+  created_at: string
   running_balance: number
 }
 
@@ -130,7 +131,7 @@ export default function Ledger() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ background: "#f8fafc" }}>
-              {["Entry", "Date", "Description", "Type", "Account", "Debit", "Credit", "Running Balance"].map(h => (
+              {["Entry", "Date", "Time", "Description", "Type", "Account", "Debit", "Credit", "Running Balance"].map(h => (
                 <th key={h} style={{ padding: "9px 14px", textAlign: "left", fontSize: 11, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em", borderBottom: "1px solid #eef1f7" }}>{h}</th>
               ))}
             </tr>
@@ -144,6 +145,7 @@ export default function Ledger() {
                 <tr key={e.id} style={{ background: i % 2 === 0 ? "#fff" : "#fafbfd", borderBottom: "1px solid #f1f5f9" }}>
                   <td style={{ padding: "10px 14px", fontFamily: "monospace", fontSize: 12, color: "#3b6cb7", fontWeight: 600 }}>#{e.id}</td>
                   <td style={{ padding: "10px 14px", fontSize: 12, color: "#64748b" }}>{formatDate(e.business_date)}</td>
+                  <td style={{ padding: "10px 14px", fontSize: 12, color: "#94a3b8" }}>{formatTime(e.created_at)}</td>
                   <td style={{ padding: "10px 14px", fontSize: 13 }}>{e.description || "—"}</td>
                   <td style={{ padding: "10px 14px" }}>
                     <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20, background: tc.bg, color: tc.color }}>{typeLabel[e.entry_type] ?? e.entry_type}</span>
@@ -162,7 +164,7 @@ export default function Ledger() {
               )
             })}
             {items.length === 0 && (
-              <tr><td colSpan={8} style={{ padding: "24px 14px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No ledger entries match these filters.</td></tr>
+              <tr><td colSpan={9} style={{ padding: "24px 14px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No ledger entries match these filters.</td></tr>
             )}
           </tbody>
         </table>

@@ -17,6 +17,16 @@ export function formatDate(iso: string): string {
   })
 }
 
+export function formatTime(sqlDatetime: string): string {
+  // created_at columns are SQLite's datetime('now') — "YYYY-MM-DD HH:MM:SS"
+  // in UTC. Mark it UTC explicitly so the browser converts to local time
+  // instead of misreading the space-separated string as already-local.
+  return new Date(`${sqlDatetime.replace(" ", "T")}Z`).toLocaleTimeString("en-IN", {
+    hour: "numeric",
+    minute: "2-digit",
+  })
+}
+
 export function toPaise(rupees: number): number {
   return Math.round(rupees * 100)
 }

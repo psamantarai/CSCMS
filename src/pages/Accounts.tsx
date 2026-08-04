@@ -2,7 +2,7 @@ import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "../lib/api"
 import { queryKeys } from "../lib/queries"
-import { fmt, formatDate, fromPaise, toPaise } from "../lib/format"
+import { fmt, formatDate, formatTime, fromPaise, toPaise } from "../lib/format"
 
 type AccountType = "cash" | "savings" | "current" | "wallet" | "settlement"
 
@@ -337,7 +337,7 @@ export default function Accounts() {
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
           <thead>
             <tr style={{ background: "#f8fafc" }}>
-              {["ID", "From", "To", "Amount", "Date"].map(h => (
+              {["ID", "From", "To", "Amount", "Date", "Time"].map(h => (
                 <th key={h} style={{ padding: "8px 14px", textAlign: "left", fontSize: 11, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em", borderBottom: "1px solid #eef1f7" }}>{h}</th>
               ))}
             </tr>
@@ -350,10 +350,11 @@ export default function Accounts() {
                 <td style={{ padding: "9px 14px", fontSize: 13 }}>{t.to_account_name}</td>
                 <td style={{ padding: "9px 14px", fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: "#1e3a5f" }}>{fmt(fromPaise(t.amount_paise))}</td>
                 <td style={{ padding: "9px 14px", fontSize: 12, color: "#64748b" }}>{formatDate(t.business_date)}</td>
+                <td style={{ padding: "9px 14px", fontSize: 12, color: "#94a3b8" }}>{formatTime(t.created_at)}</td>
               </tr>
             ))}
             {transfers.length === 0 && (
-              <tr><td colSpan={5} style={{ padding: "18px 14px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No transfers yet.</td></tr>
+              <tr><td colSpan={6} style={{ padding: "18px 14px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No transfers yet.</td></tr>
             )}
           </tbody>
         </table>
