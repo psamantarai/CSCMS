@@ -76,6 +76,17 @@ def _get_or_404(conn: sqlite3.Connection, account_id: int) -> sqlite3.Row:
     return row
 
 
+# H.15: money-in write paths (transactions, payments, transfers) must reject
+# a deactivated account, not just a deleted one — _get_or_404 alone is also
+# used by read paths and PATCH, which still need to reach a deactivated
+# account.
+def _get_active_or_404(conn: sqlite3.Connection, account_id: int) -> sqlite3.Row:
+    row = _get_or_404(conn, account_id)
+    if not row["is_active"]:
+        raise HTTPException(status_code=400, detail="account is deactivated")
+    return row
+
+
 def _system_user_id(conn: sqlite3.Connection) -> int:
     # ponytail: hardcoded to the seeded admin user until auth (8.1/8.2) provides
     # a real session user for created_by/operator_id fields.

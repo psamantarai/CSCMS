@@ -2,6 +2,7 @@
 a temp DB. Run: python tests/test_transfers.py"""
 import sys
 import tempfile
+import threading
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -162,6 +163,52 @@ def test_list_transfers_includes_account_names():
         conn.close()
 
 
+def test_concurrent_transfers_never_drive_balance_negative():
+    # H.11/H.5: without begin_write, N concurrent transfers from the same
+    # account all read the same pre-state balance and all pass the guard.
+    # Each thread here opens its own connection, like a real concurrent
+    # request would via Depends(get_db).
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = Path(tmp) / "test.db"
+        setup = get_connection(db_path)
+        run_migrations(setup, MIGRATIONS_DIR)
+        run_seed(setup)
+        cash_id = setup.execute("SELECT id FROM accounts WHERE name = 'Cash Drawer'").fetchone()[0]
+        sbi = create_account(AccountCreate(name="SBI", account_type="savings", opening_balance_paise=100000), setup)
+        setup.close()
+
+        results = []
+
+        def transfer():
+            conn = get_connection(db_path)
+            try:
+                r = create_transfer(
+                    TransferCreate(business_date="2026-08-04", from_account_id=sbi["id"],
+                                    to_account_id=cash_id, amount_paise=100000),
+                    conn,
+                )
+                results.append(("ok", r))
+            except Exception as e:  # noqa: BLE001 — capturing to assert from the main thread
+                results.append(("err", e))
+            finally:
+                conn.close()
+
+        threads = [threading.Thread(target=transfer) for _ in range(10)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        oks = [r for kind, r in results if kind == "ok"]
+        errs = [r for kind, r in results if kind == "err"]
+        assert len(oks) == 1, f"expected exactly 1 success against a fully-covering balance, got {len(oks)}"
+        assert len(errs) == 9
+
+        check = get_connection(db_path)
+        assert account_balance(check, sbi["id"]) == 0, "source balance must never go negative"
+        check.close()
+
+
 if __name__ == "__main__":
     test_transfer_moves_balance_between_accounts()
     test_transfer_to_same_account_rejected()
@@ -170,4 +217,5 @@ if __name__ == "__main__":
     test_transfer_to_deactivated_account_rejected()
     test_transfer_exceeding_balance_rejected()
     test_list_transfers_includes_account_names()
+    test_concurrent_transfers_never_drive_balance_negative()
     print("OK")

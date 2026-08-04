@@ -2,7 +2,7 @@ import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "../lib/api"
 import { queryKeys } from "../lib/queries"
-import { fmt, formatDate, fromPaise } from "../lib/format"
+import { fmt, formatDate, fromPaise, localDateISO, toPaise } from "../lib/format"
 import { BlockState, InlineState, TableRowState } from "../components/QueryState"
 
 type Customer = {
@@ -30,7 +30,10 @@ type BankingTransaction = {
   commission_paise: number
 }
 
+type Account = { id: number; name: string; is_active: number }
+
 const emptyForm = { name: "", phone: "", village: "", aadhaar_masked: "", notes: "" }
+const emptySettleForm = { accountId: "", amount: "0", remarks: "" }
 
 const statusColor: Record<Transaction["status"], { bg: string; fg: string }> = {
   completed: { bg: "#dcfce7", fg: "#16a34a" },
@@ -132,12 +135,21 @@ export default function Customers() {
   const [selected, setSelected] = useState<number | null>(null)
   const [formMode, setFormMode] = useState<"view" | "create" | "edit">("view")
   const [form, setForm] = useState(emptyForm)
+  const [showSettle, setShowSettle] = useState(false)
+  const [settleForm, setSettleForm] = useState(emptySettleForm)
+  const [settleError, setSettleError] = useState("")
   const queryClient = useQueryClient()
 
   const { data: customers = [], isLoading: customersLoading, error: customersError } = useQuery({
     queryKey: queryKeys.customers(search),
     queryFn: () => api.get<Customer[]>(`/customers${search ? `?q=${encodeURIComponent(search)}` : ""}`),
   })
+
+  const { data: accounts = [] } = useQuery({
+    queryKey: queryKeys.accounts,
+    queryFn: () => api.get<Account[]>("/accounts"),
+  })
+  const activeAccounts = accounts.filter(a => a.is_active)
 
   const customer = selected !== null ? customers.find(c => c.id === selected) ?? null : null
 
@@ -174,10 +186,34 @@ export default function Customers() {
     },
   })
 
+  // H.19: settles the customer's outstanding via POST /api/payments — oldest
+  // bills first, server-side (app/payments.py) — rather than a per-transaction
+  // edit. The only path to this API from the UI.
+  const settleMutation = useMutation({
+    mutationFn: () =>
+      api.post("/payments", {
+        business_date: localDateISO(),
+        customer_id: selected,
+        amount_paise: toPaise(Number(settleForm.amount) || 0),
+        account_id: Number(settleForm.accountId),
+        remarks: settleForm.remarks || null,
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.customerOutstanding(selected!) })
+      queryClient.invalidateQueries({ queryKey: queryKeys.customerHistory(selected!) })
+      queryClient.invalidateQueries({ queryKey: ["transactions"] })
+      setSettleForm(emptySettleForm)
+      setSettleError("")
+      setShowSettle(false)
+    },
+    onError: (e: Error) => setSettleError(e.message),
+  })
+
   function openCreate() {
     setSelected(null)
     setForm(emptyForm)
     setFormMode("create")
+    setShowSettle(false)
   }
 
   function openEdit() {
@@ -190,12 +226,26 @@ export default function Customers() {
       notes: customer.notes ?? "",
     })
     setFormMode("edit")
+    setShowSettle(false)
   }
 
   function submitForm() {
     if (!form.name.trim()) return
     if (formMode === "edit") updateMutation.mutate()
     else createMutation.mutate()
+  }
+
+  function openSettle() {
+    setSettleForm(emptySettleForm)
+    setSettleError("")
+    setShowSettle(true)
+  }
+
+  function submitSettle() {
+    if (!settleForm.accountId) { setSettleError("Select an account"); return }
+    if (!(Number(settleForm.amount) > 0)) { setSettleError("Amount must be positive"); return }
+    setSettleError("")
+    settleMutation.mutate()
   }
 
   return (
@@ -219,7 +269,7 @@ export default function Customers() {
           {!customersLoading && !customersError && customers.map(c => (
             <div
               key={c.id}
-              onClick={() => { setSelected(c.id); setFormMode("view") }}
+              onClick={() => { setSelected(c.id); setFormMode("view"); setShowSettle(false) }}
               style={{
                 padding: "12px 16px",
                 borderBottom: "1px solid #f1f5f9",
@@ -285,8 +335,43 @@ export default function Customers() {
                 <h2 style={{ margin: 0, fontSize: 20 }}>{customer.name}</h2>
                 <div style={{ color: "#64748b", fontSize: 13, marginTop: 4 }}>{customer.phone || "—"} · {customer.village || "—"}</div>
               </div>
-              <button onClick={openEdit} style={{ padding: "7px 14px", border: "1px solid #d1d9e6", borderRadius: 7, background: "#fff", fontSize: 13, cursor: "pointer" }}>Edit</button>
+              <div style={{ display: "flex", gap: 10 }}>
+                <button onClick={showSettle ? () => setShowSettle(false) : openSettle} style={{ padding: "7px 14px", border: "1px solid #d1d9e6", borderRadius: 7, background: "#fff", fontSize: 13, cursor: "pointer" }}>
+                  {showSettle ? "Cancel" : "Settle Payment"}
+                </button>
+                <button onClick={openEdit} style={{ padding: "7px 14px", border: "1px solid #d1d9e6", borderRadius: 7, background: "#fff", fontSize: 13, cursor: "pointer" }}>Edit</button>
+              </div>
             </div>
+
+            {/* Settle payment form (H.19) */}
+            {showSettle && (
+              <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, padding: "20px 24px", marginBottom: 24 }}>
+                <h3 style={{ margin: "0 0 16px", fontSize: 15 }}>Settle Payment</h3>
+                <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 14 }}>
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4, fontWeight: 500 }}>Amount (₹)</label>
+                    <input type="number" value={settleForm.amount} onChange={e => setSettleForm({ ...settleForm, amount: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4, fontWeight: 500 }}>Account (received into)</label>
+                    <select value={settleForm.accountId} onChange={e => setSettleForm({ ...settleForm, accountId: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, background: "#fff", outline: "none" }}>
+                      <option value="">Select account…</option>
+                      {activeAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4, fontWeight: 500 }}>Remarks</label>
+                    <input value={settleForm.remarks} onChange={e => setSettleForm({ ...settleForm, remarks: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                  <button onClick={submitSettle} disabled={settleMutation.isPending} style={{ background: "#1e3a5f", color: "#fff", border: "none", borderRadius: 7, padding: "9px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+                    {settleMutation.isPending ? "Saving…" : "Settle"}
+                  </button>
+                  {settleError && <span style={{ color: "#dc2626", fontSize: 12 }}>{settleError}</span>}
+                </div>
+              </div>
+            )}
 
             {/* Profile cards */}
             <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 24 }}>

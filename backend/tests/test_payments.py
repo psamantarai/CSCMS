@@ -2,12 +2,14 @@
 a temp DB. Run: python tests/test_payments.py"""
 import sys
 import tempfile
+import threading
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from fastapi import HTTPException
 
+from app.accounts import AccountCreate, AccountUpdate, create_account, update_account
 from app.customers import CustomerCreate, create_customer, get_customer_outstanding
 from app.db import get_connection, run_migrations
 from app.ledger import account_balance
@@ -162,10 +164,92 @@ def test_creation_time_payment_reduces_outstanding_immediately():
         conn.close()
 
 
+def test_payment_to_deactivated_account_rejected():
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id, service_id, customer_id = _cash_service_customer(conn)
+        sbi = create_account(AccountCreate(name="SBI", account_type="savings"), conn)
+        update_account(sbi["id"], AccountUpdate(is_active=False), conn)
+
+        create_transaction(
+            TransactionCreate(business_date="2026-08-01", customer_id=customer_id, service_id=service_id,
+                               fee_paise=100, account_id=cash_id),
+            conn,
+        )
+
+        try:
+            create_payment(
+                PaymentCreate(business_date="2026-08-04", customer_id=customer_id, amount_paise=100,
+                              account_id=sbi["id"]),
+                conn,
+            )
+            assert False, "a payment into a deactivated account must be rejected"
+        except HTTPException as e:
+            assert e.status_code == 400
+
+        conn.close()
+
+
+def test_concurrent_payments_against_one_bill_only_one_succeeds():
+    # H.11: a bare SELECT takes no lock at all, so without begin_write, N
+    # concurrent payments against the same bill all read the same pre-state
+    # outstanding balance and all pass the guard. Each thread here opens its
+    # own connection, like a real concurrent request would via Depends(get_db).
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = Path(tmp) / "test.db"
+        setup = get_connection(db_path)
+        run_migrations(setup, MIGRATIONS_DIR)
+        run_seed(setup)
+        cash_id, service_id, customer_id = _cash_service_customer(setup)
+        create_transaction(
+            TransactionCreate(business_date="2026-08-01", customer_id=customer_id, service_id=service_id,
+                               fee_paise=100000, account_id=cash_id),
+            setup,
+        )
+        balance_before = account_balance(setup, cash_id)
+        setup.close()
+
+        results = []
+
+        def pay():
+            conn = get_connection(db_path)
+            try:
+                r = create_payment(
+                    PaymentCreate(business_date="2026-08-04", customer_id=customer_id,
+                                  amount_paise=100000, account_id=cash_id),
+                    conn,
+                )
+                results.append(("ok", r))
+            except Exception as e:  # noqa: BLE001 — capturing to assert from the main thread
+                results.append(("err", e))
+            finally:
+                conn.close()
+
+        threads = [threading.Thread(target=pay) for _ in range(12)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        oks = [r for kind, r in results if kind == "ok"]
+        errs = [r for kind, r in results if kind == "err"]
+        assert len(oks) == 1, f"expected exactly 1 success against a fully-covering bill, got {len(oks)}"
+        assert len(errs) == 11
+        assert all(isinstance(e, HTTPException) and e.status_code == 400 for e in errs)
+
+        check = get_connection(db_path)
+        assert check.execute("SELECT COUNT(*) FROM payments").fetchone()[0] == 1
+        assert get_customer_outstanding(customer_id, check)["outstanding_paise"] == 0
+        assert account_balance(check, cash_id) == balance_before + 100000
+        check.close()
+
+
 if __name__ == "__main__":
     test_one_payment_clears_two_separate_outstanding_bills()
     test_payment_smaller_than_one_bill_leaves_it_partial()
     test_amount_exceeding_outstanding_rejected()
     test_payment_with_no_outstanding_bills_rejected()
     test_creation_time_payment_reduces_outstanding_immediately()
+    test_payment_to_deactivated_account_rejected()
+    test_concurrent_payments_against_one_bill_only_one_succeeds()
     print("OK")

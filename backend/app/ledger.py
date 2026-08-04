@@ -18,6 +18,20 @@ ENTRY_TYPES = {
 }
 
 
+def validate_business_date(business_date: str) -> None:
+    """H.2/H.13: business_date is TEXT and every query orders/filters on it
+    lexically, so one malformed value silently corrupts ordering, date
+    filters and opening-balance/day-close derivation downstream. insert_entry
+    is the only path *into the ledger*, not the only path that writes a
+    business_date column (transactions.py writes its own row before ever
+    reaching the ledger, and skips it entirely for an unpaid bill) — so this
+    is shared and called at each write path's boundary, not only here."""
+    try:
+        date.fromisoformat(business_date)
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail=f"invalid business_date: {business_date!r}")
+
+
 def insert_entry(
     conn: sqlite3.Connection,
     *,
@@ -33,14 +47,7 @@ def insert_entry(
 ) -> int:
     if entry_type not in ENTRY_TYPES:
         raise ValueError(f"invalid entry_type: {entry_type}")
-    try:
-        date.fromisoformat(business_date)
-    except (TypeError, ValueError):
-        # H.2: business_date is TEXT and every query orders/filters on it
-        # lexically, so one malformed value silently corrupts ordering,
-        # date filters and opening-balance/day-close derivation downstream.
-        # Checked once here — the only path anything reaches the ledger by.
-        raise HTTPException(status_code=400, detail=f"invalid business_date: {business_date!r}")
+    validate_business_date(business_date)
     cur = conn.execute(
         "INSERT INTO ledger "
         "(business_date, account_id, amount_paise, entry_type, source_type, source_id, description, reverses_id, created_by) "

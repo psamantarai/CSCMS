@@ -118,6 +118,7 @@ Installed under `.agents/skills/` (tracked in `skills-lock.json`). Invoke via th
 Custom skill under `.claude/skills/` (not part of `skills-lock.json`):
 
 - `progress-tracker` - use to update or check `docs/progress-tracker.html`, the work progress tracker. Keeps the in-progress task shown first, everything else after, with status filters.
+- `edge-case-audit` - use to hunt for missed edge cases and bugs in shipped code. Runs the app against a scratch DB, reproduces each defect, then writes them into `docs/PLAN.md` as a numbered hardening phase (the Phase 2.5 pattern) and into the tracker. Plans, does not fix.
 
 ## Project Agents
 

@@ -65,6 +65,17 @@ def _get_or_404(conn: sqlite3.Connection, service_id: int) -> sqlite3.Row:
     return row
 
 
+# H.15: a deactivated service is "excluded from pickers but retained on old
+# transactions" (PLAN 2.1) — the picker already excludes it, but nothing
+# stopped a new transaction naming it directly. Only the write path needs
+# this; reads and PATCH still use _get_or_404.
+def _get_active_or_404(conn: sqlite3.Connection, service_id: int) -> sqlite3.Row:
+    row = _get_or_404(conn, service_id)
+    if not row["is_active"]:
+        raise HTTPException(status_code=400, detail="service is deactivated")
+    return row
+
+
 @router.get("")
 def list_services(active_only: bool = False, conn: sqlite3.Connection = Depends(get_db)):
     query = "SELECT * FROM services WHERE deleted_at IS NULL"

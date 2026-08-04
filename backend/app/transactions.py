@@ -16,27 +16,42 @@ service_income row, for a walk-in, since payments.customer_id is NOT NULL and
 a walk-in can never be paid against again after creation anyway.
 
 Correction (3.6) covers the bill itself — service/fee/charge/discount/
-account/date/remarks — not the amount already collected (that's a settlement
-event, handled by app/payments.py, not a transaction edit). The DB trigger
-blocks UPDATE on ledger rows regardless, so the only field a correction can
-carry into the ledger — account_id — moves via reversal + replacement
-(ARCHITECTURE.md §2) rather than ever mutating the original row."""
+account/date/remarks. The DB trigger blocks UPDATE on ledger rows regardless,
+so whenever a correction changes the account, the business_date, or (for a
+walk-in previously paid in full — see correct_transaction) the total, the
+live posted entry moves via reversal + replacement (ARCHITECTURE.md §2 and
+H.14) rather than ever mutating the original row. For a customer, later
+settlement runs through app/payments.py instead of a transaction edit."""
 import sqlite3
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
-from app.accounts import _get_or_404 as _get_account_or_404
+from app.accounts import _get_active_or_404 as _get_account_or_404
 from app.accounts import _system_user_id
 from app.customers import _get_or_404 as _get_customer_or_404
-from app.db import get_db
-from app.ledger import insert_entry, reverse_entry
-from app.services import _get_or_404 as _get_service_or_404
+from app.db import begin_write, get_db
+from app.ledger import insert_entry, reverse_entry, validate_business_date
+from app.services import _get_active_or_404 as _get_service_or_404
 
 router = APIRouter(prefix="/api/transactions", tags=["transactions"])
 
 _INT64_MIN, _INT64_MAX = -(2**63), 2**63 - 1
 MAX_LIST_LIMIT = 500  # same cap/clamp pattern as list_ledger (H.6)
+
+
+def _compute_total(fee_paise: int, charge_paise: int, discount_paise: int) -> int:
+    """The one place total_paise is computed, for both create and correct —
+    each field is already bounded at the pydantic boundary, but their sum can
+    still overflow int64 (H.17) or land at zero/negative (H.16), which fee's
+    own ge=0 bound can't catch since a discount alone can drive the total
+    non-positive."""
+    total_paise = fee_paise + charge_paise - discount_paise
+    if total_paise < _INT64_MIN or total_paise > _INT64_MAX:
+        raise HTTPException(status_code=400, detail="transaction total is out of range")
+    if total_paise <= 0:
+        raise HTTPException(status_code=400, detail="transaction total must be positive")
+    return total_paise
 
 
 # H.4: these are all NOT NULL columns; the correction model has to accept them
@@ -54,7 +69,7 @@ class TransactionCreate(BaseModel):
     business_date: str
     customer_id: int | None = None  # nullable = walk-in
     service_id: int
-    fee_paise: int = Field(ge=_INT64_MIN, le=_INT64_MAX)
+    fee_paise: int = Field(ge=0, le=_INT64_MAX)  # H.16: a negative fee is money flowing backwards, not a real bill
     charge_paise: int = Field(0, ge=_INT64_MIN, le=_INT64_MAX)
     discount_paise: int = Field(0, ge=_INT64_MIN, le=_INT64_MAX)
     account_id: int
@@ -68,7 +83,7 @@ class TransactionCreate(BaseModel):
 class TransactionCorrection(BaseModel):
     business_date: str | None = None
     service_id: int | None = None
-    fee_paise: int | None = Field(None, ge=_INT64_MIN, le=_INT64_MAX)
+    fee_paise: int | None = Field(None, ge=0, le=_INT64_MAX)  # H.16
     charge_paise: int | None = Field(None, ge=_INT64_MIN, le=_INT64_MAX)
     discount_paise: int | None = Field(None, ge=_INT64_MIN, le=_INT64_MAX)
     account_id: int | None = None
@@ -184,12 +199,20 @@ def list_transactions(
 
 @router.post("", status_code=201)
 def create_transaction(body: TransactionCreate, conn: sqlite3.Connection = Depends(get_db)):
+    # H.13: this row is written before insert_entry ever runs, and
+    # insert_entry is skipped entirely for an unpaid bill — so business_date
+    # has to be checked here too, not only inside the ledger.
+    validate_business_date(body.business_date)
     _get_service_or_404(conn, body.service_id)
     _get_account_or_404(conn, body.account_id)
     if body.customer_id is not None:
         _get_customer_or_404(conn, body.customer_id)
 
-    total_paise = body.fee_paise + body.charge_paise - body.discount_paise
+    total_paise = _compute_total(body.fee_paise, body.charge_paise, body.discount_paise)
+    # H.12: the frontend already blocks this (Transactions.tsx) — exactly
+    # why the server must too, since that's the side that can be bypassed.
+    if body.amount_paid_paise > total_paise:
+        raise HTTPException(status_code=400, detail="amount paid exceeds the transaction total")
     user_id = _system_user_id(conn)
 
     cur = conn.execute(
@@ -236,17 +259,26 @@ def create_transaction(body: TransactionCreate, conn: sqlite3.Connection = Depen
 
 @router.patch("/{transaction_id}")
 def correct_transaction(transaction_id: int, body: TransactionCorrection, conn: sqlite3.Connection = Depends(get_db)):
-    """PLAN 3.6: corrects the bill (service/fee/charge/discount/account/date/
-    remarks). If account_id changes, the transaction's creation-time
-    service_income ledger entry — the only ledger row a correction can ever
-    touch — is reversed and a replacement posted to the new account for the
-    same amount; the ledger row is never UPDATEd. total_paise and status are
-    then re-derived, same as create."""
+    """PLAN 3.6 corrects the bill (service/fee/charge/discount/account/date/
+    remarks). Whenever the correction changes the account, the business_date,
+    or the total against a transaction that already has a live posted entry
+    (H.14), that entry is reversed and a replacement posted — the ledger row
+    is never UPDATEd. A walk-in's live entry IS its only paid-amount record
+    (payments.customer_id is NOT NULL, so a walk-in can never be settled
+    again after creation) — if it was covering the old bill in full, the
+    replacement re-syncs to the corrected total so a completed walk-in never
+    corrects into an unsettleable partial. A customer's creation-time entry
+    is only ever the amount collected then; later settlement runs through
+    app/payments.py and posts its own rows, so a fee/charge/discount
+    correction leaves it alone there. total_paise and status are then
+    re-derived, same as create."""
     txn = _get_or_404(conn, transaction_id)
     fields = body.model_dump(exclude_unset=True)
     if not fields:
         return _row_to_dict(txn)
 
+    if "business_date" in fields:
+        validate_business_date(fields["business_date"])  # H.13
     if "service_id" in fields:
         _get_service_or_404(conn, fields["service_id"])
     new_account_id = fields.get("account_id", txn["account_id"])
@@ -256,10 +288,19 @@ def correct_transaction(transaction_id: int, body: TransactionCorrection, conn: 
     fee = fields.get("fee_paise", txn["fee_paise"])
     charge = fields.get("charge_paise", txn["charge_paise"])
     discount = fields.get("discount_paise", txn["discount_paise"])
-    total_paise = fee + charge - discount
+    total_paise = _compute_total(fee, charge, discount)
+
+    new_business_date = fields.get("business_date", txn["business_date"])
+    account_changed = new_account_id != txn["account_id"]
+    date_changed = new_business_date != txn["business_date"]
+    amount_changed = total_paise != txn["total_paise"]
 
     try:
-        if new_account_id != txn["account_id"]:
+        if account_changed or date_changed or amount_changed:
+            # H.11: acquire the write lock before the reversal-guard SELECT
+            # below, so N concurrent corrections of the same transaction
+            # can't all find and reverse the same live entry.
+            begin_write(conn)
             live_entry = conn.execute(
                 "SELECT * FROM ledger WHERE source_type = 'transaction' AND source_id = ? "
                 "AND entry_type = 'service_income' AND id NOT IN "
@@ -267,15 +308,20 @@ def correct_transaction(transaction_id: int, body: TransactionCorrection, conn: 
                 (transaction_id,),
             ).fetchone()
             if live_entry is not None:
-                user_id = _system_user_id(conn)
-                reverse_entry(conn, entry_id=live_entry["id"], created_by=user_id,
-                               description=f"Account correction for transaction {transaction_id}")
-                insert_entry(
-                    conn, business_date=live_entry["business_date"], account_id=new_account_id,
-                    amount_paise=live_entry["amount_paise"], entry_type="service_income",
-                    source_type="transaction", source_id=transaction_id,
-                    description=live_entry["description"], created_by=user_id,
-                )
+                new_amount = live_entry["amount_paise"]
+                if (txn["customer_id"] is None and amount_changed
+                        and live_entry["amount_paise"] == txn["total_paise"]):
+                    new_amount = total_paise
+                if account_changed or date_changed or new_amount != live_entry["amount_paise"]:
+                    user_id = _system_user_id(conn)
+                    reverse_entry(conn, entry_id=live_entry["id"], created_by=user_id,
+                                   description=f"Correction of transaction {transaction_id}")
+                    insert_entry(
+                        conn, business_date=new_business_date, account_id=new_account_id,
+                        amount_paise=new_amount, entry_type="service_income",
+                        source_type="transaction", source_id=transaction_id,
+                        description=live_entry["description"], created_by=user_id,
+                    )
 
         set_fields = {**fields, "total_paise": total_paise}
         set_clause = ", ".join(f"{k} = ?" for k in set_fields)

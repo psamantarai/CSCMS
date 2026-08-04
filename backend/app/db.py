@@ -26,6 +26,17 @@ def get_db():
         conn.close()
 
 
+def begin_write(conn: sqlite3.Connection) -> None:
+    """H.11: acquire the write lock before a read-check-write guard's SELECT.
+    A bare SELECT starts no transaction at all — sqlite3 only auto-BEGINs on
+    the first INSERT/UPDATE — and under WAL (H.1) readers never block
+    writers, so without this every "reject the write if the current state
+    says X" guard on a money path checks pre-state against N concurrent
+    requests doing the same thing at once. Call this immediately before the
+    guard's SELECT; the caller commits or rolls back as usual."""
+    conn.execute("BEGIN IMMEDIATE")
+
+
 def run_migrations(conn: sqlite3.Connection, migrations_dir: Path) -> None:
     """Apply numbered .sql files (e.g. 001_init.sql) whose number exceeds
     PRAGMA user_version, in ascending order. Each applied file bumps

@@ -1,12 +1,18 @@
-"""H.10: regression tests for the hardening pass (PLAN.md H.1-H.9). Each
-check already lives next to the fix it covers (test locality); this file
-just runs them together as one pass so the whole pass can be verified with a
-single command instead of six. Run: python tests/test_edge_cases.py
+"""H.10 + H.20: regression tests for both hardening passes (PLAN.md H.1-H.9,
+then H.11-H.17). Each check already lives next to the fix it covers (test
+locality); this file just runs them together as one pass so the whole thing
+can be verified with a single command instead of a dozen. Run:
+python tests/test_edge_cases.py
 
 H.3 (paise/date formatting) and H.8 (frontend loading/error states) have no
 backend logic to assert on: H.3 is covered by src/lib/format.test.ts, and
 H.8 is UI-only, out of scope for the assert-script tier per
 ARCHITECTURE.md §8 (frontend tests limited to format.ts/paise conversion).
+
+H.18 and H.19 are frontend-only too and not aggregated here: H.18 is covered
+by src/lib/api.test.ts (error detail extraction) plus the emptyForm fix being
+a one-line change tsc/build already catch; H.19 was verified with a live
+browser walkthrough of PLAN 3.8's Verify, not an automated check.
 """
 import sys
 from pathlib import Path
@@ -46,6 +52,46 @@ from test_customers import test_history_and_outstanding_reachable_after_soft_del
 
 # H.9: reversal-of-a-reversal rejected — see test_ledger import above
 
+# H.11: serialised read-check-write money guards, one race per write path
+from test_payments import test_concurrent_payments_against_one_bill_only_one_succeeds
+from test_transaction_correction import test_concurrent_account_corrections_never_double_reverse_the_same_entry
+from test_transfers import test_concurrent_transfers_never_drive_balance_negative
+
+# H.12: a payment larger than the bill rejected at create time
+from test_transactions import test_amount_paid_exceeding_total_rejected_at_create
+
+# H.13: business_date validated on the transactions write path too, not just insert_entry
+from test_transaction_correction import test_malformed_business_date_rejected_on_correction
+from test_transactions import (
+    test_malformed_business_date_rejected_when_paid,
+    test_malformed_business_date_rejected_when_unpaid,
+)
+
+# H.14: corrections that change the amount or date move the ledger, not just the bill
+from test_transaction_correction import (
+    test_business_date_correction_moves_the_live_ledger_entry,
+    test_customer_bill_correction_does_not_touch_ledger,
+    test_walk_in_full_payment_correction_resyncs_the_live_ledger_entry,
+)
+
+# H.15: deactivated accounts/services rejected on transactions, corrections, and payments
+from test_payments import test_payment_to_deactivated_account_rejected
+from test_transaction_correction import test_correction_onto_deactivated_account_rejected
+from test_transactions import test_deactivated_account_rejected_at_create, test_deactivated_service_rejected_at_create
+
+# H.16: non-positive transaction totals rejected, on both create and correct
+from test_transaction_correction import test_correction_to_non_positive_total_rejected
+from test_transactions import (
+    test_discount_exceeding_fee_rejected,
+    test_fee_and_discount_equal_with_nonzero_charge_still_succeeds,
+    test_negative_fee_rejected_at_pydantic_boundary,
+    test_zero_total_rejected,
+)
+
+# H.17: an overflowing total rejected with 400, not a 500 from SQLite
+from test_transaction_correction import test_correction_to_overflowing_total_rejected
+from test_transactions import test_total_overflow_rejected_with_400_not_500
+
 CHECKS = [
     test_connection_usable_from_another_thread,
     test_concurrent_writers_do_not_error,
@@ -66,6 +112,27 @@ CHECKS = [
     test_search_escapes_like_wildcards,
     test_history_and_outstanding_reachable_after_soft_delete,
     test_reversal_of_a_reversal_rejected,
+    test_concurrent_payments_against_one_bill_only_one_succeeds,
+    test_concurrent_account_corrections_never_double_reverse_the_same_entry,
+    test_concurrent_transfers_never_drive_balance_negative,
+    test_amount_paid_exceeding_total_rejected_at_create,
+    test_malformed_business_date_rejected_on_correction,
+    test_malformed_business_date_rejected_when_paid,
+    test_malformed_business_date_rejected_when_unpaid,
+    test_business_date_correction_moves_the_live_ledger_entry,
+    test_customer_bill_correction_does_not_touch_ledger,
+    test_walk_in_full_payment_correction_resyncs_the_live_ledger_entry,
+    test_payment_to_deactivated_account_rejected,
+    test_correction_onto_deactivated_account_rejected,
+    test_deactivated_account_rejected_at_create,
+    test_deactivated_service_rejected_at_create,
+    test_correction_to_non_positive_total_rejected,
+    test_discount_exceeding_fee_rejected,
+    test_fee_and_discount_equal_with_nonzero_charge_still_succeeds,
+    test_negative_fee_rejected_at_pydantic_boundary,
+    test_zero_total_rejected,
+    test_correction_to_overflowing_total_rejected,
+    test_total_overflow_rejected_with_400_not_500,
 ]
 
 if __name__ == "__main__":

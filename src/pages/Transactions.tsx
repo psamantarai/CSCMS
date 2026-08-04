@@ -35,18 +35,23 @@ const statusColor: Record<Transaction["status"], { bg: string; fg: string }> = {
 
 const PAGE_SIZE = 50
 
-const emptyForm = {
-  businessDate: localDateISO(),
-  customerSearch: "",
-  customerId: null as number | null,
-  customerName: "",
-  serviceId: "",
-  accountId: "",
-  fee: "0",
-  charge: "0",
-  discount: "0",
-  paid: "0",
-  remarks: "",
+// H.18: a function, not a frozen object — localDateISO() must be read at
+// call time (mount, openForm, create onSuccess), not once at module load,
+// or a session left open across midnight keeps stamping the previous day.
+function emptyForm() {
+  return {
+    businessDate: localDateISO(),
+    customerSearch: "",
+    customerId: null as number | null,
+    customerName: "",
+    serviceId: "",
+    accountId: "",
+    fee: "0",
+    charge: "0",
+    discount: "0",
+    paid: "0",
+    remarks: "",
+  }
 }
 
 export default function Transactions() {
@@ -99,7 +104,7 @@ export default function Transactions() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["transactions"] })
       if (form.customerId) queryClient.invalidateQueries({ queryKey: queryKeys.customerOutstanding(form.customerId) })
-      setForm(emptyForm)
+      setForm(emptyForm())
       setFormError("")
       setShowForm(false)
     },
@@ -129,7 +134,7 @@ export default function Transactions() {
   }
 
   function openForm() {
-    setForm(emptyForm)
+    setForm(emptyForm())
     setFormError("")
     setShowForm(true)
   }

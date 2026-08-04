@@ -8,7 +8,12 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
   })
   if (!res.ok) {
-    throw new Error(`${init?.method ?? "GET"} ${path} failed: ${res.status} ${res.statusText}`)
+    // ARCHITECTURE.md §6: errors return { detail, code }. Read it when
+    // present so the caller sees why the request failed, not just the
+    // status code — falls back to the old message for a non-JSON body.
+    const body = await res.json().catch(() => null)
+    const detail = typeof body?.detail === "string" ? body.detail : undefined
+    throw new Error(detail ?? `${init?.method ?? "GET"} ${path} failed: ${res.status} ${res.statusText}`)
   }
   return res.json() as Promise<T>
 }
