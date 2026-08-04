@@ -99,6 +99,10 @@ def reverse_entry(
     original = conn.execute("SELECT * FROM ledger WHERE id = ?", (entry_id,)).fetchone()
     if original is None:
         raise ValueError(f"ledger entry {entry_id} not found")
+    if original["entry_type"] == "reversal":
+        # H.9: reversing a reversal silently re-applies the original entry,
+        # bypassing the single-reversal rule via a two-hop chain.
+        raise ValueError(f"ledger entry {entry_id} is itself a reversal and cannot be reversed")
     if conn.execute("SELECT 1 FROM ledger WHERE reverses_id = ?", (entry_id,)).fetchone():
         raise ValueError(f"ledger entry {entry_id} has already been reversed")
     return insert_entry(

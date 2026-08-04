@@ -54,13 +54,30 @@ def _get_or_404(conn: sqlite3.Connection, customer_id: int) -> sqlite3.Row:
     return row
 
 
+# H.7: history/outstanding must stay reachable for a soft-deleted customer
+# (the row and its data are intentionally kept, per the module docstring) —
+# unlike _get_or_404, this doesn't filter on deleted_at.
+def _get_any_or_404(conn: sqlite3.Connection, customer_id: int) -> sqlite3.Row:
+    row = conn.execute("SELECT * FROM customers WHERE id = ?", (customer_id,)).fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="customer not found")
+    return row
+
+
+def _escape_like(q: str) -> str:
+    # H.7: q is interpolated into a LIKE pattern; without escaping, % and _
+    # act as wildcards (q="%" would match every row).
+    return q.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 @router.get("")
 def list_customers(q: str | None = None, conn: sqlite3.Connection = Depends(get_db)):
     if q:
-        like = f"%{q}%"
+        like = f"%{_escape_like(q)}%"
         rows = conn.execute(
             "SELECT * FROM customers WHERE deleted_at IS NULL "
-            "AND (name LIKE ? OR phone LIKE ? OR village LIKE ?) ORDER BY name",
+            "AND (name LIKE ? ESCAPE '\\' OR phone LIKE ? ESCAPE '\\' OR village LIKE ? ESCAPE '\\') "
+            "ORDER BY name",
             (like, like, like),
         ).fetchall()
     else:
@@ -110,7 +127,7 @@ def delete_customer(customer_id: int, conn: sqlite3.Connection = Depends(get_db)
 
 @router.get("/{customer_id}/history")
 def get_customer_history(customer_id: int, conn: sqlite3.Connection = Depends(get_db)):
-    _get_or_404(conn, customer_id)
+    customer = _get_any_or_404(conn, customer_id)
     transactions = conn.execute(
         "SELECT t.*, s.name AS service_name FROM transactions t "
         "JOIN services s ON s.id = t.service_id "
@@ -125,6 +142,7 @@ def get_customer_history(customer_id: int, conn: sqlite3.Connection = Depends(ge
         (customer_id,),
     ).fetchall()
     return {
+        "customer_deleted": customer["deleted_at"] is not None,
         "transactions": [_row_to_dict(r) for r in transactions],
         "banking_transactions": [_row_to_dict(r) for r in banking],
     }
@@ -132,7 +150,7 @@ def get_customer_history(customer_id: int, conn: sqlite3.Connection = Depends(ge
 
 @router.get("/{customer_id}/outstanding")
 def get_customer_outstanding(customer_id: int, conn: sqlite3.Connection = Depends(get_db)):
-    _get_or_404(conn, customer_id)
+    customer = _get_any_or_404(conn, customer_id)
     billed = conn.execute(
         "SELECT COALESCE(SUM(total_paise), 0) FROM transactions WHERE customer_id = ? AND deleted_at IS NULL",
         (customer_id,),
@@ -141,4 +159,4 @@ def get_customer_outstanding(customer_id: int, conn: sqlite3.Connection = Depend
         "SELECT COALESCE(SUM(amount_paise), 0) FROM payments WHERE customer_id = ? AND deleted_at IS NULL",
         (customer_id,),
     ).fetchone()[0]
-    return {"outstanding_paise": billed - paid}
+    return {"outstanding_paise": billed - paid, "customer_deleted": customer["deleted_at"] is not None}

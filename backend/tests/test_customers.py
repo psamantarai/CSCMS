@@ -151,6 +151,50 @@ def test_history_and_outstanding_derived_from_transactions_and_payments():
         conn.close()
 
 
+def test_search_escapes_like_wildcards():
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        create_customer(CustomerCreate(name="Ramesh Kumar", phone="9876543210"), conn)
+        create_customer(CustomerCreate(name="100% Cotton"), conn)
+
+        # a literal % in the query must not act as a wildcard matching everyone
+        by_percent = list_customers(q="%", conn=conn)
+        assert {c["name"] for c in by_percent} == {"100% Cotton"}
+
+        by_underscore = list_customers(q="_", conn=conn)
+        assert by_underscore == []
+
+        conn.close()
+
+
+def test_history_and_outstanding_reachable_after_soft_delete():
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        customer = create_customer(CustomerCreate(name="Ramesh Kumar"), conn)
+        account_id = conn.execute("SELECT id FROM accounts WHERE name = 'Cash Drawer'").fetchone()["id"]
+        service_id = conn.execute("SELECT id FROM services WHERE name = 'PAN'").fetchone()["id"]
+        user_id = conn.execute("SELECT id FROM users WHERE username = 'admin'").fetchone()["id"]
+        conn.execute(
+            "INSERT INTO transactions (business_date, customer_id, service_id, fee_paise, total_paise, account_id, operator_id, status) "
+            "VALUES (date('now'), ?, ?, 35700, 35700, ?, ?, 'pending')",
+            (customer["id"], service_id, account_id, user_id),
+        )
+        conn.commit()
+
+        delete_customer(customer["id"], conn)
+
+        # H.7: must return data, not 404, once soft-deleted
+        history = get_customer_history(customer["id"], conn=conn)
+        assert history["customer_deleted"] is True
+        assert len(history["transactions"]) == 1
+
+        outstanding = get_customer_outstanding(customer["id"], conn=conn)
+        assert outstanding["customer_deleted"] is True
+        assert outstanding["outstanding_paise"] == 35700
+
+        conn.close()
+
+
 def test_null_and_blank_name_rejected():
     # H.4: explicit null / whitespace-only must not reach the DB as a NOT NULL violation.
     for bad_name in (None, "   "):
@@ -176,5 +220,7 @@ if __name__ == "__main__":
     test_search_matches_partial_name_phone_or_village()
     test_outstanding_zero_for_new_customer()
     test_history_and_outstanding_derived_from_transactions_and_payments()
+    test_search_escapes_like_wildcards()
+    test_history_and_outstanding_reachable_after_soft_delete()
     test_null_and_blank_name_rejected()
     print("OK")

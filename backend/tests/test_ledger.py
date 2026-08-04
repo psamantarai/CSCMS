@@ -182,6 +182,32 @@ def test_reversal_rejected_twice():
         conn.close()
 
 
+def test_reversal_of_a_reversal_rejected():
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        account_id = conn.execute("SELECT id FROM accounts WHERE name = 'Cash Drawer'").fetchone()[0]
+        user_id = conn.execute("SELECT id FROM users WHERE username = 'admin'").fetchone()[0]
+        entry_id = insert_entry(conn, business_date="2026-08-04", account_id=account_id, amount_paise=1000,
+                                 entry_type="opening_balance", source_type="account", created_by=user_id)
+        conn.commit()
+
+        reversal_id = reverse_entry(conn, entry_id=entry_id, created_by=user_id)
+        conn.commit()
+        assert account_balance(conn, account_id) == 0
+
+        try:
+            reverse_entry(conn, entry_id=reversal_id, created_by=user_id)
+            assert False, "reversing a reversal must raise"
+        except ValueError:
+            pass
+
+        # balance must still be 0 — the original single-reversal rule intact,
+        # and no chain re-applied the original entry
+        assert account_balance(conn, account_id) == 0
+
+        conn.close()
+
+
 if __name__ == "__main__":
     test_balance_sums_mixed_signs_per_account()
     test_balance_is_zero_with_no_entries()
@@ -191,4 +217,5 @@ if __name__ == "__main__":
     test_insert_entry_rejects_malformed_business_date()
     test_reversal_nets_account_back_to_prior_balance()
     test_reversal_rejected_twice()
+    test_reversal_of_a_reversal_rejected()
     print("OK")
