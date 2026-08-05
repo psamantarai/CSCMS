@@ -18,3 +18,4 @@ __pycache__/
 *.pyc
 backend/.venv/
 backend/data/
+graphify-out

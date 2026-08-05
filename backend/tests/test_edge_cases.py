@@ -171,6 +171,17 @@ from test_dashboard import test_future_dated_entries_do_not_move_an_earlier_date
 # absurdly large) with no bound, unlike month
 from test_reports import test_monthly_report_rejects_out_of_range_year
 
+# H.44: reopening and re-closing a business day accumulated duplicate
+# daily_account_balance snapshot rows instead of replacing the sealed one
+from test_closing import test_reopen_then_reclose_replaces_the_snapshot_not_duplicates_it
+
+# H.45: restoring the oldest kept backup at the retention cap always failed
+# H.46: concurrent backup creation raced its own retention sweep and 500'd
+from test_backup import (
+    test_concurrent_backup_creation_all_succeed,
+    test_restore_of_the_oldest_backup_at_retention_cap_succeeds,
+)
+
 CHECKS = [
     test_connection_usable_from_another_thread,
     test_concurrent_writers_do_not_error,
@@ -238,6 +249,9 @@ CHECKS = [
     test_commission_summary_out_of_range_account_id_returns_404_not_500,
     test_future_dated_entries_do_not_move_an_earlier_dates_balances,
     test_monthly_report_rejects_out_of_range_year,
+    test_reopen_then_reclose_replaces_the_snapshot_not_duplicates_it,
+    test_restore_of_the_oldest_backup_at_retention_cap_succeeds,
+    test_concurrent_backup_creation_all_succeed,
 ]
 
 if __name__ == "__main__":
