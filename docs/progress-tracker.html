@@ -1495,11 +1495,16 @@
   },
   {
     "title": "9.5.8 — Transactions: establish the canonical table pattern",
-    "status": "pending",
-    "updated": "2026-08-05",
+    "status": "completed",
+    "updated": "2026-08-06",
+    "seq": 131,
     "details": [
-      "P9.5 · The page shape every other page then copies: filter bar in a Card, Table composition, status as Badge variants, Empty for no rows, TableRowState from 9.5.4. Money cells keep --font-mono with tabular-nums.",
-      "Verify: filters/sorting/paging behave identically; amounts stay column-aligned; a filter matching nothing renders Empty, not a bare table."
+      "Rebuilt src/pages/Transactions.tsx on shadcn/ui: Card for the New Transaction form, summary bar, filter bar, and table container",
+      "Filter bar: Field+Input for date, Field+Select for service (sentinel \"all\" value), Button toggle pills for status",
+      "Table composition via Table/TableHeader/TableRow/TableHead/TableBody/TableCell; status rendered as Badge with success/warning/destructive token classes",
+      "Empty (EmptyHeader/EmptyTitle/EmptyDescription) replaces the bare \"no rows\" <tr>; TableRowState kept as-is for loading/error",
+      "Money cells keep font-mono + tabular-nums; txn ID uses text-ring (#3b6cb7), matching the prior accent color exactly",
+      "Verified: tsc --noEmit clean, vite build clean, live render against seeded data confirmed entry count, colored summary cards, filters, status badges, and \"1-6 of 6\" pagination all correct"
     ]
   },
   {
