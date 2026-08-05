@@ -297,6 +297,29 @@ def test_admin_reopen_flips_status_and_leaves_an_audit_trail():
         conn.close()
 
 
+def test_reopen_then_reclose_replaces_the_snapshot_not_duplicates_it():
+    # H.44: close_day always INSERTed a fresh daily_account_balance row with
+    # no matching DELETE, so a reopen->close cycle piled up duplicate "sealed"
+    # rows for the same business_date/account_id instead of replacing one.
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id = conn.execute("SELECT id FROM accounts WHERE name = 'Cash Drawer'").fetchone()[0]
+        _fund_cash(conn, cash_id, 100000, "2024-11-04")
+        close_day("2024-11-04", CloseDayRequest(physical_cash_paise=100000), conn)
+        admin = conn.execute("SELECT * FROM users WHERE username = 'admin'").fetchone()
+
+        for _ in range(5):
+            reopen_day("2024-11-04", ReopenRequest(), conn, admin)
+            close_day("2024-11-04", CloseDayRequest(physical_cash_paise=100000), conn)
+
+        account_count = conn.execute("SELECT COUNT(*) FROM accounts WHERE deleted_at IS NULL").fetchone()[0]
+        snapshot_count = conn.execute(
+            "SELECT COUNT(*) FROM daily_account_balance WHERE business_date = '2024-11-04'"
+        ).fetchone()[0]
+        assert snapshot_count == account_count, f"expected one snapshot row per account, got {snapshot_count}"
+        conn.close()
+
+
 def test_reopen_rejects_a_day_that_is_not_closed():
     with tempfile.TemporaryDirectory() as tmp:
         conn = _seeded_conn(Path(tmp))
@@ -325,5 +348,6 @@ if __name__ == "__main__":
     test_variance_ignores_unrelated_reversal_rows()
     test_reopen_requires_admin_role()
     test_admin_reopen_flips_status_and_leaves_an_audit_trail()
+    test_reopen_then_reclose_replaces_the_snapshot_not_duplicates_it()
     test_reopen_rejects_a_day_that_is_not_closed()
     print("OK")

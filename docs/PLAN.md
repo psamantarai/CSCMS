@@ -1,12 +1,13 @@
 # CSCMS — Implementation Plan
 
-15 phases, 109 steps. Phases run in order; each depends on the one before.
+16 phases, 113 steps. Phases run in order; each depends on the one before.
 (Phase 2.5 was inserted after an edge-case audit of the shipped Phase 0–2
 code — see that phase for what it found and why it blocks Phase 3. Phase 3.5
 came from the same pass repeated over the shipped Phase 3 code. Phase 4.5
 repeated it again over the shipped Phase 4 code. Phase 7.9 repeated it once
 more over the shipped Phase 5, 6 and 7 code — three phases shipped back to
-back with no hardening pass in between.)
+back with no hardening pass in between. Phase 8.8 repeated it over the shipped
+Phase 8 code.)
 
 **A step is the unit of work.** Each is one sitting, independently verifiable,
 and leaves the app in a working state. Per `CLAUDE.md`, work stops after each
@@ -1114,6 +1115,114 @@ confirmation.
 
 ---
 
+## Phase 8.8 — Hardening auth, audit & backup
+
+Audited the shipped Phase 8 surface (`backend/app/auth.py`, `audit.py`,
+`backup.py`, and `closing.py`'s new `/reopen` endpoint, plus `src/lib/auth.tsx`,
+`Login.tsx`, `AuditLog.tsx`, and `DailyClosing.tsx`'s `ReopenControl`) against
+a scratch DB on port 8100, ~70 probes: login (malformed/missing/case/SQLi-
+shaped credentials, bad/garbage/empty bearer tokens, double logout, 12
+parallel logins), the audit log's filters (negative/huge limit and offset,
+malformed dates, unknown table/action, non-numeric `user_id`), backup
+creation and restore (path traversal, unconfirmed restore, non-existent/non-
+SQLite files, 12–15 parallel creates, 6 parallel restores of the same file),
+and the day-reopen override (non-admin 403, reopening an already-open day,
+five reopen→close cycles), plus a browser pass logging in, viewing the Audit
+Log page, and confirming a full page reload correctly returns to Login (the
+intended behavior per ARCHITECTURE.md §9, not a defect). Auth enforcement,
+role checks, and the audit log's filters held completely clean against every
+malformed and boundary input thrown at them — every defect found is in
+backup/restore and the reopen-then-close cycle, both of which Phase 8
+introduced specifically to make the system more trustworthy under a mistake,
+and both currently make it less so.
+
+Ordered by severity. H.44 silently corrupts a sealed record; H.45–H.46 block
+use of the backup/restore safety net Phase 8.5/8.6 exist to provide.
+
+**H.44 Reopening and re-closing a business day accumulates duplicate
+`daily_account_balance` snapshot rows instead of replacing the sealed one**
+— `close_day` (`backend/app/closing.py:168-178`) always `INSERT`s a fresh
+snapshot row per account with no corresponding `DELETE`, and `reopen_day`
+(`:199-231`) never touches the table either. ARCHITECTURE.md §4.8 calls this
+table a "write-once snapshot... the sealed record of what the derived numbers
+were at close" — reopening breaks that by construction. Reproduced: closed
+`2026-08-04`, then drove 5 reopen→close cycles through the API;
+`daily_account_balance` for `business_date = '2026-08-04'` held **10 rows**
+(5 closes × 2 accounts) afterward, each with a different `remarks` and no way
+to tell which is "the" sealed record short of picking the highest `id`.
+Nothing currently reads this table for display (Daily Closing's report is a
+live ledger derivation, per `closing.py`'s own module docstring), so it's
+invisible today — but it is exactly the landmine this pass watches for: any
+future feature that reads `daily_account_balance` directly (an audit export,
+a "what did we seal on day X" screen) will silently return stale or
+ambiguous data.
+*Verify:* close a date, reopen it via `POST /day/{date}/reopen`, close it
+again — `daily_account_balance` holds exactly one row per active account for
+that `business_date`, not two.
+
+**H.45 Restoring the oldest kept backup always fails, and it's the normal
+steady state, not an edge case** — `restore_endpoint`
+(`backend/app/backup.py:96-100`) calls `create_backup()` first as a safety
+copy of the current DB, and `create_backup`'s retention sweep (`:35-38`)
+evicts the single oldest file whenever the count exceeds
+`backup_retention_count` (default 5), with no exclusion for the file the
+caller is about to restore. Since `on_shutdown` in `main.py:54-64` takes a
+backup on every app close, a real install reaches the retention cap after its
+fifth close and stays there — the oldest of the 5 kept backups is
+permanently one safety-copy away from eviction. Reproduced deterministically,
+no concurrency involved: with exactly 5 backups on disk, `POST /backup/restore
+{filename: <oldest>, confirm: true}` — the safety-copy step pushes the count
+to 6, retention deletes the oldest (the requested file), and `restore_backup`
+then 404s on a file `GET /backup` had listed seconds earlier. Restoring any
+of the other 4 backups works correctly (account state reverted exactly,
+matching `test_backup.py`'s existing assertion). Fix in one place:
+`create_backup` needs an optional `keep: str | None` parameter excluding a
+named file from its own retention sweep, and `restore_endpoint` passes
+`body.filename`.
+*Verify:* with backup count at the retention cap, `POST /backup/restore` on
+the oldest listed backup returns 204 and reproduces its balances exactly, not
+404.
+
+**H.46 Concurrent backup creation corrupts itself — a burst of "Backup Now"
+clicks 500s more often than it succeeds** — `create_backup`'s retention sweep
+(`backend/app/backup.py:35-38`) computes "which files are stale" from a bare
+`glob()` with no locking, so one request's sweep can delete a file that a
+concurrent request created but hasn't yet returned in its own response.
+Reproduced: 12 parallel `POST /backup` → **4 of 12 failed with 500**; a
+second run at 15 parallel → **9 of 15 failed with 500**. Two distinct
+tracebacks from the same race: `FileNotFoundError` in
+`create_backup_endpoint`'s `path.stat()` (the file it just created was
+deleted by a concurrent request's retention sweep before this request read
+it back), and `PermissionError: [WinError 32]` from two threads' `unlink()`
+racing on the same stale file (Windows-specific — a second `unlink()` on a
+handle still settling from the first fails instead of no-op'ing). No database
+corruption resulted (`PRAGMA integrity_check` clean after every run) and no
+client-facing detail leaked (`debug=False` returns the generic "Internal
+Server Error" body) — this is an availability defect, not a data one, but a
+half-succeeded burst leaves the operator staring at repeated failures on a
+feature whose entire purpose is not to fail when it's needed. Shares its fix
+location with H.45: wrap `create_backup`'s VACUUM INTO + retention block in a
+single module-level lock (`ponytail: global lock — single-operator offline
+app; per-request queueing only if throughput ever matters`), which also stops
+H.45's failure mode from compounding into eviction of more than one file when
+several restores race (6 parallel restores of the same non-oldest backup, run
+as a follow-up probe, produced 404 on all 6 — their own safety copies raced
+each other through the same unlocked sweep).
+*Verify:* 12 parallel `POST /backup` all return 201, each with a distinct
+filename, and the retention count afterward is exactly `min(12, retention)`.
+
+**H.47 Regression tests for the above** — extend
+`backend/tests/test_edge_cases.py` in the existing plain-`assert` style
+(`ARCHITECTURE.md` §8) with three cases: H.44's reopen→close cycle asserting
+`daily_account_balance` row count stays at one-per-account; H.45's
+deterministic restore-of-the-oldest-at-cap reproduction (no threading
+needed); and H.46's 12-parallel-`POST /backup` count, reusing the file's
+existing threadpool helper for the parallel case.
+*Verify:* the file fails against today's code on H.44, H.45 and H.46, and
+passes after they land.
+
+---
+
 ## Phase 9 — Electron packaging
 
 Deliberately last. Packaging a moving target does the work twice.
@@ -1192,6 +1301,19 @@ before `insert_entry` runs, and skips `insert_entry` entirely for an unpaid
 bill. Phase 4's expenses and Phase 5's banking each add another table with a
 `business_date`; the validator has to be shared at the boundary, not at the
 ledger.
+
+**A safety feature that touches the filesystem needs the same concurrency
+discipline as one that touches the ledger (H.45/H.46).** Backup/restore was
+built assuming "the app closes once and backs up once" — reasonable for
+Phase 8.5's own *Verify* line, wrong once Phase 8.6's restore flow reuses the
+same retention sweep as an internal step. The sweep races with itself both
+under concurrent requests (H.46) and, deterministically, whenever restore's
+own safety copy pushes a steady-state backup count over the retention cap
+(H.45) — the second case needed no threading at all to reproduce. Any future
+code that both writes new files and prunes old ones on the same path needs
+either a lock around the whole read-prune-write sequence or an explicit
+exclusion for files another in-flight step still needs, not just a *Verify*
+line that only exercises the write.
 
 **A missing error state is a wrong number (H.8).** The frontend's `data = []`
 default turns a failed fetch into a confident "₹0". In a ledger app, silence and

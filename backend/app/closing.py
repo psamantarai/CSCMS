@@ -166,6 +166,11 @@ def close_day(business_date: str, body: CloseDayRequest, conn: sqlite3.Connectio
         # computed after the variance entry above, so a cash variance is
         # already folded into this account's closing_paise/adjustment_paise.
         accounts = _day_breakdown(conn, business_date)
+        # H.44: a reopen→close cycle leaves the prior close's snapshot rows
+        # in place (reopen_day never touches this table) — clear them so the
+        # write-once "sealed record" (ARCHITECTURE.md §4.8) is actually
+        # replaced, not duplicated, on re-close.
+        conn.execute("DELETE FROM daily_account_balance WHERE business_date = ?", (business_date,))
         for a in accounts:
             conn.execute(
                 "INSERT INTO daily_account_balance "
