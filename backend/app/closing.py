@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 
 from app.accounts import _system_user_id
 from app.audit import write_audit
+from app.auth import get_current_user
 from app.db import begin_write, get_db
 from app.ledger import closing_balance, ensure_business_day_open, insert_entry, opening_balance, validate_business_date
 
@@ -189,3 +190,42 @@ def close_day(business_date: str, body: CloseDayRequest, conn: sqlite3.Connectio
 
     conn.commit()
     return get_day_report(business_date, conn)
+
+
+class ReopenRequest(BaseModel):
+    remarks: str | None = None
+
+
+@router.post("/{business_date}/reopen")
+def reopen_day(
+    business_date: str, body: ReopenRequest,
+    conn: sqlite3.Connection = Depends(get_db), user: sqlite3.Row = Depends(get_current_user),
+):
+    """PLAN 8.7: admin-only override for a closed day, always audited. Writes
+    to the date itself become possible again once this returns — this does
+    not touch the daily_account_balance snapshot already taken at close."""
+    validate_business_date(business_date)
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="admin role required to reopen a closed day")
+
+    begin_write(conn)
+    try:
+        day = conn.execute("SELECT rowid, * FROM business_days WHERE business_date = ?", (business_date,)).fetchone()
+        if day is None or day["status"] != "closed":
+            raise HTTPException(status_code=400, detail="business day is not closed")
+        day_row_id, before_day = day["rowid"], dict(day)
+
+        conn.execute(
+            "UPDATE business_days SET status = 'open', closed_at = NULL, closed_by = NULL WHERE business_date = ?",
+            (business_date,),
+        )
+        after_day = dict(conn.execute("SELECT rowid, * FROM business_days WHERE business_date = ?", (business_date,)).fetchone())
+        after_day["remarks"] = body.remarks  # not a business_days column; carried in the audit row only
+        write_audit(conn, table_name="business_days", row_id=day_row_id, action="reopen",
+                    before=before_day, after=after_day, user_id=user["id"])
+    except Exception:
+        conn.rollback()
+        raise
+
+    conn.commit()
+    return get_day_status(business_date, conn)

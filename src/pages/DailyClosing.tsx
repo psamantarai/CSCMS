@@ -4,6 +4,7 @@ import { api } from "../lib/api"
 import { queryKeys } from "../lib/queries"
 import { fmt, formatDate, formatTime, fromPaise, localDateISO, toPaise } from "../lib/format"
 import { BlockState } from "../components/QueryState"
+import { useAuth } from "../lib/auth"
 
 type Account = { id: number; name: string; account_type: string; bank_name: string | null; is_active: number }
 type Transaction = { id: number; customer_name: string | null; service_name: string; status: string; total_paise: number; paid_paise: number }
@@ -109,9 +110,65 @@ function ClosedReport({ today, dayStatus, report }: { today: string; dayStatus: 
         </>
       )}
 
-      <button className="no-print" onClick={() => window.print()} style={{ background: "#1e3a5f", color: "#fff", border: "none", borderRadius: 7, padding: "10px 24px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-        Print Closing Report
+      <div className="no-print" style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
+        <button onClick={() => window.print()} style={{ background: "#1e3a5f", color: "#fff", border: "none", borderRadius: 7, padding: "10px 24px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+          Print Closing Report
+        </button>
+        <ReopenControl businessDate={today} />
+      </div>
+    </div>
+  )
+}
+
+// PLAN 8.7: admin-only override, always audited server-side. Inline confirm
+// (not window.confirm — Banking.tsx's use of it already blocks CDP-driven
+// E2E, ARCHITECTURE.md §8; no point adding a second instance of that).
+function ReopenControl({ businessDate }: { businessDate: string }) {
+  const { user } = useAuth()
+  const [confirming, setConfirming] = useState(false)
+  const [remarks, setRemarks] = useState("")
+  const queryClient = useQueryClient()
+
+  const reopenMutation = useMutation({
+    mutationFn: () => api.post(`/day/${businessDate}/reopen`, { remarks: remarks || null }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["day"] })
+      queryClient.invalidateQueries({ queryKey: ["dashboard"] })
+    },
+  })
+
+  if (user?.role !== "admin") return null
+
+  if (!confirming) {
+    return (
+      <button onClick={() => setConfirming(true)} style={{ background: "#fff", color: "#dc2626", border: "1px solid #dc2626", borderRadius: 7, padding: "10px 24px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+        Reopen Day (Admin)
       </button>
+    )
+  }
+
+  return (
+    <div style={{ background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 8, padding: "14px 16px", maxWidth: 360 }}>
+      <div style={{ fontSize: 12, color: "#991b1b", marginBottom: 8 }}>
+        This reopens {formatDate(businessDate)} for new writes and is recorded in the audit trail. Are you sure?
+      </div>
+      <input
+        value={remarks}
+        onChange={e => setRemarks(e.target.value)}
+        placeholder="Reason (optional)…"
+        style={{ width: "100%", padding: "7px 9px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 12, outline: "none", boxSizing: "border-box", marginBottom: 10 }}
+      />
+      {reopenMutation.isError && <div style={{ color: "#dc2626", fontSize: 11, marginBottom: 8 }}>{(reopenMutation.error as Error).message}</div>}
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={() => setConfirming(false)} style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 6, padding: "7px 14px", fontSize: 12, cursor: "pointer" }}>Cancel</button>
+        <button
+          onClick={() => reopenMutation.mutate()}
+          disabled={reopenMutation.isPending}
+          style={{ background: "#dc2626", color: "#fff", border: "none", borderRadius: 6, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+        >
+          {reopenMutation.isPending ? "Reopening…" : "Confirm Reopen"}
+        </button>
+      </div>
     </div>
   )
 }

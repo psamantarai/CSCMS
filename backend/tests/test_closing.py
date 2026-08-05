@@ -11,7 +11,7 @@ from fastapi import HTTPException
 
 from app.accounts import AccountCreate, create_account
 from app.banking import BankingCreate, BankingUpdate, create_banking, update_banking
-from app.closing import CloseDayRequest, close_day, get_day_report, get_day_status
+from app.closing import CloseDayRequest, ReopenRequest, close_day, get_day_report, get_day_status, reopen_day
 from app.db import get_connection, run_migrations
 from app.expenses import ExpenseCreate, create_expense
 from app.ledger import closing_balance
@@ -252,6 +252,63 @@ def test_variance_ignores_unrelated_reversal_rows():
         conn.close()
 
 
+def test_reopen_requires_admin_role():
+    # PLAN 8.7: reopening must be impossible without admin.
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id = conn.execute("SELECT id FROM accounts WHERE name = 'Cash Drawer'").fetchone()[0]
+        _fund_cash(conn, cash_id, 100000, "2024-11-01")
+        close_day("2024-11-01", CloseDayRequest(physical_cash_paise=100000), conn)
+
+        conn.execute("INSERT INTO users (username, password_hash, role) VALUES ('teller', 'x', 'operator')")
+        conn.commit()
+        operator = conn.execute("SELECT * FROM users WHERE username = 'teller'").fetchone()
+
+        try:
+            reopen_day("2024-11-01", ReopenRequest(), conn, operator)
+            assert False, "a non-admin must not be able to reopen a closed day"
+        except HTTPException as e:
+            assert e.status_code == 403
+
+        assert get_day_status("2024-11-01", conn)["status"] == "closed"
+        conn.close()
+
+
+def test_admin_reopen_flips_status_and_leaves_an_audit_trail():
+    # PLAN 8.7: reopening must always leave a trace.
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id = conn.execute("SELECT id FROM accounts WHERE name = 'Cash Drawer'").fetchone()[0]
+        _fund_cash(conn, cash_id, 100000, "2024-11-02")
+        close_day("2024-11-02", CloseDayRequest(physical_cash_paise=100000), conn)
+        admin = conn.execute("SELECT * FROM users WHERE username = 'admin'").fetchone()
+
+        result = reopen_day("2024-11-02", ReopenRequest(remarks="fat-fingered close"), conn, admin)
+        assert result["status"] == "open"
+        assert result["closed_at"] is None
+
+        audit = conn.execute(
+            "SELECT * FROM audit_logs WHERE table_name = 'business_days' AND action = 'reopen' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        assert audit is not None
+        assert audit["user_id"] == admin["id"]
+        assert '"status": "closed"' in audit["before_json"]
+        assert '"status": "open"' in audit["after_json"]
+        conn.close()
+
+
+def test_reopen_rejects_a_day_that_is_not_closed():
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        admin = conn.execute("SELECT * FROM users WHERE username = 'admin'").fetchone()
+        try:
+            reopen_day("2024-11-03", ReopenRequest(), conn, admin)
+            assert False, "reopening an open (or untouched) day must be rejected"
+        except HTTPException as e:
+            assert e.status_code == 400
+        conn.close()
+
+
 if __name__ == "__main__":
     test_untouched_date_reads_as_open()
     test_close_with_no_variance_needs_no_remarks()
@@ -266,4 +323,7 @@ if __name__ == "__main__":
     test_closing_a_future_date_rejected()
     test_closing_todays_date_still_succeeds()
     test_variance_ignores_unrelated_reversal_rows()
+    test_reopen_requires_admin_role()
+    test_admin_reopen_flips_status_and_leaves_an_audit_trail()
+    test_reopen_rejects_a_day_that_is_not_closed()
     print("OK")

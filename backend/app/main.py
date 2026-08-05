@@ -4,6 +4,8 @@ from app.accounts import router as accounts_router
 from app.audit import router as audit_router
 from app.auth import get_current_user
 from app.auth import router as auth_router
+from app.backup import BACKUPS_DIR, create_backup
+from app.backup import router as backup_router
 from app.banking import router as banking_router
 from app.closing import router as closing_router
 from app.customers import router as customers_router
@@ -38,6 +40,7 @@ app.include_router(closing_router, dependencies=_guard)
 app.include_router(dashboard_router, dependencies=_guard)
 app.include_router(reports_router, dependencies=_guard)
 app.include_router(audit_router, dependencies=_guard)
+app.include_router(backup_router, dependencies=_guard)
 
 
 @app.on_event("startup")
@@ -46,6 +49,19 @@ def on_startup():
     run_migrations(conn, settings.migrations_dir)
     run_seed(conn)
     conn.close()
+
+
+@app.on_event("shutdown")
+def on_shutdown():
+    # PLAN 8.5: automatic backup on app close. Phase 9.2 will rewire this for
+    # the packaged Electron process's own lifecycle; this is the dev-server
+    # equivalent (uvicorn's graceful shutdown) for now.
+    conn = get_connection(settings.db_path)
+    try:
+        create_backup(conn, settings.db_path, BACKUPS_DIR)
+        conn.commit()
+    finally:
+        conn.close()
 
 
 @app.get("/api/health")
