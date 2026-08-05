@@ -6,6 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.accounts import _get_active_or_404, _system_user_id
+from app.audit import write_audit
 from app.db import begin_write, get_db
 from app.ledger import account_balance, insert_transfer_pair
 
@@ -69,7 +70,8 @@ def create_transfer(body: TransferCreate, conn: sqlite3.Connection = Depends(get
         conn.rollback()
         raise
 
+    row = dict(conn.execute("SELECT * FROM account_transfers WHERE id = ?", (transfer_id,)).fetchone())
+    write_audit(conn, table_name="account_transfers", row_id=transfer_id, action="create",
+                before=None, after=row, user_id=user_id)
     conn.commit()
-
-    row = conn.execute("SELECT * FROM account_transfers WHERE id = ?", (transfer_id,)).fetchone()
-    return dict(row)
+    return row

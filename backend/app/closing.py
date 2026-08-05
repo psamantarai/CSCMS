@@ -12,6 +12,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 
 from app.accounts import _system_user_id
+from app.audit import write_audit
 from app.db import begin_write, get_db
 from app.ledger import closing_balance, ensure_business_day_open, insert_entry, opening_balance, validate_business_date
 
@@ -142,6 +143,11 @@ def close_day(business_date: str, body: CloseDayRequest, conn: sqlite3.Connectio
     try:
         ensure_business_day_open(conn, business_date)  # 409 if already closed; auto-opens an untouched date
         user_id = _system_user_id(conn)
+        # business_days is keyed on business_date (TEXT), not an integer id,
+        # but it's not a WITHOUT ROWID table — sqlite's implicit rowid gives
+        # audit_logs.row_id (INTEGER) something to point at.
+        day = conn.execute("SELECT rowid, * FROM business_days WHERE business_date = ?", (business_date,)).fetchone()
+        day_row_id, before_day = day["rowid"], dict(day)
 
         cash_account_id = _primary_cash_account_id(conn)
         if cash_account_id is not None and body.physical_cash_paise is not None:
@@ -174,6 +180,9 @@ def close_day(business_date: str, body: CloseDayRequest, conn: sqlite3.Connectio
             "UPDATE business_days SET status = 'closed', closed_at = datetime('now'), closed_by = ? WHERE business_date = ?",
             (user_id, business_date),
         )
+        after_day = dict(conn.execute("SELECT rowid, * FROM business_days WHERE business_date = ?", (business_date,)).fetchone())
+        write_audit(conn, table_name="business_days", row_id=day_row_id, action="close",
+                    before=before_day, after=after_day, user_id=user_id)
     except Exception:
         conn.rollback()
         raise

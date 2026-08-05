@@ -29,6 +29,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.accounts import _get_active_or_404 as _get_account_or_404
 from app.accounts import _system_user_id
+from app.audit import write_audit
 from app.customers import _get_or_404 as _get_customer_or_404
 from app.db import begin_write, get_db
 from app.ledger import ensure_business_day_open, insert_entry, reverse_entry, validate_business_date
@@ -264,9 +265,11 @@ def create_transaction(body: TransactionCreate, conn: sqlite3.Connection = Depen
         conn.rollback()
         raise
 
+    row = _row_to_dict(conn.execute("SELECT * FROM transactions WHERE id = ?", (transaction_id,)).fetchone())
+    write_audit(conn, table_name="transactions", row_id=transaction_id, action="create",
+                before=None, after=row, user_id=user_id)
     conn.commit()
-    row = conn.execute("SELECT * FROM transactions WHERE id = ?", (transaction_id,)).fetchone()
-    return _row_to_dict(row)
+    return row
 
 
 @router.patch("/{transaction_id}")
@@ -285,9 +288,10 @@ def correct_transaction(transaction_id: int, body: TransactionCorrection, conn: 
     correction leaves it alone there. total_paise and status are then
     re-derived, same as create."""
     txn = _get_or_404(conn, transaction_id)
+    before = _row_to_dict(txn)
     fields = body.model_dump(exclude_unset=True)
     if not fields:
-        return _row_to_dict(txn)
+        return before
 
     if "business_date" in fields:
         validate_business_date(fields["business_date"])  # H.13
@@ -356,9 +360,12 @@ def correct_transaction(transaction_id: int, body: TransactionCorrection, conn: 
             (*set_fields.values(), transaction_id),
         )
         recompute_status(conn, transaction_id)
+        after = _row_to_dict(_get_or_404(conn, transaction_id))
+        write_audit(conn, table_name="transactions", row_id=transaction_id, action="update",
+                    before=before, after=after, user_id=_system_user_id(conn))
     except Exception:
         conn.rollback()
         raise
 
     conn.commit()
-    return _row_to_dict(_get_or_404(conn, transaction_id))
+    return after

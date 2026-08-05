@@ -8,6 +8,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
+from app.audit import write_audit
 from app.db import get_db
 from app.ledger import account_balance, insert_entry
 
@@ -119,8 +120,11 @@ def create_account(body: AccountCreate, conn: sqlite3.Connection = Depends(get_d
         entry_type="opening_balance", source_type="account", source_id=account_id,
         description="Opening balance", created_by=_system_user_id(conn),
     )
+    account = _row_to_dict(_get_or_404(conn, account_id))
+    write_audit(conn, table_name="accounts", row_id=account_id, action="create",
+                before=None, after=account, user_id=_system_user_id(conn))
     conn.commit()
-    return _row_to_dict(_get_or_404(conn, account_id))
+    return account
 
 
 @router.get("/{account_id}")
@@ -136,7 +140,7 @@ def get_account_balance(account_id: int, conn: sqlite3.Connection = Depends(get_
 
 @router.patch("/{account_id}")
 def update_account(account_id: int, body: AccountUpdate, conn: sqlite3.Connection = Depends(get_db)):
-    _get_or_404(conn, account_id)
+    before = _row_to_dict(_get_or_404(conn, account_id))
     fields = body.model_dump(exclude_unset=True)
     if fields:
         if "is_active" in fields:
@@ -146,5 +150,9 @@ def update_account(account_id: int, body: AccountUpdate, conn: sqlite3.Connectio
             f"UPDATE accounts SET {set_clause}, updated_at = datetime('now') WHERE id = ?",
             (*fields.values(), account_id),
         )
+        after = _row_to_dict(_get_or_404(conn, account_id))
+        write_audit(conn, table_name="accounts", row_id=account_id, action="update",
+                    before=before, after=after, user_id=_system_user_id(conn))
         conn.commit()
-    return _row_to_dict(_get_or_404(conn, account_id))
+        return after
+    return before

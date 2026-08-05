@@ -4,6 +4,8 @@ import { useQuery } from "@tanstack/react-query"
 import { api } from "./lib/api"
 import { queryKeys } from "./lib/queries"
 import { formatDate, localDateISO } from "./lib/format"
+import { useAuth } from "./lib/auth"
+import Login from "./pages/Login"
 import Dashboard from "./pages/Dashboard"
 import Customers from "./pages/Customers"
 import Services from "./pages/Services"
@@ -14,6 +16,7 @@ import Expenses from "./pages/Expenses"
 import Ledger from "./pages/Ledger"
 import Reports from "./pages/Reports"
 import DailyClosing from "./pages/DailyClosing"
+import AuditLog from "./pages/AuditLog"
 
 const nav: { path: string; label: string; icon: React.ReactNode; group?: string }[] = [
   {
@@ -56,6 +59,10 @@ const nav: { path: string; label: string; icon: React.ReactNode; group?: string 
     path: "/closing", label: "Daily Closing",
     icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
   },
+  {
+    path: "/audit-log", label: "Audit Log",
+    icon: <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+  },
 ]
 
 export default function App() {
@@ -67,6 +74,7 @@ export default function App() {
 }
 
 function AppShell() {
+  const { user, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
@@ -76,11 +84,19 @@ function AppShell() {
     queryFn: () => api.get<{ status: string }>("/health"),
   })
   const today = localDateISO()
+  // enabled: !!user — /api/day is auth-guarded (PLAN 8.2), no point firing
+  // it before login, and hooks must stay unconditional either way.
   const { data: dayStatus } = useQuery({
     queryKey: queryKeys.dayStatus(today),
     queryFn: () => api.get<{ status: "open" | "closed" }>(`/day/${today}`),
+    enabled: !!user,
   })
   const dayClosed = dayStatus?.status === "closed"
+
+  // PLAN 8.2: the app is unusable until authenticated. Below this point
+  // nothing renders without a user — checked after the hooks above so their
+  // count never changes across a login/logout re-render.
+  if (!user) return <Login />
 
   let lastGroup = ""
 
@@ -176,11 +192,20 @@ function AppShell() {
         {/* Footer */}
         <div style={{ padding: "12px 16px", borderTop: "1px solid rgba(255,255,255,0.07)" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0" }}>
-            <div style={{ width: 28, height: 28, background: "#1e3a5f", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#93b4d4", fontWeight: 700, border: "1px solid #2d5080" }}>A</div>
-            <div>
-              <div style={{ color: "#c8d8ec", fontSize: 12, fontWeight: 500 }}>Admin</div>
-              <div style={{ color: "#3d5a78", fontSize: 10 }}>Operator</div>
+            <div style={{ width: 28, height: 28, background: "#1e3a5f", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12, color: "#93b4d4", fontWeight: 700, border: "1px solid #2d5080" }}>
+              {user.username[0]?.toUpperCase()}
             </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ color: "#c8d8ec", fontSize: 12, fontWeight: 500, textTransform: "capitalize" }}>{user.username}</div>
+              <div style={{ color: "#3d5a78", fontSize: 10, textTransform: "capitalize" }}>{user.role}</div>
+            </div>
+            <button
+              onClick={logout}
+              title="Log out"
+              style={{ background: "none", border: "none", color: "#5a7a9a", cursor: "pointer", padding: 4, flexShrink: 0 }}
+            >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+            </button>
           </div>
         </div>
       </aside>
@@ -238,6 +263,7 @@ function AppShell() {
             <Route path="/ledger" element={<Ledger />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/closing" element={<DailyClosing />} />
+            <Route path="/audit-log" element={<AuditLog />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </div>

@@ -2,11 +2,33 @@
 // dev proxy at /api (see vite.config.ts), so no base URL or CORS config
 // is needed in development.
 
+// PLAN 8.2: the session token lives here in memory only, never localStorage
+// (ARCHITECTURE.md §9) — a page reload logs the operator out.
+let authToken: string | null = null
+let onUnauthorized: (() => void) | null = null
+
+export function setAuthToken(token: string | null) {
+  authToken = token
+}
+
+// AuthProvider registers this once, to clear its own state on a 401 (expired
+// session, logged out elsewhere) without api.ts importing React.
+export function setOnUnauthorized(handler: (() => void) | null) {
+  onUnauthorized = handler
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
-    headers: { "Content-Type": "application/json", ...init?.headers },
+    headers: {
+      "Content-Type": "application/json",
+      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      ...init?.headers,
+    },
     ...init,
   })
+  if (res.status === 401) {
+    onUnauthorized?.()
+  }
   if (!res.ok) {
     // ARCHITECTURE.md §6: errors return { detail, code }. Read it when
     // present so the caller sees why the request failed, not just the
@@ -15,6 +37,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const detail = typeof body?.detail === "string" ? body.detail : undefined
     throw new Error(detail ?? `${init?.method ?? "GET"} ${path} failed: ${res.status} ${res.statusText}`)
   }
+  if (res.status === 204) return undefined as T
   return res.json() as Promise<T>
 }
 

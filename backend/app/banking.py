@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field, field_validator
 from app.accounts import _get_active_or_404 as _get_account_or_404
 from app.accounts import _get_or_404 as _get_account_any_or_404
 from app.accounts import _system_user_id
+from app.audit import write_audit
 from app.customers import _get_or_404 as _get_customer_or_404
 from app.db import begin_write, get_db
 from app.ledger import account_balance, ensure_business_day_open, insert_banking_entries, reverse_entry, validate_business_date, with_reversals_sql
@@ -208,12 +209,15 @@ def create_banking(body: BankingCreate, conn: sqlite3.Connection = Depends(get_d
             settlement_account_id=body.settlement_account_id, cash_account_id=body.cash_account_id,
             source_id=banking_id, created_by=user_id, description=body.remarks,
         )
+        after = _row_to_dict(_get_or_404(conn, banking_id))
+        write_audit(conn, table_name="banking_transactions", row_id=banking_id, action="create",
+                    before=None, after=after, user_id=user_id)
     except Exception:
         conn.rollback()
         raise
 
     conn.commit()
-    return _row_to_dict(_get_or_404(conn, banking_id))
+    return after
 
 
 @router.get("/{banking_id}")
@@ -224,9 +228,10 @@ def get_banking(banking_id: int, conn: sqlite3.Connection = Depends(get_db)):
 @router.patch("/{banking_id}")
 def update_banking(banking_id: int, body: BankingUpdate, conn: sqlite3.Connection = Depends(get_db)):
     txn = _get_or_404(conn, banking_id)
+    before = _row_to_dict(txn)
     fields = body.model_dump(exclude_unset=True)
     if not fields:
-        return _row_to_dict(txn)
+        return before
 
     new_business_date = fields.get("business_date", txn["business_date"])
     new_txn_type = fields.get("txn_type", txn["txn_type"])
@@ -286,12 +291,15 @@ def update_banking(banking_id: int, body: BankingUpdate, conn: sqlite3.Connectio
             f"UPDATE banking_transactions SET {set_clause}, updated_at = datetime('now') WHERE id = ?",
             (*fields.values(), banking_id),
         )
+        after = _row_to_dict(_get_or_404(conn, banking_id))
+        write_audit(conn, table_name="banking_transactions", row_id=banking_id, action="update",
+                    before=before, after=after, user_id=_system_user_id(conn))
     except Exception:
         conn.rollback()
         raise
 
     conn.commit()
-    return _row_to_dict(_get_or_404(conn, banking_id))
+    return after
 
 
 @router.delete("/{banking_id}", status_code=204)
@@ -302,6 +310,7 @@ def delete_banking(banking_id: int, conn: sqlite3.Connection = Depends(get_db)):
     begin_write(conn)
     try:
         txn = _get_or_404(conn, banking_id)
+        before = _row_to_dict(txn)
         # H.30: delete_banking called ensure_business_day_open nowhere at
         # all — a delete on a closed date posted its reversal straight onto
         # the sealed day. Must run after begin_write, same as update_banking.
@@ -311,6 +320,9 @@ def delete_banking(banking_id: int, conn: sqlite3.Connection = Depends(get_db)):
             reverse_entry(conn, entry_id=entry["id"], created_by=user_id,
                            description=f"Deletion of banking transaction {banking_id}")
         conn.execute("UPDATE banking_transactions SET deleted_at = datetime('now') WHERE id = ?", (banking_id,))
+        after = _row_to_dict(conn.execute("SELECT * FROM banking_transactions WHERE id = ?", (banking_id,)).fetchone())
+        write_audit(conn, table_name="banking_transactions", row_id=banking_id, action="delete",
+                    before=before, after=after, user_id=user_id)
     except Exception:
         conn.rollback()
         raise

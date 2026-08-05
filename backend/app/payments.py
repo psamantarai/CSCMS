@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from app.accounts import _get_active_or_404 as _get_account_or_404
 from app.accounts import _system_user_id
+from app.audit import write_audit
 from app.customers import _get_or_404 as _get_customer_or_404
 from app.db import begin_write, get_db
 from app.ledger import insert_entry
@@ -88,8 +89,11 @@ def create_payment(body: PaymentCreate, conn: sqlite3.Connection = Depends(get_d
         conn.rollback()
         raise
 
-    conn.commit()
-    rows = conn.execute(
+    rows = [_row_to_dict(r) for r in conn.execute(
         f"SELECT * FROM payments WHERE id IN ({','.join('?' * len(created_ids))})", created_ids
-    ).fetchall()
-    return [_row_to_dict(r) for r in rows]
+    ).fetchall()]
+    for row in rows:
+        write_audit(conn, table_name="payments", row_id=row["id"], action="create",
+                    before=None, after=row, user_id=_system_user_id(conn))
+    conn.commit()
+    return rows

@@ -23,4 +23,5 @@ export const queryKeys = {
   reportServiceWise: (filters: Record<string, string>) => ["reports", "service-wise", filters] as const,
   reportProfitLoss: (filters: Record<string, string>) => ["reports", "profit-loss", filters] as const,
   reportBankingCommission: (filters: Record<string, string>) => ["reports", "banking-commission", filters] as const,
+  auditLogs: (filters: Record<string, string | number>) => ["audit", filters] as const,
 }
