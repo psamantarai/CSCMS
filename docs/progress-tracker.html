@@ -1405,6 +1405,163 @@
     ]
   },
   {
+    "title": "9.5.1 — Initialize shadcn",
+    "status": "completed",
+    "updated": "2026-08-06",
+    "seq": 124,
+    "details": [
+      "Ran pnpm dlx shadcn@latest init -b base -p nova -y via npx pnpm@11.20.0 dlx — matches the project's actual pnpm 11 store; .mise.toml's pinned pnpm 10.34.3 doesn't match what's installed.",
+      "Created components.json + src/lib/utils.ts (cn). Added clsx, tailwind-merge, class-variance-authority, lucide-react, tw-animate-css — plus @base-ui/react and @fontsource-variable/geist, pulled in by the base library + nova preset choices.",
+      "index.css was merged, not overwritten — all five preserved blocks (font @import, @media print, responsive sidebar rules, dialog::backdrop, scrollbar rules) survived alongside shadcn's new oklch tokens.",
+      "Verify: tsc --noEmit clean, pnpm build succeeds, dev server screenshot confirms the login screen renders identically (navy sidebar, amber accent, fonts unchanged).",
+      "Next: 9.5.2 replaces the placeholder oklch tokens with the real CSCMS palette."
+    ]
+  },
+  {
+    "title": "9.5.2 — Theme tokens: CSCMS palette, light + dark",
+    "status": "completed",
+    "updated": "2026-08-06",
+    "seq": 125,
+    "details": [
+      "src/index.css: @theme inline now aliases every color to a var() (--color-X: var(--X)) instead of hardcoding hex directly, plus adds destructive-foreground and success/warning/danger-foreground pairs that were missing",
+      ":root and .dark replace shadcn's default grayscale oklch placeholders with the real CSCMS palette — light values are the existing navy/amber hexes unchanged; dark values are new (background #0b1420, card #101e30, primary lightened to #4f7fb8 for contrast on dark, accent amber #f59e0b unchanged, destructive/danger #f87171, sidebar stays near-navy #0a1626 in both modes per the identity decision)",
+      "Fonts wired through named tokens: --font-sans (Outfit), --font-serif (Roboto Slab), --font-mono (JetBrains Mono), replacing the stray --font-heading and the wrong Geist Variable value 9.5.1's init left in --font-sans; html/body/h1-h4/.mono now read var(--font-sans/serif/mono) instead of literal font-family strings; removed the now-unused @fontsource-variable/geist CSS import (package.json dependency left as-is, not part of this step)",
+      "Chart tokens (unused anywhere in the app) left at shadcn's default grayscale, same in light/dark — no real design exists to migrate them to",
+      "Verify: tsc --noEmit clean, pnpm build succeeds; live browser check logged in as admin — Dashboard and Ledger render pixel-identical to before (navy sidebar, amber accents, colored stat tiles, mono ledger balances); toggling document.documentElement.classList.add('dark') in devtools resolves --background to #0b1420 and --primary to #4f7fb8 with no invisible text, removing it reverts to #f0f4f8/#1e3a5f — pages don't visually respond yet since they're still inline-styled, exactly as the step's Verify anticipates (9.5.3+ fixes that)"
+    ]
+  },
+  {
+    "title": "9.5.3 — Add the component set",
+    "status": "pending",
+    "updated": "2026-08-05",
+    "details": [
+      "P9.5 · One add run: button input select table card dialog alert-dialog badge alert skeleton empty field label separator sidebar sheet tabs toggle-group scroll-area breadcrumb dropdown-menu.",
+      "Curated, not --all (decided with user): every added file is source this repo then owns; ~30 unimported components is dead weight, not optionality.",
+      "Not adopted, per CLAUDE.md §2 ladder: Calendar+Popover (native <input type=\"date\"> stays), Tooltip (native title= stays), Sonner (replaces nothing hand-rolled; inline mutation errors become Alert).",
+      "Then read every added file per shadcn skill step 7 — composition, imports, lucide-react icons.",
+      "Verify: tsc --noEmit clean with new files present; app builds and runs; nothing imports them yet so behavior is unchanged."
+    ]
+  },
+  {
+    "title": "9.5.4 — Shared primitives: StatCard, QueryState, Modal→Dialog",
+    "status": "pending",
+    "updated": "2026-08-05",
+    "details": [
+      "P9.5 · Done first because every page consumes them. StatCard.tsx → Card composition, its 5-color colorMap becoming semantic token classes. QueryState.tsx → Skeleton (loading) + Alert variant=destructive (error), keeping all three call shapes (TableRowState/BlockState/InlineState). Modal.tsx deleted, replaced by Dialog — which needs no margin:\"auto\" workaround for the Tailwind-preflight bug Phase 9.1 hit.",
+      "Verify: H.8 explicitly re-checked — a slow query renders a skeleton, a failed one a visible error, and neither can be mistaken for a confirmed ₹0 (a grey shape where a number goes is exactly that ambiguity). Dashboard's three quick-action modals still open/save/close on Dialog. Modal.tsx has no remaining importers."
+    ]
+  },
+  {
+    "title": "9.5.5 — App shell: Sidebar, topbar, lucide icons",
+    "status": "pending",
+    "updated": "2026-08-05",
+    "details": [
+      "P9.5 · App.tsx's hand-rolled sidebar → shadcn Sidebar (SidebarProvider/SidebarMenu/SidebarGroup), which brings its own collapsible + mobile off-canvas Sheet, deleting .app-sidebar/.hamburger-btn/.app-sidebar-backdrop from index.css. Topbar → Breadcrumb + Badge (API health, day open/closed) + Button. The 12 hand-written inline nav SVGs → lucide-react.",
+      "Verify: every nav link routes and highlights; sidebar collapses and mobile drawer opens below 900px; AND the print stylesheet still hides the chrome — @media print targets .app-sidebar/.app-topbar by name and shadcn Sidebar will not emit those class names."
+    ]
+  },
+  {
+    "title": "9.5.6 — Login",
+    "status": "pending",
+    "updated": "2026-08-05",
+    "details": [
+      "P9.5 · Smallest page (83 lines), isolated, no table. Card + FieldGroup/Field + Input + Button + Alert for the failure message.",
+      "Verify: wrong password shows the error in an Alert; correct one logs in and lands on Dashboard."
+    ]
+  },
+  {
+    "title": "9.5.7 — The three extracted forms",
+    "status": "pending",
+    "updated": "2026-08-05",
+    "details": [
+      "P9.5 · TransactionForm/BankingEntryForm/ExpenseForm → FieldGroup + Field + Input/Select, validation as data-invalid on the Field and aria-invalid on the control. Shared by their page AND the Dashboard modal (Phase 9.3/9.4), so both call sites are exercised.",
+      "Verify: each form still creates from its own page and from the Dashboard modal; Banking's and Expenses' inline edit mode still prefills and saves; validation errors appear on the same fields for the same inputs as before."
+    ]
+  },
+  {
+    "title": "9.5.8 — Transactions: establish the canonical table pattern",
+    "status": "pending",
+    "updated": "2026-08-05",
+    "details": [
+      "P9.5 · The page shape every other page then copies: filter bar in a Card, Table composition, status as Badge variants, Empty for no rows, TableRowState from 9.5.4. Money cells keep --font-mono with tabular-nums.",
+      "Verify: filters/sorting/paging behave identically; amounts stay column-aligned; a filter matching nothing renders Empty, not a bare table."
+    ]
+  },
+  {
+    "title": "9.5.9 — Customers + Services",
+    "status": "pending",
+    "updated": "2026-08-05",
+    "details": [
+      "P9.5 · Same pattern as 9.5.8; Customers' history view uses Tabs.",
+      "Verify: customer search, the history drill-down, and service create/edit all behave identically."
+    ]
+  },
+  {
+    "title": "9.5.10 — Banking + Expenses",
+    "status": "pending",
+    "updated": "2026-08-05",
+    "details": [
+      "P9.5 · Same pattern as 9.5.8.",
+      "Verify: both pages' create and edit flows still work, including the category select on Expenses."
+    ]
+  },
+  {
+    "title": "9.5.11 — Accounts + Ledger",
+    "status": "pending",
+    "updated": "2026-08-05",
+    "details": [
+      "P9.5 · Accounts' per-account balance cards use the 9.5.4 Card; Ledger keeps its running-balance column mono and aligned.",
+      "Verify: balances match the values shown before the change on the same data; Ledger's date/account filters unchanged."
+    ]
+  },
+  {
+    "title": "9.5.12 — AuditLog + Reports",
+    "status": "pending",
+    "updated": "2026-08-05",
+    "details": [
+      "P9.5 · Reports' five-way report-type selector → ToggleGroup; its three tables use the 9.5.8 pattern; CSV export stays a Button.",
+      "Verify: each of the five reports renders, and a CSV export downloads with the same contents as before."
+    ]
+  },
+  {
+    "title": "9.5.13 — Dashboard",
+    "status": "pending",
+    "updated": "2026-08-05",
+    "details": [
+      "P9.5 · Stat grid on 9.5.4 Cards, quick actions as Buttons opening the 9.5.4 Dialogs, recent-transactions on the 9.5.8 table pattern.",
+      "Verify: stat figures unchanged against the same data; all four quick actions behave as Phase 9.5 left them (three modals, Close Business Day still navigates)."
+    ]
+  },
+  {
+    "title": "9.5.14 — DailyClosing",
+    "status": "pending",
+    "updated": "2026-08-05",
+    "details": [
+      "P9.5 · Largest page (435 lines, 108 inline styles). The 5-step wizard's progress rail composes from Card + Separator + Badge; the irreversible close confirmation becomes AlertDialog — the one place a destructive-action component is genuinely earned. The printed closing report keeps its own layout.",
+      "Verify: all five steps advance and block exactly as before (pending-transaction and bank-verification checks still gate the close); the close still locks the day; AND the printed report still renders full-height and unclipped with the app chrome hidden, per PLAN 6.7."
+    ]
+  },
+  {
+    "title": "9.5.15 — Dark mode",
+    "status": "pending",
+    "updated": "2026-08-05",
+    "details": [
+      "P9.5 · A next-themes-free toggle (useState + localStorage + classList.toggle(\"dark\") on <html> — Vite SPA, no SSR flash to manage) in the sidebar footer next to the user block.",
+      "Ships here, not at 9.5.2, because only now does every screen read from tokens — a toggle any earlier would just expose 12 pages of hardcoded inline colors.",
+      "Verify: toggling switches all 12 pages, both modals and the sidebar; the choice survives a reload; nothing is unreadable in either mode — checked page by page, not just on the Dashboard."
+    ]
+  },
+  {
+    "title": "9.5.16 — Sweep",
+    "status": "pending",
+    "updated": "2026-08-05",
+    "details": [
+      "P9.5 · Remove what the migration orphaned: dead rules in index.css, the colorMap-era constants, the inputStyle/labelStyle/cardStyle locals left in pages (Reports.tsx:35-37 and friends), any now-unused imports. Confirm no page still hardcodes a color.",
+      "Baseline to beat: ~754 inline style={{}} objects across 19 files at the start of the phase.",
+      "Verify: grep -c \"style={{\" src/**/*.tsx returns only the deliberate survivors (print-report layout), and that count is recorded here; tsc --noEmit clean; pnpm build clean; full click-through of all 12 pages with no console errors."
+    ]
+  },
+  {
     "title": "10.1 — Electron shell",
     "status": "pending",
     "updated": "2026-08-04",

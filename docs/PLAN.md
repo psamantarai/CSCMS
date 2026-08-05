@@ -1,6 +1,6 @@
 # CSCMS — Implementation Plan
 
-18 phases, 122 steps. Phases run in order; each depends on the one before.
+19 phases, 138 steps. Phases run in order; each depends on the one before.
 (Phase 2.5 was inserted after an edge-case audit of the shipped Phase 0–2
 code — see that phase for what it found and why it blocks Phase 3. Phase 3.5
 came from the same pass repeated over the shipped Phase 3 code. Phase 4.5
@@ -8,7 +8,9 @@ repeated it again over the shipped Phase 4 code. Phase 7.9 repeated it once
 more over the shipped Phase 5, 6 and 7 code — three phases shipped back to
 back with no hardening pass in between. Phase 8.8 repeated it over the shipped
 Phase 8 code. Phase 8.9 repeated it once more, from three user-reported
-symptoms, over the already-hardened Dashboard and Transactions code.)
+symptoms, over the already-hardened Dashboard and Transactions code. Phase 9.5
+is the one inserted phase that is **not** a hardening pass — the `.5` there
+means only "between 9 and 10".)
 
 **A step is the unit of work.** Each is one sitting, independently verifiable,
 and leaves the app in a working state. Per `CLAUDE.md`, work stops after each
@@ -1354,6 +1356,198 @@ still navigates to `/closing`.
 
 ---
 
+## Phase 9.5 — shadcn/ui component migration
+
+User request: replace the hand-rolled UI with shadcn/ui components for better
+UI quality. Runs before Phase 10 for the same reason Phase 10 is last —
+packaging a moving target does the work twice.
+
+**What is actually there today.** shadcn is not installed at all: no
+`components.json`, no `cn()`, no `clsx`/`tailwind-merge`/`cva`, no icon
+library. Tailwind v4 *is* installed but effectively unused — the app is
+styled with **~754 inline `style={{}}` objects across 19 files** (12 pages,
+3 extracted forms, `App.tsx`, `Modal.tsx`, `StatCard.tsx`, `QueryState.tsx`).
+The only classes in the JSX are the eight responsive/print helpers defined in
+`index.css`. So this is not "swap a few components" — it is a full
+presentation-layer rewrite of every screen.
+
+**What makes it tractable.** Every page is the same shape: a filter bar, a
+`<table>`, and a form. `Table` + `Card` + `Input` + `Select` + `Button` +
+`Dialog` + `Badge` + `Field` cover the overwhelming majority of it, which is
+why the page steps below can be grouped two at a time after the pattern is
+established once on Transactions (9.5.8).
+
+**Two decisions taken with the user up front:**
+1. **Curated component set, not `--all`.** Every added file is source code
+   this repo then owns and maintains; ~30 components nothing imports is dead
+   weight, not optionality. Add on demand instead.
+2. **Keep the existing navy/amber identity, and add dark mode.** The current
+   `#0f2035` sidebar / `#1e3a5f` primary / `#f59e0b` accent and the
+   Outfit / Roboto Slab / JetBrains Mono fonts are mapped onto shadcn's token
+   names rather than replaced by a preset. Dark mode is near-free once
+   everything reads from tokens — which is exactly why its toggle ships at
+   **9.5.15**, after the last page stops hardcoding colors, not before.
+
+**Three things deliberately *not* adopted**, against the ladder in
+`CLAUDE.md` §2 — native platform features already cover them, and swapping
+them for components is more code doing the same job:
+- `Calendar` + `Popover` — the date fields stay `<input type="date">`.
+- `Tooltip` — the handful of hints stay native `title=`.
+- `Sonner`/`toast` — nothing hand-rolled exists for it to replace; mutation
+  errors render inline today and become `Alert`. Adding toasts would be new
+  behavior, not a migration.
+
+**Scope boundary, enforced on every step below.** This phase is
+**presentation only**. No step changes a query, a mutation, a validation
+rule, a guard, or anything on a money path. If a diff touches `lib/api.ts`,
+`lib/queries.ts`, `lib/format.ts`, or the body of a mutation, it is out of
+scope and belongs in its own step. See the risk note at the end of this file
+for why that guard is stated this bluntly.
+
+**9.5.1 Initialize shadcn** — `pnpm dlx shadcn@latest init` (pnpm per
+`.mise.toml`/`pnpm-lock.yaml`), Vite + React + Tailwind v4, `base` style.
+Creates `components.json` and `src/lib/utils.ts` (`cn`), adds
+`clsx`/`tailwind-merge`/`cva`/`lucide-react`/`tw-animate-css`. The `@/*`
+alias already exists in both `tsconfig.json` and `vite.config.ts`, so no
+path work is needed. Init rewrites `src/index.css` — the font `@import`, the
+`@media print` block (PLAN 6.7), the responsive sidebar rules, the
+`dialog::backdrop` rule and the scrollbar rules must all survive it.
+*Verify:* `tsc --noEmit` clean, `pnpm build` succeeds, the running app looks
+unchanged, and all five preserved CSS blocks are still present in
+`index.css`.
+
+**9.5.2 Theme tokens — CSCMS palette in shadcn's names, light and dark** —
+translate the current `@theme inline` block into shadcn's token contract
+(`--background`, `--foreground`, `--primary`, `--muted-foreground`,
+`--border`, `--ring`, `--sidebar-*`, `--destructive`, …) with the existing
+hexes as the light values, plus a `.dark` block giving each one a dark
+counterpart. Fonts wire through `--font-sans` (Outfit), `--font-serif`
+(Roboto Slab, headings) and `--font-mono` (JetBrains Mono). The three
+non-shadcn semantic colors this app actually needs — success, warning,
+danger — get token pairs too, since money status is not decoration here.
+*Verify:* light mode renders pixel-comparable to today on Dashboard and
+Ledger; toggling `.dark` on `<html>` by hand in devtools produces a legible
+dark screen with no invisible text (the pages are still inline-styled at
+this point, so most of them will *not* respond yet — that is expected and is
+what 9.5.3–9.5.14 fix).
+
+**9.5.3 Add the component set** — one `pnpm dlx shadcn@latest add` run:
+`button input select table card dialog alert-dialog badge alert skeleton
+empty field label separator sidebar sheet tabs toggle-group scroll-area
+breadcrumb dropdown-menu`. Then read every added file per the shadcn skill's
+step 7 (check composition, imports, and that icons come from
+`lucide-react`).
+*Verify:* `tsc --noEmit` clean with the new files present; app still builds
+and runs; nothing imports them yet, so behavior is unchanged.
+
+**9.5.4 Shared primitives** — the three components every page consumes, done
+first so the page steps just use them:
+- `StatCard.tsx` → `Card` composition (`CardHeader`/`CardTitle`/
+  `CardContent`), its five-color `colorMap` becoming semantic token classes.
+- `QueryState.tsx` → `Skeleton` (loading) and `Alert variant="destructive"`
+  (error), keeping all three call shapes (`TableRowState`, `BlockState`,
+  `InlineState`).
+- `Modal.tsx` → deleted, replaced by `Dialog` at its call sites; `Dialog`
+  provides `showModal`-equivalent focus trapping, Escape and backdrop
+  natively, and does not need the `margin:"auto"` workaround Phase 9.1 added
+  for Tailwind preflight breaking native `<dialog>` centering.
+*Verify:* **H.8 explicitly re-checked** — a slow query renders a skeleton and
+a failed query renders a visible error, and neither can be mistaken for a
+confirmed `₹0`. Dashboard's three quick-action modals (Phase 9.5) still open,
+save, and close on `Dialog`. `Modal.tsx` has no remaining importers.
+
+**9.5.5 App shell** — `App.tsx`'s hand-rolled sidebar becomes shadcn
+`Sidebar` (`SidebarProvider`/`SidebarMenu`/`SidebarGroup`), which brings its
+own collapsible behavior and mobile off-canvas `Sheet` — deleting the
+`.app-sidebar`, `.hamburger-btn` and `.app-sidebar-backdrop` rules from
+`index.css`. The topbar becomes `Breadcrumb` + `Badge` (API health, day
+open/closed) + `Button`. The 12 hand-written inline nav SVGs become
+`lucide-react` icons.
+*Verify:* every nav link still routes and highlights correctly; the sidebar
+collapses and the mobile drawer opens below 900px; **and the print stylesheet
+still hides the chrome** — see the risk note, the `@media print` block
+targets `.app-sidebar`/`.app-topbar` by name and shadcn `Sidebar` will not
+emit those class names.
+
+**9.5.6 Login** — smallest page (83 lines), isolated, no table. `Card` +
+`FieldGroup`/`Field` + `Input` + `Button` + `Alert` for the failure message.
+*Verify:* a wrong password shows the error in an `Alert`; a correct one logs
+in and lands on the Dashboard.
+
+**9.5.7 The three extracted forms** — `TransactionForm.tsx`,
+`BankingEntryForm.tsx`, `ExpenseForm.tsx` → `FieldGroup` + `Field` +
+`Input`/`Select`, with validation surfaced as `data-invalid` on the `Field`
+and `aria-invalid` on the control. These are shared by their page *and* the
+Dashboard modal (Phase 9.3/9.4), so both call sites are exercised.
+*Verify:* each form still creates from its own page **and** from the
+Dashboard modal, and Banking's and Expenses' inline **edit** mode still
+prefills and saves. Validation errors appear on the same fields, for the same
+inputs, as before.
+
+**9.5.8 Transactions — establish the canonical table pattern** — the page
+shape every other page then copies: filter bar in a `Card`, `Table`
+composition, status as `Badge` variants, `Empty` for no rows, `TableRowState`
+from 9.5.4 for loading/error. Money cells keep `--font-mono` with
+`tabular-nums`.
+*Verify:* filters, sorting and paging behave identically; amounts stay
+column-aligned; a filter that matches nothing renders `Empty`, not a bare
+table.
+
+**9.5.9 Customers + Services** — same pattern; Customers' history view uses
+`Tabs`.
+*Verify:* customer search, the history drill-down, and service create/edit
+all behave identically.
+
+**9.5.10 Banking + Expenses**
+*Verify:* both pages' create and edit flows still work, including the
+category select on Expenses.
+
+**9.5.11 Accounts + Ledger** — Accounts' per-account balance cards use the
+9.5.4 `Card`; Ledger keeps its running-balance column mono and aligned.
+*Verify:* balances match the values shown before the change on the same data;
+Ledger's date/account filters unchanged.
+
+**9.5.12 AuditLog + Reports** — Reports' five-way report-type selector
+becomes `ToggleGroup`; its three tables use the 9.5.8 pattern; CSV export
+stays a `Button`.
+*Verify:* each of the five reports renders, and a CSV export downloads with
+the same contents as before.
+
+**9.5.13 Dashboard** — stat grid on 9.5.4 `Card`s, quick actions as `Button`s
+opening the 9.5.4 `Dialog`s, recent-transactions on the 9.5.8 table pattern.
+*Verify:* stat figures are unchanged against the same data; all four quick
+actions behave as Phase 9.5 left them (three modals, Close Business Day still
+navigates).
+
+**9.5.14 DailyClosing** — the largest page (435 lines, 108 inline styles).
+The 5-step wizard's progress rail composes from `Card` + `Separator` +
+`Badge`; the irreversible close confirmation becomes `AlertDialog` — the one
+place in this app where a destructive-action component is genuinely earned.
+The printed closing report keeps its own layout.
+*Verify:* all five steps advance and block exactly as before (pending-
+transaction and bank-verification checks still gate the close); the close
+still locks the day; **and the printed report still renders full-height and
+unclipped**, with the app chrome hidden, per PLAN 6.7.
+
+**9.5.15 Dark mode** — a `next-themes`-free toggle (a `useState` +
+`localStorage` + `classList.toggle("dark")` on `<html>`; this is a Vite SPA
+with no SSR flash to manage) in the sidebar footer next to the user block.
+Ships now, not in 9.5.2, because only now does every screen read from tokens.
+*Verify:* toggling switches every one of the 12 pages, both modals, and the
+sidebar; the choice survives a reload; no element is unreadable in either
+mode — checked page by page, not just on the Dashboard.
+
+**9.5.16 Sweep** — remove what the migration orphaned: dead rules in
+`index.css`, the `colorMap`-era constants, any `inputStyle`/`labelStyle`/
+`cardStyle` locals left in pages (`Reports.tsx:35-37` and friends), and any
+now-unused imports. Confirm no page still hardcodes a color.
+*Verify:* `grep -c "style={{" src/**/*.tsx` returns only the deliberate
+survivors (print-report layout), and that count is recorded in the tracker;
+`tsc --noEmit` clean; `pnpm build` clean; a full click-through of all 12
+pages with no console errors.
+
+---
+
 ## Phase 10 — Electron packaging
 
 Deliberately last. Packaging a moving target does the work twice.
@@ -1449,7 +1643,29 @@ line that only exercises the write.
 **A missing error state is a wrong number (H.8).** The frontend's `data = []`
 default turns a failed fetch into a confident "₹0". In a ledger app, silence and
 zero must be visually distinct, or the operator reconciles against a figure the
-system never actually had.
+system never actually had. **Phase 9.5.4 rewrites the component that enforces
+this** — `QueryState.tsx` — onto `Skeleton` and `Alert`. A skeleton is a
+grey shape where a number goes, which is exactly the ambiguity H.8 was
+written against; the rewrite is only correct if a loading cell still cannot
+be misread as a settled zero.
+
+**A restyle is the easiest place to silently change a rule (Phase 9.5).**
+Every hardening phase in this plan fixed a guard that failed because a call
+site decided *whether* to run it. Phase 9.5 touches all 19 frontend files
+and none of the logic, which makes it the ideal cover for a validation branch
+quietly disappearing into a component prop. Hence the phase's stated scope
+boundary: a step that touches `lib/api.ts`, `lib/queries.ts`, `lib/format.ts`
+or a mutation body has left its lane. Reviewing those diffs by "does the
+screen still look right" will not catch it — the *Verify* lines ask what the
+form rejects, not how it looks.
+
+**Class names in `index.css` are an undeclared coupling (Phase 9.5.5).** The
+`@media print` block from PLAN 6.7 hides the app chrome by naming
+`.app-sidebar` and `.app-topbar`. Phase 9.5.5 replaces both with shadcn
+`Sidebar`, which emits its own class names — so the print rules keep parsing,
+keep matching nothing, and the closing report silently starts printing with a
+navy sidebar down the page. Nothing in the type system or the build catches
+a selector that stopped matching; only 9.5.14's print *Verify* does.
 
 **The existing UI is a mock, not a partial implementation.** Its forms don't
 submit and its numbers come from `mockData.ts`. Steps that say "wiring" are
