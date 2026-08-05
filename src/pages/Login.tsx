@@ -2,6 +2,11 @@
 // this instead of the shell whenever useAuth().user is null.
 import { useState } from "react"
 import { useAuth } from "../lib/auth"
+import { Card, CardContent, CardHeader } from "@/components/ui/card"
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field"
+import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 
 export default function Login() {
   const { login } = useAuth()
@@ -24,60 +29,58 @@ export default function Login() {
   }
 
   return (
-    <div style={{
-      height: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
-      background: "#0f2035", fontFamily: "'Outfit', system-ui, sans-serif",
-    }}>
-      <form onSubmit={handleSubmit} style={{
-        background: "#fff", borderRadius: 12, padding: "32px 28px", width: 320,
-        display: "flex", flexDirection: "column", gap: 16,
-      }}>
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
-          <div style={{ width: 32, height: 32, background: "#f59e0b", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 800, color: "#1a1000", fontFamily: "'Roboto Slab', serif" }}>
-            C
+    <div className="flex h-screen items-center justify-center bg-sidebar">
+      <Card className="w-80">
+        <CardHeader>
+          <div className="flex items-center gap-2.5">
+            <div className="flex size-8 items-center justify-center rounded-lg bg-accent font-serif text-base font-extrabold text-accent-foreground">
+              C
+            </div>
+            <div>
+              <div className="text-sm leading-tight font-bold">CSCMS</div>
+              <div className="text-[10px] tracking-wide text-muted-foreground">
+                Common Service Center
+              </div>
+            </div>
           </div>
-          <div>
-            <div style={{ color: "#1a2332", fontWeight: 700, fontSize: 14, lineHeight: 1.1 }}>CSCMS</div>
-            <div style={{ color: "#64748b", fontSize: 10, letterSpacing: "0.04em" }}>Common Service Center</div>
-          </div>
-        </div>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit}>
+            <FieldGroup>
+              <Field>
+                <FieldLabel htmlFor="login-username">Username</FieldLabel>
+                <Input
+                  id="login-username"
+                  value={username}
+                  onChange={e => setUsername(e.target.value)}
+                  required
+                  autoFocus
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="login-password">Password</FieldLabel>
+                <Input
+                  id="login-password"
+                  type="password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  required
+                />
+              </Field>
 
-        <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "#475569" }}>
-          Username
-          <input
-            value={username}
-            onChange={e => setUsername(e.target.value)}
-            required
-            autoFocus
-            style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid #d1d9e6", fontSize: 13 }}
-          />
-        </label>
+              {error && (
+                <Alert variant="destructive">
+                  <AlertDescription>{error}</AlertDescription>
+                </Alert>
+              )}
 
-        <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "#475569" }}>
-          Password
-          <input
-            type="password"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            required
-            style={{ padding: "8px 10px", borderRadius: 6, border: "1px solid #d1d9e6", fontSize: 13 }}
-          />
-        </label>
-
-        {error && <div style={{ color: "#dc2626", fontSize: 12 }}>{error}</div>}
-
-        <button
-          type="submit"
-          disabled={submitting}
-          style={{
-            background: "#1e3a5f", color: "#fff", border: "none", borderRadius: 6,
-            padding: "9px 12px", fontSize: 13, fontWeight: 600, cursor: submitting ? "default" : "pointer",
-            opacity: submitting ? 0.7 : 1,
-          }}
-        >
-          {submitting ? "Signing in…" : "Sign in"}
-        </button>
-      </form>
+              <Button type="submit" disabled={submitting}>
+                {submitting ? "Signing in…" : "Sign in"}
+              </Button>
+            </FieldGroup>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   )
 }

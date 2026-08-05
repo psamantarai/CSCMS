@@ -1471,11 +1471,13 @@
   },
   {
     "title": "9.5.6 — Login",
-    "status": "pending",
-    "updated": "2026-08-05",
+    "status": "completed",
+    "updated": "2026-08-06",
+    "seq": 129,
     "details": [
-      "P9.5 · Smallest page (83 lines), isolated, no table. Card + FieldGroup/Field + Input + Button + Alert for the failure message.",
-      "Verify: wrong password shows the error in an Alert; correct one logs in and lands on Dashboard."
+      "Rebuilt src/pages/Login.tsx on Card + FieldGroup/Field/FieldLabel + Input + Button + Alert (shadcn)",
+      "Reused existing --primary/--accent/--sidebar theme tokens to preserve the original look exactly",
+      "Verified via tsc --noEmit (clean) and live in browser: wrong password shows \"invalid username or password\" in the Alert; correct login lands on Dashboard"
     ]
   },
   {
