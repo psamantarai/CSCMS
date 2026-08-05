@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
+import { useNavigate } from "react-router-dom"
 import StatCard from "../components/StatCard"
 import { BlockState, TableRowState } from "../components/QueryState"
 import { api } from "../lib/api"
@@ -31,6 +32,7 @@ type Account = { account_type: string; is_active: number }
 
 export default function Dashboard() {
   const today = localDateISO()
+  const navigate = useNavigate()
 
   const { data: dash, isLoading: dashLoading, error: dashError } = useQuery({
     queryKey: queryKeys.dashboard(today),
@@ -188,14 +190,19 @@ export default function Dashboard() {
           <div style={{ background: "#1e3a5f", borderRadius: 10, padding: "18px 20px", color: "#fff" }}>
             <div style={{ fontSize: 12, color: "#93b4d4", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>Quick Actions</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {["New Transaction", "New Banking Entry", "Record Expense", "Close Business Day"].map((a, i) => (
-                <button key={a} style={{
+              {[
+                { label: "New Transaction", path: "/transactions" },
+                { label: "New Banking Entry", path: "/banking" },
+                { label: "Record Expense", path: "/expenses" },
+                { label: "Close Business Day", path: "/closing" },
+              ].map((a, i) => (
+                <button key={a.label} onClick={() => navigate(a.path)} style={{
                   background: i === 3 ? "#f59e0b" : "rgba(255,255,255,0.08)",
                   border: "1px solid " + (i === 3 ? "#f59e0b" : "rgba(255,255,255,0.12)"),
                   borderRadius: 7, padding: "9px 14px", color: i === 3 ? "#1a1000" : "#e2ebf5",
                   fontSize: 13, fontWeight: 500, cursor: "pointer", textAlign: "left",
                   transition: "background 0.15s",
-                }}>{a}</button>
+                }}>{a.label}</button>
               ))}
             </div>
           </div>

@@ -1,13 +1,14 @@
 # CSCMS — Implementation Plan
 
-16 phases, 113 steps. Phases run in order; each depends on the one before.
+17 phases, 117 steps. Phases run in order; each depends on the one before.
 (Phase 2.5 was inserted after an edge-case audit of the shipped Phase 0–2
 code — see that phase for what it found and why it blocks Phase 3. Phase 3.5
 came from the same pass repeated over the shipped Phase 3 code. Phase 4.5
 repeated it again over the shipped Phase 4 code. Phase 7.9 repeated it once
 more over the shipped Phase 5, 6 and 7 code — three phases shipped back to
 back with no hardening pass in between. Phase 8.8 repeated it over the shipped
-Phase 8 code.)
+Phase 8 code. Phase 8.9 repeated it once more, from three user-reported
+symptoms, over the already-hardened Dashboard and Transactions code.)
 
 **A step is the unit of work.** Each is one sitting, independently verifiable,
 and leaves the app in a working state. Per `CLAUDE.md`, work stops after each
@@ -1220,6 +1221,81 @@ needed); and H.46's 12-parallel-`POST /backup` count, reusing the file's
 existing threadpool helper for the parallel case.
 *Verify:* the file fails against today's code on H.44, H.45 and H.46, and
 passes after they land.
+
+---
+
+## Phase 8.9 — Hardening dashboard display and walk-in transaction integrity
+
+Three user-reported symptoms against already-shipped Dashboard (Phase 7) and
+Transactions (Phase 3) code, checked against a `CSCMS_DB_PATH`-isolated
+scratch backend on port 8100 plus direct reading of the exact lines involved
+— small enough not to need a full probe sweep, but each is a reproduced
+defect, not an opinion. All three confirmed. This blocks Phase 9: packaging
+a release whose Dashboard "quick actions" are decorative and whose
+transaction path can strand money against no customer record ships both
+defects to every install.
+
+**H.48 Dashboard Quick Actions do nothing** — `src/pages/Dashboard.tsx:191-198`
+renders the four quick-action buttons ("New Transaction", "New Banking
+Entry", "Record Expense", "Close Business Day") with no `onClick` prop at
+all; every `<button>` carries only `style`. Clicking any of them is a no-op.
+The rest of the app already navigates via `useNavigate()` (`src/App.tsx:78`
+onward) — this card never calls it. Fix: give each button
+`onClick={() => navigate(path)}` to its page (`/transactions`, `/banking`,
+`/expenses`, `/closing`).
+*Verify:* clicking "New Transaction" (and the other three) on the Dashboard
+navigates to the corresponding page; today the URL and rendered page are
+unchanged after the click.
+
+**H.49 Dashboard transaction table shows the raw database id, not a
+same-day serial number** — `src/pages/Dashboard.tsx:131,143` renders the
+"ID" column as `{t.id}`, and `transactions.id`
+(`backend/migrations/001_init.sql:56`) is a single `INTEGER PRIMARY KEY`
+shared across every business date, not scoped per day. Reproduced: seeding
+transactions across two business dates yields IDs 1, 2, 3, 4 in creation
+order — the second day's table shows "3" and "4", not "1" and "2", so an
+operator scanning today's register sees a number that jumps around
+business-date boundaries instead of counting today's transactions. Fix:
+replace `{t.id}` with the row's position in `recentTxns` (`i + 1`) and
+relabel the header "S.No" — scoped to `Dashboard.tsx` only; the Transactions
+page's own "TXN ID" column (`src/pages/Transactions.tsx:324`) is untouched
+since only the dashboard was flagged.
+*Verify:* the Dashboard's transaction table numbers rows 1, 2, 3… for the
+day regardless of each row's underlying `transactions.id`.
+
+**H.50 A walk-in (no customer record) can be left with an uncollectable
+partial payment** — confirmed live: `POST /transactions` with
+`customer_id: null`, `total_paise: 10000`, `amount_paid_paise: 4000` returns
+`201` with `"status": "partial"`. `recompute_status`
+(`backend/app/transactions.py:122-145`) already documents the consequence —
+a walk-in "has no customer to attach a payments row to... and can never be
+settled against again after creation" — so the ₹60.00 left unpaid on that
+transaction is permanently uncollectable: no customer row exists to carry it
+as outstanding. The frontend's own guard (`submitTransaction`,
+`src/pages/Transactions.tsx:128-135`) only checks `paid > formTotal`; it
+never checks `customerId === null && paid < formTotal`, and a direct API
+call bypasses that check entirely regardless. Fix in the one place both
+paths must go through — `create_transaction`
+(`backend/app/transactions.py:201`): reject `amount_paid_paise <
+total_paise` when `customer_id is None` with a 400, the same reasoning as
+H.12 ("frontend already blocks this — exactly why the server must too").
+`submitTransaction` gets the matching pre-submit check, surfaced as a prompt
+to register/select the customer via the form's existing customer-search
+field (currently optional) rather than a rejected save.
+*Verify:* `POST /transactions` with `customer_id: null` and
+`amount_paid_paise < total_paise` returns `400`, not `201`; the same request
+with a real `customer_id`, or with `amount_paid_paise >= total_paise` and no
+customer, still succeeds.
+
+**H.51 Regression tests for the above** — extend
+`backend/tests/test_edge_cases.py` with H.50's case: walk-in partial-pay
+rejected with 400, walk-in full-pay still 201/`completed`,
+registered-customer partial-pay still 201/`partial`. H.48 and H.49 are
+frontend-only display/wiring defects with no backend behavior to assert —
+covered instead by the *Verify* browser walk above, same as H.40/H.41 in
+Phase 7.9.
+*Verify:* the file fails against today's code on H.50, and passes after it
+lands.
 
 ---
 
