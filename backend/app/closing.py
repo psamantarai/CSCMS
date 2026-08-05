@@ -6,6 +6,7 @@ are POST /close below; step 6 (report) is GET /report, which derives the
 exact same figures live from the ledger whether the day is open or closed,
 so it can never drift from what actually happened."""
 import sqlite3
+from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
@@ -115,6 +116,12 @@ class CloseDayRequest(BaseModel):
 @router.post("/{business_date}/close", status_code=201)
 def close_day(business_date: str, body: CloseDayRequest, conn: sqlite3.Connection = Depends(get_db)):
     validate_business_date(business_date)
+    # H.35: close_day auto-opens any untouched date with no bound — closing a
+    # fat-fingered future date would seal it with no reopen path (Phase 8.7
+    # doesn't exist yet). Only close_day is restricted; other writes to a
+    # future business_date are unaffected.
+    if date.fromisoformat(business_date) > date.today():
+        raise HTTPException(status_code=400, detail="cannot close a future business day")
     # H.11-style: acquire the write lock before ensure_business_day_open's
     # closed-check, so two concurrent close attempts on the same date can't
     # both read "still open" and both proceed.

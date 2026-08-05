@@ -122,9 +122,9 @@ def test_todays_customers_counts_distinct_customers_not_walkins():
 def test_closing_status_reflects_business_days():
     with tempfile.TemporaryDirectory() as tmp:
         conn = _seeded_conn(Path(tmp))
-        assert get_dashboard("2026-09-02", conn)["closing_status"] == "open"
-        close_day("2026-09-02", CloseDayRequest(), conn)
-        assert get_dashboard("2026-09-02", conn)["closing_status"] == "closed"
+        assert get_dashboard("2024-09-02", conn)["closing_status"] == "open"
+        close_day("2024-09-02", CloseDayRequest(), conn)
+        assert get_dashboard("2024-09-02", conn)["closing_status"] == "closed"
         conn.close()
 
 

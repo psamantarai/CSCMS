@@ -35,7 +35,7 @@ from app.transactions import TransactionCorrection, TransactionCreate, correct_t
 from app.transfers import TransferCreate, create_transfer
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
-START, END = "2026-11-01", "2026-11-30"
+START, END = "2024-11-01", "2024-11-30"
 
 
 def test_reconciliation_suite_scripted_month():
@@ -52,55 +52,55 @@ def test_reconciliation_suite_scripted_month():
         cert = create_service(ServiceCreate(name="Certificate", category="Certificates", default_fee_paise=35000), conn)
         printing = create_service(ServiceCreate(name="Printing", category="Printing", default_fee_paise=500), conn)
 
-        # -- 2026-11-01: two transactions (one customer, one walk-in), an expense.
+        # -- 2024-11-01: two transactions (one customer, one walk-in), an expense.
         txn1 = create_transaction(TransactionCreate(
-            business_date="2026-11-01", customer_id=alice["id"], service_id=pan["id"],
+            business_date="2024-11-01", customer_id=alice["id"], service_id=pan["id"],
             fee_paise=10000, account_id=cash_id, amount_paid_paise=10000), conn)
         txn2 = create_transaction(TransactionCreate(
-            business_date="2026-11-01", service_id=printing["id"],
+            business_date="2024-11-01", service_id=printing["id"],
             fee_paise=500, account_id=cash_id, amount_paid_paise=500), conn)
-        create_expense(ExpenseCreate(business_date="2026-11-01", category="Rent", amount_paise=4000, account_id=cash_id), conn)
+        create_expense(ExpenseCreate(business_date="2024-11-01", category="Rent", amount_paise=4000, account_id=cash_id), conn)
 
-        # -- 2026-11-05: a partial-payment customer transaction, a banking
+        # -- 2024-11-05: a partial-payment customer transaction, a banking
         # withdrawal, an account transfer.
         txn3 = create_transaction(TransactionCreate(
-            business_date="2026-11-05", customer_id=bob["id"], service_id=cert["id"],
+            business_date="2024-11-05", customer_id=bob["id"], service_id=cert["id"],
             fee_paise=35000, account_id=cash_id, amount_paid_paise=10700), conn)
         create_banking(BankingCreate(
-            business_date="2026-11-05", txn_type="withdrawal", principal_paise=100000,
+            business_date="2024-11-05", txn_type="withdrawal", principal_paise=100000,
             commission_paise=1500, settlement_account_id=sbi_id, cash_account_id=cash_id), conn)
-        create_transfer(TransferCreate(business_date="2026-11-05", from_account_id=cash_id, to_account_id=sbi_id, amount_paise=20000), conn)
+        create_transfer(TransferCreate(business_date="2024-11-05", from_account_id=cash_id, to_account_id=sbi_id, amount_paise=20000), conn)
 
-        # -- 2026-11-10: settle Bob's outstanding, an expense correction
+        # -- 2024-11-10: settle Bob's outstanding, an expense correction
         # (500 -> 300, exercises the expense-reversal fix), a second banking
-        # transaction that gets corrected on 2026-11-15 below.
-        create_payment(PaymentCreate(business_date="2026-11-10", customer_id=bob["id"], amount_paise=24300, account_id=cash_id), conn)
-        paper = create_expense(ExpenseCreate(business_date="2026-11-10", category="Paper", amount_paise=500, account_id=cash_id), conn)
+        # transaction that gets corrected on 2024-11-15 below.
+        create_payment(PaymentCreate(business_date="2024-11-10", customer_id=bob["id"], amount_paise=24300, account_id=cash_id), conn)
+        paper = create_expense(ExpenseCreate(business_date="2024-11-10", category="Paper", amount_paise=500, account_id=cash_id), conn)
         update_expense(paper["id"], ExpenseUpdate(amount_paise=300), conn)
 
         # -- fee correction on the walk-in printing transaction: 500 -> 750.
         # customer_id is None, so this DOES reverse+replace the live
         # service_income entry (the fee-only guard that leaves a customer's
         # creation-time entry alone doesn't apply here) -- exercises the
-        # transaction-reversal fix, still dated 2026-11-01 (unchanged).
+        # transaction-reversal fix, still dated 2024-11-01 (unchanged).
         correct_transaction(txn2["id"], TransactionCorrection(fee_paise=750), conn)
 
-        # -- 2026-11-15: a second banking transaction whose commission gets
+        # -- 2024-11-15: a second banking transaction whose commission gets
         # corrected 800 -> 1200 (exercises the banking-reversal fix).
         banking2 = create_banking(BankingCreate(
-            business_date="2026-11-15", txn_type="withdrawal", principal_paise=50000,
+            business_date="2024-11-15", txn_type="withdrawal", principal_paise=50000,
             commission_paise=800, settlement_account_id=sbi_id, cash_account_id=cash_id), conn)
         update_banking(banking2["id"], BankingUpdate(commission_paise=1200), conn)
 
         # -- outside the month: must not leak into any November figure.
         create_transaction(TransactionCreate(
-            business_date="2026-12-01", customer_id=alice["id"], service_id=pan["id"],
+            business_date="2024-12-01", customer_id=alice["id"], service_id=pan["id"],
             fee_paise=99900, account_id=cash_id, amount_paid_paise=99900), conn)
-        create_expense(ExpenseCreate(business_date="2026-12-01", category="Rent", amount_paise=88800, account_id=cash_id), conn)
+        create_expense(ExpenseCreate(business_date="2024-12-01", category="Rent", amount_paise=88800, account_id=cash_id), conn)
 
-        # -- close 2026-11-01 last, after its correction (dated 2026-11-01)
+        # -- close 2024-11-01 last, after its correction (dated 2024-11-01)
         # has already landed -- closing first would 409 that correction.
-        close_day("2026-11-01", CloseDayRequest(), conn)
+        close_day("2024-11-01", CloseDayRequest(), conn)
 
         # ---- every entry_type='transfer' pair (plain transfers and banking
         # principal moves, corrected or not) sums to zero, grouped by the
@@ -121,7 +121,7 @@ def test_reconciliation_suite_scripted_month():
         assert (income_paise, expenses_paise) == (expected_income, expected_expenses)
 
         # ---- monthly report matches the same hand-netted figures.
-        monthly = monthly_report(2026, 11, conn)
+        monthly = monthly_report(2024, 11, conn)
         assert monthly["income_paise"] == expected_income
         assert monthly["expenses_paise"] == expected_expenses
         assert monthly["profit_paise"] == expected_income - expected_expenses
@@ -160,10 +160,10 @@ def test_reconciliation_suite_scripted_month():
         assert customer_rows[bob["id"]]["billed_paise"] == 35000
         assert customer_rows[bob["id"]]["collected_paise"] == 10700 + 24300 == 35000
 
-        # ---- dashboard (2026-11-01, now closed): today's figures scope to
+        # ---- dashboard (2024-11-01, now closed): today's figures scope to
         # that single day; running balances reconcile against account_balance
         # directly (the only cash / non-cash accounts in this scenario).
-        dash = get_dashboard(business_date="2026-11-01", conn=conn)
+        dash = get_dashboard(business_date="2024-11-01", conn=conn)
         assert dash["today_income_paise"] == 10000 + 750  # txn1 + corrected txn2, not txn3 (dated the 5th)
         assert dash["today_expenses_paise"] == 4000
         assert dash["today_profit_paise"] == 10000 + 750 - 4000
@@ -177,7 +177,7 @@ def test_reconciliation_suite_scripted_month():
         # transfer_in - transfer_out + adjustment reconciles to closing by
         # construction (closing.py), and the cash figure matches a
         # hand-derived total: txn1 10000 + txn2 net 750 - expense1 4000.
-        report = get_day_report("2026-11-01", conn)
+        report = get_day_report("2024-11-01", conn)
         assert report["status"] == "closed"
         cash_row = next(a for a in report["accounts"] if a["account_id"] == cash_id)
         assert cash_row["closing_paise"] == 10000 + 750 - 4000
@@ -186,7 +186,7 @@ def test_reconciliation_suite_scripted_month():
                     + a["transfer_in_paise"] - a["transfer_out_paise"] + a["adjustment_paise"]) == a["closing_paise"]
         # no physical-count variance was recorded (CloseDayRequest() left
         # physical_cash_paise unset) -- the only thing in the cash account's
-        # adjustment bucket is txn2's -500 reversal, dated 2026-11-01, from
+        # adjustment bucket is txn2's -500 reversal, dated 2024-11-01, from
         # its fee correction (closing.py deliberately buckets every
         # entry_type='reversal' row as "adjustment" regardless of source).
         assert cash_row["adjustment_paise"] == -500

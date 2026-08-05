@@ -7,9 +7,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from fastapi import HTTPException
 from pydantic import ValidationError
 
-from app.accounts import AccountCreate, AccountUpdate, create_account, get_account_balance, list_accounts, update_account
+from app.accounts import AccountCreate, AccountUpdate, create_account, get_account, get_account_balance, list_accounts, update_account
 from app.db import get_connection, run_migrations
 from app.seed import run_seed
 
@@ -110,6 +111,20 @@ def test_opening_balance_overflow_rejected():
         pass
 
 
+def test_out_of_range_account_id_returns_404_not_500():
+    # H.34: an id outside SQLite's 64-bit range used to raise an uncaught
+    # OverflowError from _get_or_404, shared by every account-resolving route.
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        for account_id in (99999999999999999999, -99999999999999999999):
+            try:
+                get_account(account_id, conn)
+                assert False, f"expected 404 for out-of-range id {account_id}"
+            except HTTPException as e:
+                assert e.status_code == 404, e.status_code
+        conn.close()
+
+
 if __name__ == "__main__":
     test_opening_balance_seeds_exactly_one_ledger_entry()
     test_list_excludes_nothing_soft_deleted_yet_and_includes_created()
@@ -117,4 +132,5 @@ if __name__ == "__main__":
     test_null_and_blank_name_rejected()
     test_null_account_type_and_is_active_rejected_on_update()
     test_opening_balance_overflow_rejected()
+    test_out_of_range_account_id_returns_404_not_500()
     print("OK")

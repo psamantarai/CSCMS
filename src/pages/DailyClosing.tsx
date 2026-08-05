@@ -54,7 +54,7 @@ function ClosedReport({ today, dayStatus, report }: { today: string; dayStatus: 
         <>
           <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 20 }}>
             {[
-              ["Total Income", money(report.totals.received_paise), "#16a34a", "#f0fdf4"],
+              ["Total Received", money(report.totals.received_paise), "#16a34a", "#f0fdf4"],
               ["Total Expenses", money(report.totals.paid_paise), "#dc2626", "#fef2f2"],
               ["Cash Variance", money(report.cash_variance_paise), report.cash_variance_paise === 0 ? "#64748b" : "#d97706", "#f8fafc"],
               ["Cash Closing Balance", cash ? money(cash.closing_paise) : "—", "#1e3a5f", "#eff6ff"],
@@ -341,9 +341,9 @@ export default function DailyClosing() {
               <div style={{ background: "#f8fafc", border: "1px solid #d1d9e6", borderRadius: 9, padding: "18px 20px", marginBottom: 20 }}>
                 <div style={{ fontWeight: 600, marginBottom: 12, fontSize: 14 }}>Closing Summary</div>
                 {[
-                  ["Total Income", report ? money(report.totals.received_paise) : "…"],
+                  ["Total Received", report ? money(report.totals.received_paise) : "…"],
                   ["Total Expenses", report ? money(report.totals.paid_paise) : "…"],
-                  ["Net Profit", report ? money(report.totals.received_paise - report.totals.paid_paise) : "…"],
+                  ["Net Received", report ? money(report.totals.received_paise - report.totals.paid_paise) : "…"],
                   ["Cash in Hand", money(cashBalance)],
                   ["Cash Variance", cashAccountMeta ? money(variance) : "—"],
                 ].map(([l, v]) => (

@@ -46,9 +46,12 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
 
 
 def _get_or_404(conn: sqlite3.Connection, customer_id: int) -> sqlite3.Row:
-    row = conn.execute(
-        "SELECT * FROM customers WHERE id = ? AND deleted_at IS NULL", (customer_id,)
-    ).fetchone()
+    try:
+        row = conn.execute(
+            "SELECT * FROM customers WHERE id = ? AND deleted_at IS NULL", (customer_id,)
+        ).fetchone()
+    except OverflowError:  # H.34: an id outside SQLite's 64-bit range
+        row = None
     if row is None:
         raise HTTPException(status_code=404, detail="customer not found")
     return row

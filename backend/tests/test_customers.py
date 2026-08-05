@@ -7,6 +7,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from fastapi import HTTPException
 from pydantic import ValidationError
 
 from app.customers import (
@@ -213,6 +214,20 @@ def test_null_and_blank_name_rejected():
     assert CustomerUpdate(phone=None).model_dump(exclude_unset=True) == {"phone": None}
 
 
+def test_out_of_range_customer_id_returns_404_not_500():
+    # H.34: an id outside SQLite's 64-bit range used to raise an uncaught
+    # OverflowError from _get_or_404, shared by every customer-resolving route.
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        for customer_id in (99999999999999999999, -99999999999999999999):
+            try:
+                get_customer(customer_id, conn)
+                assert False, f"expected 404 for out-of-range id {customer_id}"
+            except HTTPException as e:
+                assert e.status_code == 404, e.status_code
+        conn.close()
+
+
 if __name__ == "__main__":
     test_create_and_get_customer()
     test_update_customer()
@@ -223,4 +238,5 @@ if __name__ == "__main__":
     test_search_escapes_like_wildcards()
     test_history_and_outstanding_reachable_after_soft_delete()
     test_null_and_blank_name_rejected()
+    test_out_of_range_customer_id_returns_404_not_500()
     print("OK")

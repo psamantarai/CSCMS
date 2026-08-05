@@ -11,10 +11,11 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
 
 from app.accounts import _get_active_or_404 as _get_account_or_404
+from app.accounts import _get_or_404 as _get_account_any_or_404
 from app.accounts import _system_user_id
 from app.customers import _get_or_404 as _get_customer_or_404
 from app.db import begin_write, get_db
-from app.ledger import account_balance, ensure_business_day_open, insert_banking_entries, reverse_entry, validate_business_date
+from app.ledger import account_balance, ensure_business_day_open, insert_banking_entries, reverse_entry, validate_business_date, with_reversals_sql
 
 router = APIRouter(prefix="/api/banking", tags=["banking"])
 
@@ -138,12 +139,17 @@ def commission_summary(
     """Commission totals per account (and period, via business_date) —
     always a direct query over entry_type='commission', never a stored
     figure, so it can never drift from the ledger."""
-    where = ["l.entry_type = 'commission'"]
+    # H.36: entry_type = 'commission' alone counts a corrected/deleted entry's
+    # original row without netting its entry_type='reversal' offsetting row,
+    # double-counting against the replacement that follows — same fix as
+    # reports.py's banking_commission_report (PLAN 7.8), just never shared here.
+    where = [with_reversals_sql("commission", alias="l")]
     params: list = []
     if business_date:
         where.append("l.business_date = ?")
         params.append(business_date)
     if account_id is not None:
+        _get_account_any_or_404(conn, account_id)  # H.34: also catches the out-of-range OverflowError
         where.append("l.account_id = ?")
         params.append(account_id)
     clause = " AND ".join(where)

@@ -296,6 +296,56 @@ def test_commission_summary_matches_direct_ledger_query():
         conn.close()
 
 
+def test_commission_summary_nets_corrections_and_deletes():
+    # H.36: commission_summary filtered entry_type = 'commission' only, so a
+    # correction's un-netted original row (its reversal is entry_type =
+    # 'reversal', not 'commission') got counted alongside the replacement —
+    # same fix as reports.banking_commission_report (PLAN 7.8), shared here.
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id, sbi_id = _accounts(conn)
+
+        aeps = create_banking(
+            BankingCreate(business_date="2026-08-05", txn_type="aeps", principal_paise=500000,
+                           commission_paise=5000, settlement_account_id=sbi_id, cash_account_id=cash_id),
+            conn,
+        )
+        update_banking(aeps["id"], BankingUpdate(commission_paise=8000), conn)
+
+        deleted = create_banking(
+            BankingCreate(business_date="2026-08-05", txn_type="aeps", principal_paise=100000,
+                           commission_paise=2000, settlement_account_id=sbi_id, cash_account_id=cash_id),
+            conn,
+        )
+        delete_banking(deleted["id"], conn)
+
+        summary = commission_summary(business_date=None, account_id=None, conn=conn)
+        direct_net = conn.execute(
+            "SELECT SUM(CASE WHEN entry_type = 'commission' THEN amount_paise "
+            "WHEN entry_type = 'reversal' AND reverses_id IN "
+            "(SELECT id FROM ledger WHERE entry_type = 'commission') THEN amount_paise ELSE 0 END) "
+            "FROM ledger"
+        ).fetchone()[0]
+
+        assert summary["total_commission_paise"] == direct_net == 8000, summary["total_commission_paise"]
+        conn.close()
+
+
+def test_commission_summary_out_of_range_account_id_returns_404_not_500():
+    # H.34: account_id is bound straight into the SQL params with no
+    # _get_or_404 check, so an id outside SQLite's 64-bit range raised an
+    # uncaught OverflowError from conn.execute() instead of a clean 404.
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        for account_id in (99999999999999999999, -99999999999999999999):
+            try:
+                commission_summary(business_date=None, account_id=account_id, conn=conn)
+                assert False, f"expected 404 for out-of-range id {account_id}"
+            except HTTPException as e:
+                assert e.status_code == 404, e.status_code
+        conn.close()
+
+
 if __name__ == "__main__":
     test_create_withdrawal_books_principal_and_commission()
     test_balance_enquiry_rejects_nonzero_principal()
@@ -308,4 +358,6 @@ if __name__ == "__main__":
     test_delete_on_a_closed_date_rejected()
     test_list_filters_by_business_date_and_txn_type()
     test_commission_summary_matches_direct_ledger_query()
+    test_commission_summary_nets_corrections_and_deletes()
+    test_commission_summary_out_of_range_account_id_returns_404_not_500()
     print("OK")
