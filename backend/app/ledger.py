@@ -124,6 +124,22 @@ def closing_balance(conn: sqlite3.Connection, account_id: int, business_date: st
     return row[0] or 0
 
 
+def with_reversals_sql(*entry_types: str, alias: str = "") -> str:
+    """Boolean SQL fragment: true for a row whose entry_type is one of
+    entry_types, OR is the reversal of one (PLAN 7.8). A correction/delete
+    posts a same-typed original plus an entry_type='reversal' offsetting row
+    (transactions.py/expenses.py/banking.py) — filtering on entry_type alone
+    counts the original without netting its reversal, double-counting
+    against the replacement that follows. Entry types are hardcoded literals
+    at every call site, never user input, so this string-builds safely."""
+    prefix = f"{alias}." if alias else ""
+    types_sql = ", ".join(f"'{t}'" for t in entry_types)
+    return (
+        f"({prefix}entry_type IN ({types_sql}) OR {prefix}reverses_id IN "
+        f"(SELECT id FROM ledger WHERE entry_type IN ({types_sql})))"
+    )
+
+
 def income_expenses(conn: sqlite3.Connection, start_date: str, end_date: str) -> tuple[int, int]:
     """PLAN 7.1/7.3: income (service_income + commission) and expenses for
     [start_date, end_date] inclusive. ARCHITECTURE.md §4 lists "Customer
@@ -132,11 +148,13 @@ def income_expenses(conn: sqlite3.Connection, start_date: str, end_date: str) ->
     so entry_type='customer_payment' is deliberately excluded here. Shared by
     the dashboard tiles and the daily/monthly reports so both agree on what
     "income" means."""
+    income_pred = with_reversals_sql("service_income", "commission")
+    expense_pred = with_reversals_sql("expense")
     row = conn.execute(
-        "SELECT "
-        "COALESCE(SUM(CASE WHEN entry_type IN ('service_income','commission') THEN amount_paise ELSE 0 END), 0) AS income_paise, "
-        "COALESCE(SUM(CASE WHEN entry_type = 'expense' THEN -amount_paise ELSE 0 END), 0) AS expenses_paise "
-        "FROM ledger WHERE business_date BETWEEN ? AND ?",
+        f"SELECT "
+        f"COALESCE(SUM(CASE WHEN {income_pred} THEN amount_paise ELSE 0 END), 0) AS income_paise, "
+        f"COALESCE(SUM(CASE WHEN {expense_pred} THEN -amount_paise ELSE 0 END), 0) AS expenses_paise "
+        f"FROM ledger WHERE business_date BETWEEN ? AND ?",
         (start_date, end_date),
     ).fetchone()
     return row["income_paise"], row["expenses_paise"]

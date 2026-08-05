@@ -12,7 +12,7 @@ import sqlite3
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.db import get_db
-from app.ledger import income_expenses
+from app.ledger import income_expenses, with_reversals_sql
 
 router = APIRouter(prefix="/api/reports", tags=["reports"])
 
@@ -83,7 +83,7 @@ def banking_commission_report(start_date: str | None = None, end_date: str | Non
     range-filtered counterpart to GET /api/banking/commission-summary's
     single-date lookup (PLAN 5.3), for the Reports page's period picker."""
     params: list = []
-    clauses = ["l.entry_type = 'commission'"] + _date_filters("l.business_date", start_date, end_date, params)
+    clauses = [with_reversals_sql("commission", alias="l")] + _date_filters("l.business_date", start_date, end_date, params)
     rows = conn.execute(
         f"SELECT l.account_id, a.name AS account_name, SUM(l.amount_paise) AS total_commission_paise "
         f"FROM ledger l JOIN accounts a ON a.id = l.account_id "
@@ -100,17 +100,25 @@ def profit_loss_report(start_date: str | None = None, end_date: str | None = Non
     row's *current* category via source_id (the same corrections-safe join
     service/customer-wise use), so a re-categorised expense reports under its
     current category rather than double counting."""
+    # A correction/delete's reversal row is entry_type='reversal', not
+    # 'service_income'/'commission' -- bucket it under the type it reverses
+    # (via the self-join) so a corrected transaction nets to its corrected
+    # figure instead of double-counting original + reversal + replacement
+    # (PLAN 7.8, same fix as ledger.income_expenses).
     income_params: list = []
-    income_clauses = ["entry_type IN ('service_income', 'commission')"] + _date_filters("business_date", start_date, end_date, income_params)
+    income_clauses = [with_reversals_sql("service_income", "commission", alias="l")] + \
+        _date_filters("l.business_date", start_date, end_date, income_params)
     income_by_type = {r["entry_type"]: r["amount_paise"] for r in conn.execute(
-        f"SELECT entry_type, COALESCE(SUM(amount_paise), 0) AS amount_paise FROM ledger "
-        f"WHERE {' AND '.join(income_clauses)} GROUP BY entry_type", income_params
+        f"SELECT COALESCE(o.entry_type, l.entry_type) AS entry_type, COALESCE(SUM(l.amount_paise), 0) AS amount_paise "
+        f"FROM ledger l LEFT JOIN ledger o ON o.id = l.reverses_id "
+        f"WHERE {' AND '.join(income_clauses)} GROUP BY COALESCE(o.entry_type, l.entry_type)", income_params
     ).fetchall()}
     service_income_paise = income_by_type.get("service_income", 0)
     commission_paise = income_by_type.get("commission", 0)
 
     expense_params: list = []
-    expense_clauses = ["l.entry_type = 'expense'", "l.source_type = 'expense'"] + _date_filters("l.business_date", start_date, end_date, expense_params)
+    expense_clauses = [with_reversals_sql("expense", alias="l"), "l.source_type = 'expense'"] + \
+        _date_filters("l.business_date", start_date, end_date, expense_params)
     expenses_by_category = [dict(r) for r in conn.execute(
         f"SELECT e.category AS category, COALESCE(SUM(-l.amount_paise), 0) AS amount_paise "
         f"FROM ledger l JOIN expenses e ON e.id = l.source_id "
