@@ -1,6 +1,9 @@
 import { useState } from "react"
-import { transactions, expenses, accounts } from "../data/mockData"
-import { fmt } from "../lib/format"
+import { useQuery } from "@tanstack/react-query"
+import { api } from "../lib/api"
+import { queryKeys } from "../lib/queries"
+import { fmt, fromPaise, localDateISO } from "../lib/format"
+import { BlockState, TableRowState } from "../components/QueryState"
 
 const reportTypes = [
   { id: "daily", label: "Daily Report" },
@@ -8,23 +11,101 @@ const reportTypes = [
   { id: "service", label: "Service-wise" },
   { id: "pl", label: "Profit & Loss" },
   { id: "commission", label: "Banking Commission" },
+] as const
+type ReportType = (typeof reportTypes)[number]["id"]
+
+const monthNames = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
 ]
 
-const monthlyData = [
-  { month: "Mar 2026", income: 48200, expenses: 3100, profit: 45100 },
-  { month: "Apr 2026", income: 52400, expenses: 3400, profit: 49000 },
-  { month: "May 2026", income: 44100, expenses: 2900, profit: 41200 },
-  { month: "Jun 2026", income: 61300, expenses: 3800, profit: 57500 },
-  { month: "Jul 2026", income: 57800, expenses: 3200, profit: 54600 },
-  { month: "Aug 2026", income: 9282, expenses: 3309, profit: 5973 },
-]
+type Account = { id: number; account_type: string }
+type DayReportAccount = { account_id: number; account_name: string; opening_paise: number; received_paise: number; paid_paise: number; closing_paise: number }
+type DayReport = { business_date: string; status: "open" | "closed"; accounts: DayReportAccount[] }
+type Transaction = { id: number; customer_name: string | null; service_name: string; fee_paise: number; charge_paise: number; paid_paise: number; status: "completed" | "partial" | "pending" }
+type MonthlyReport = { income_paise: number; expenses_paise: number; profit_paise: number }
+type ServiceRow = { service_id: number; service_name: string; transaction_count: number; billed_paise: number; income_paise: number }
+type ProfitLoss = {
+  service_income_paise: number; commission_paise: number; total_income_paise: number
+  expenses_by_category: { category: string; amount_paise: number }[]; total_expenses_paise: number; profit_paise: number
+}
+type CommissionReport = { items: { account_id: number; account_name: string; total_commission_paise: number }[]; total_commission_paise: number }
 
-const maxProfit = Math.max(...monthlyData.map(m => m.income))
+const labelStyle = { display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 } as const
+const inputStyle = { padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box" as const }
+const cardStyle = { background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, padding: "20px 24px" }
+
+function firstOfMonthISO(): string {
+  return localDateISO().slice(0, 8) + "01"
+}
 
 export default function Reports() {
-  const [activeReport, setActiveReport] = useState("daily")
-  const todayIncome = transactions.reduce((s, t) => s + t.payment, 0)
-  const todayExpenses = expenses.filter(e => e.date === "2026-08-04").reduce((s, e) => s + e.amount, 0)
+  const [activeReport, setActiveReport] = useState<ReportType>("daily")
+
+  const [dailyDate, setDailyDate] = useState(localDateISO())
+  const now = new Date()
+  const [year, setYear] = useState(now.getFullYear())
+  const [month, setMonth] = useState(now.getMonth() + 1)
+  const [startDate, setStartDate] = useState(firstOfMonthISO())
+  const [endDate, setEndDate] = useState(localDateISO())
+
+  const { data: accounts = [] } = useQuery({
+    queryKey: queryKeys.accounts,
+    queryFn: () => api.get<Account[]>("/accounts"),
+  })
+
+  const { data: dayReport, isLoading: dayLoading, error: dayError } = useQuery({
+    queryKey: queryKeys.dayReport(dailyDate),
+    queryFn: () => api.get<DayReport>(`/day/${dailyDate}/report`),
+    enabled: activeReport === "daily",
+  })
+  const dailyTxnFilters: Record<string, string | number> = { business_date: dailyDate, limit: 100 }
+  const { data: dailyTxnData, isLoading: txnLoading, error: txnError } = useQuery({
+    queryKey: queryKeys.transactions(dailyTxnFilters),
+    queryFn: () => {
+      const params = new URLSearchParams(dailyTxnFilters as Record<string, string>)
+      return api.get<{ items: Transaction[]; total: number }>(`/transactions?${params}`)
+    },
+    enabled: activeReport === "daily",
+  })
+  const cashAccountId = accounts.find(a => a.account_type === "cash")?.id
+  const cashRow = dayReport?.accounts.find(a => a.account_id === cashAccountId)
+  const dailyTxns = dailyTxnData?.items ?? []
+
+  const { data: monthly, isLoading: monthlyLoading, error: monthlyError } = useQuery({
+    queryKey: queryKeys.reportMonthly(year, month),
+    queryFn: () => api.get<MonthlyReport>(`/reports/monthly?year=${year}&month=${month}`),
+    enabled: activeReport === "monthly",
+  })
+
+  const rangeFilters = { start_date: startDate, end_date: endDate }
+
+  const { data: serviceRows, isLoading: serviceLoading, error: serviceError } = useQuery({
+    queryKey: queryKeys.reportServiceWise(rangeFilters),
+    queryFn: () => {
+      const params = new URLSearchParams(rangeFilters)
+      return api.get<ServiceRow[]>(`/reports/service-wise?${params}`)
+    },
+    enabled: activeReport === "service",
+  })
+
+  const { data: pl, isLoading: plLoading, error: plError } = useQuery({
+    queryKey: queryKeys.reportProfitLoss(rangeFilters),
+    queryFn: () => {
+      const params = new URLSearchParams(rangeFilters)
+      return api.get<ProfitLoss>(`/reports/profit-loss?${params}`)
+    },
+    enabled: activeReport === "pl",
+  })
+
+  const { data: commission, isLoading: commissionLoading, error: commissionError } = useQuery({
+    queryKey: queryKeys.reportBankingCommission(rangeFilters),
+    queryFn: () => {
+      const params = new URLSearchParams(rangeFilters)
+      return api.get<CommissionReport>(`/reports/banking-commission?${params}`)
+    },
+    enabled: activeReport === "commission",
+  })
 
   return (
     <div style={{ padding: "28px 32px", overflowY: "auto", height: "100%" }}>
@@ -39,7 +120,7 @@ export default function Reports() {
       </div>
 
       {/* Report type tabs */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 24, background: "#f0f4f8", borderRadius: 9, padding: 4, width: "fit-content" }}>
+      <div style={{ display: "flex", gap: 4, marginBottom: 20, background: "#f0f4f8", borderRadius: 9, padding: 4, width: "fit-content" }}>
         {reportTypes.map(r => (
           <button key={r.id} onClick={() => setActiveReport(r.id)} style={{
             padding: "7px 16px", borderRadius: 6, fontSize: 13, fontWeight: 500, cursor: "pointer", border: "none",
@@ -50,38 +131,78 @@ export default function Reports() {
         ))}
       </div>
 
+      {/* Period controls */}
+      {activeReport === "daily" && (
+        <div style={{ marginBottom: 20 }}>
+          <label style={labelStyle}>Date</label>
+          <input type="date" value={dailyDate} onChange={e => setDailyDate(e.target.value)} style={{ ...inputStyle, width: 180 }} />
+        </div>
+      )}
+      {activeReport === "monthly" && (
+        <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
+          <div>
+            <label style={labelStyle}>Month</label>
+            <select value={month} onChange={e => setMonth(Number(e.target.value))} style={{ ...inputStyle, background: "#fff" }}>
+              {monthNames.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={labelStyle}>Year</label>
+            <input type="number" value={year} onChange={e => setYear(Number(e.target.value) || now.getFullYear())} style={{ ...inputStyle, width: 100 }} />
+          </div>
+        </div>
+      )}
+      {(activeReport === "service" || activeReport === "pl" || activeReport === "commission") && (
+        <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
+          <div>
+            <label style={labelStyle}>From</label>
+            <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={{ ...inputStyle, width: 160 }} />
+          </div>
+          <div>
+            <label style={labelStyle}>To</label>
+            <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={{ ...inputStyle, width: 160 }} />
+          </div>
+        </div>
+      )}
+
       {activeReport === "daily" && (
         <>
           <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 24 }}>
             {/* Daily summary */}
-            <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, padding: "20px 24px" }}>
-              <h3 style={{ margin: "0 0 16px", fontSize: 14, fontFamily: "'Roboto Slab', serif" }}>Daily Summary — 4 August 2026</h3>
-              {[
-                { label: "Opening Cash Balance", value: fmt(9200), color: "#64748b" },
-                { label: "Income Collected", value: "+ " + fmt(todayIncome), color: "#16a34a" },
-                { label: "Expenses Paid", value: "− " + fmt(todayExpenses), color: "#dc2626" },
-                { label: "Closing Cash Balance", value: fmt(9200 + todayIncome - todayExpenses), color: "#1e3a5f" },
-              ].map((r, i) => (
-                <div key={r.label} style={{ display: "flex", justifyContent: "space-between", padding: "9px 0", borderBottom: i < 3 ? "1px dashed #e8edf5" : "2px solid #d1d9e6" }}>
-                  <span style={{ fontSize: 13, color: "#475569" }}>{r.label}</span>
-                  <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: r.color }}>{r.value}</span>
-                </div>
-              ))}
+            <div style={cardStyle}>
+              <h3 style={{ margin: "0 0 16px", fontSize: 14, fontFamily: "'Roboto Slab', serif" }}>Cash Summary — {dailyDate}</h3>
+              {dayLoading || dayError ? <BlockState isLoading={dayLoading} error={dayError} /> : !cashRow ? (
+                <div style={{ color: "#94a3b8", fontSize: 13 }}>No cash account found.</div>
+              ) : (
+                [
+                  { label: "Opening Cash Balance", value: fmt(fromPaise(cashRow.opening_paise)), color: "#64748b" },
+                  { label: "Received", value: "+ " + fmt(fromPaise(cashRow.received_paise)), color: "#16a34a" },
+                  { label: "Paid Out", value: "− " + fmt(fromPaise(cashRow.paid_paise)), color: "#dc2626" },
+                  { label: "Closing Cash Balance", value: fmt(fromPaise(cashRow.closing_paise)), color: "#1e3a5f" },
+                ].map((r, i) => (
+                  <div key={r.label} style={{ display: "flex", justifyContent: "space-between", padding: "9px 0", borderBottom: i < 3 ? "1px dashed #e8edf5" : "2px solid #d1d9e6" }}>
+                    <span style={{ fontSize: 13, color: "#475569" }}>{r.label}</span>
+                    <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: r.color }}>{r.value}</span>
+                  </div>
+                ))
+              )}
             </div>
 
             {/* Account balances */}
-            <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, padding: "20px 24px" }}>
+            <div style={cardStyle}>
               <h3 style={{ margin: "0 0 16px", fontSize: 14, fontFamily: "'Roboto Slab', serif" }}>Account Balances</h3>
-              {accounts.map((a, i) => (
-                <div key={a.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderBottom: i < accounts.length - 1 ? "1px dashed #e8edf5" : "none" }}>
-                  <span style={{ fontSize: 13, color: "#475569" }}>{a.name}</span>
-                  <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: "#1e3a5f" }}>{fmt(a.balance)}</span>
-                </div>
-              ))}
+              {dayLoading || dayError ? <BlockState isLoading={dayLoading} error={dayError} /> : (
+                dayReport!.accounts.map((a, i) => (
+                  <div key={a.account_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderBottom: i < dayReport!.accounts.length - 1 ? "1px dashed #e8edf5" : "none" }}>
+                    <span style={{ fontSize: 13, color: "#475569" }}>{a.account_name}</span>
+                    <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: "#1e3a5f" }}>{fmt(fromPaise(a.closing_paise))}</span>
+                  </div>
+                ))
+              )}
             </div>
           </div>
 
-          {/* Service breakdown table */}
+          {/* Transaction register */}
           <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, overflow: "hidden" }}>
             <div style={{ padding: "14px 18px", borderBottom: "1px solid #eef1f7" }}>
               <h3 style={{ margin: 0, fontSize: 14, fontFamily: "'Roboto Slab', serif" }}>Transaction Register</h3>
@@ -96,16 +217,20 @@ export default function Reports() {
                 </tr>
               </thead>
               <tbody>
-                {transactions.map((t, i) => (
+                <TableRowState isLoading={txnLoading} error={txnError} colSpan={7} />
+                {!txnLoading && !txnError && dailyTxns.length === 0 && (
+                  <tr><td colSpan={7} style={{ padding: "24px 14px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No transactions on this date.</td></tr>
+                )}
+                {dailyTxns.map((t, i) => (
                   <tr key={t.id} style={{ background: i % 2 === 0 ? "#fff" : "#fafbfd", borderBottom: "1px solid #f1f5f9" }}>
-                    <td style={{ padding: "8px 14px", fontFamily: "monospace", fontSize: 12, color: "#3b6cb7" }}>{t.id}</td>
-                    <td style={{ padding: "8px 14px", fontSize: 13 }}>{t.customer}</td>
-                    <td style={{ padding: "8px 14px", fontSize: 13, color: "#475569" }}>{t.service}</td>
-                    <td style={{ padding: "8px 14px", fontFamily: "monospace", fontSize: 12 }}>{fmt(t.fees)}</td>
-                    <td style={{ padding: "8px 14px", fontFamily: "monospace", fontSize: 12, color: "#16a34a" }}>+{fmt(t.charge)}</td>
-                    <td style={{ padding: "8px 14px", fontFamily: "monospace", fontSize: 12, fontWeight: 700 }}>{fmt(t.payment)}</td>
+                    <td style={{ padding: "8px 14px", fontFamily: "monospace", fontSize: 12, color: "#3b6cb7" }}>#{t.id}</td>
+                    <td style={{ padding: "8px 14px", fontSize: 13 }}>{t.customer_name ?? "Walk-in"}</td>
+                    <td style={{ padding: "8px 14px", fontSize: 13, color: "#475569" }}>{t.service_name}</td>
+                    <td style={{ padding: "8px 14px", fontFamily: "monospace", fontSize: 12 }}>{fmt(fromPaise(t.fee_paise))}</td>
+                    <td style={{ padding: "8px 14px", fontFamily: "monospace", fontSize: 12, color: "#16a34a" }}>+{fmt(fromPaise(t.charge_paise))}</td>
+                    <td style={{ padding: "8px 14px", fontFamily: "monospace", fontSize: 12, fontWeight: 700 }}>{fmt(fromPaise(t.paid_paise))}</td>
                     <td style={{ padding: "8px 14px" }}>
-                      <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 7px", borderRadius: 20, background: t.status === "Completed" ? "#dcfce7" : t.status === "Pending" ? "#fef3c7" : "#fee2e2", color: t.status === "Completed" ? "#16a34a" : t.status === "Pending" ? "#d97706" : "#dc2626" }}>{t.status}</span>
+                      <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 7px", borderRadius: 20, background: t.status === "completed" ? "#dcfce7" : t.status === "pending" ? "#fef3c7" : "#fee2e2", color: t.status === "completed" ? "#16a34a" : t.status === "pending" ? "#d97706" : "#dc2626" }}>{t.status}</span>
                     </td>
                   </tr>
                 ))}
@@ -117,40 +242,143 @@ export default function Reports() {
       )}
 
       {activeReport === "monthly" && (
-        <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, padding: "24px" }}>
-          <h3 style={{ margin: "0 0 20px", fontSize: 15, fontFamily: "'Roboto Slab', serif" }}>Monthly Income vs Expenses (Mar–Aug 2026)</h3>
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {monthlyData.map(m => (
-              <div key={m.month} style={{ display: "flex", alignItems: "center", gap: 16 }}>
-                <div style={{ width: 70, fontSize: 12, color: "#64748b", flexShrink: 0 }}>{m.month}</div>
-                <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 3 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <div style={{ height: 14, borderRadius: 3, background: "#1e3a5f", width: `${(m.income / maxProfit) * 100}%`, minWidth: 4 }} />
-                    <span style={{ fontSize: 11, fontFamily: "monospace", color: "#1e3a5f", fontWeight: 600 }}>{fmt(m.income)}</span>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <div style={{ height: 14, borderRadius: 3, background: "#fca5a5", width: `${(m.expenses / maxProfit) * 100}%`, minWidth: 4 }} />
-                    <span style={{ fontSize: 11, fontFamily: "monospace", color: "#dc2626", fontWeight: 600 }}>{fmt(m.expenses)}</span>
-                  </div>
+        <div style={cardStyle}>
+          <h3 style={{ margin: "0 0 20px", fontSize: 15, fontFamily: "'Roboto Slab', serif" }}>{monthNames[month - 1]} {year}</h3>
+          {monthlyLoading || monthlyError ? <BlockState isLoading={monthlyLoading} error={monthlyError} /> : (
+            <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
+              {[
+                { label: "Income", value: fmt(fromPaise(monthly!.income_paise)), color: "#1e3a5f", bg: "#eff6ff" },
+                { label: "Expenses", value: fmt(fromPaise(monthly!.expenses_paise)), color: "#dc2626", bg: "#fef2f2" },
+                { label: "Profit", value: fmt(fromPaise(monthly!.profit_paise)), color: "#16a34a", bg: "#f0fdf4" },
+              ].map(s => (
+                <div key={s.label} style={{ background: s.bg, border: "1px solid #d1d9e6", borderRadius: 9, padding: "16px 18px" }}>
+                  <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>{s.label}</div>
+                  <div style={{ fontFamily: "monospace", fontSize: 22, fontWeight: 700, color: s.color }}>{s.value}</div>
                 </div>
-                <div style={{ width: 80, textAlign: "right", fontFamily: "monospace", fontSize: 12, fontWeight: 700, color: "#16a34a" }}>{fmt(m.profit)}</div>
-              </div>
-            ))}
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {activeReport === "service" && (
+        <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, overflow: "hidden" }}>
+          <div style={{ padding: "14px 18px", borderBottom: "1px solid #eef1f7" }}>
+            <h3 style={{ margin: 0, fontSize: 14, fontFamily: "'Roboto Slab', serif" }}>Service-wise Breakdown</h3>
           </div>
-          <div style={{ display: "flex", gap: 16, marginTop: 16, paddingTop: 14, borderTop: "1px solid #eef1f7" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ width: 12, height: 12, borderRadius: 2, background: "#1e3a5f" }} /><span style={{ fontSize: 12, color: "#64748b" }}>Income</span></div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ width: 12, height: 12, borderRadius: 2, background: "#fca5a5" }} /><span style={{ fontSize: 12, color: "#64748b" }}>Expenses</span></div>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ width: 12, height: 12, borderRadius: 2, background: "#16a34a" }} /><span style={{ fontSize: 12, color: "#64748b" }}>Profit</span></div>
+          <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+            <thead>
+              <tr style={{ background: "#f8fafc" }}>
+                {["Service", "Transactions", "Billed", "Income Collected"].map(h => (
+                  <th key={h} style={{ padding: "9px 14px", textAlign: "left", fontSize: 11, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em", borderBottom: "1px solid #eef1f7" }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              <TableRowState isLoading={serviceLoading} error={serviceError} colSpan={4} />
+              {!serviceLoading && !serviceError && (serviceRows ?? []).length === 0 && (
+                <tr><td colSpan={4} style={{ padding: "24px 14px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No services found.</td></tr>
+              )}
+              {(serviceRows ?? []).map((s, i) => (
+                <tr key={s.service_id} style={{ background: i % 2 === 0 ? "#fff" : "#fafbfd", borderBottom: "1px solid #f1f5f9" }}>
+                  <td style={{ padding: "9px 14px", fontSize: 13 }}>{s.service_name}</td>
+                  <td style={{ padding: "9px 14px", fontFamily: "monospace", fontSize: 12 }}>{s.transaction_count}</td>
+                  <td style={{ padding: "9px 14px", fontFamily: "monospace", fontSize: 12 }}>{fmt(fromPaise(s.billed_paise))}</td>
+                  <td style={{ padding: "9px 14px", fontFamily: "monospace", fontSize: 12, fontWeight: 700, color: "#16a34a" }}>{fmt(fromPaise(s.income_paise))}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
           </div>
         </div>
       )}
 
-      {(activeReport === "service" || activeReport === "pl" || activeReport === "commission") && (
-        <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, padding: "40px", textAlign: "center", color: "#94a3b8" }}>
-          <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ marginBottom: 12 }}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-          <div style={{ fontSize: 14, marginBottom: 6 }}>{reportTypes.find(r => r.id === activeReport)?.label}</div>
-          <div style={{ fontSize: 13 }}>Available in full application with backend data.</div>
-        </div>
+      {activeReport === "pl" && (
+        <>
+          {plLoading || plError ? <div style={cardStyle}><BlockState isLoading={plLoading} error={plError} /></div> : (
+            <>
+              <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 20 }}>
+                {[
+                  { label: "Total Income", value: fmt(fromPaise(pl!.total_income_paise)), color: "#1e3a5f", bg: "#eff6ff" },
+                  { label: "Total Expenses", value: fmt(fromPaise(pl!.total_expenses_paise)), color: "#dc2626", bg: "#fef2f2" },
+                  { label: "Net Profit", value: fmt(fromPaise(pl!.profit_paise)), color: "#16a34a", bg: "#f0fdf4" },
+                ].map(s => (
+                  <div key={s.label} style={{ background: s.bg, border: "1px solid #d1d9e6", borderRadius: 9, padding: "16px 18px" }}>
+                    <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>{s.label}</div>
+                    <div style={{ fontFamily: "monospace", fontSize: 22, fontWeight: 700, color: s.color }}>{s.value}</div>
+                  </div>
+                ))}
+              </div>
+              <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
+                <div style={cardStyle}>
+                  <h3 style={{ margin: "0 0 14px", fontSize: 14, fontFamily: "'Roboto Slab', serif" }}>Income Sources</h3>
+                  {[
+                    { label: "Service Income", value: pl!.service_income_paise },
+                    { label: "Banking Commission", value: pl!.commission_paise },
+                  ].map((r, i) => (
+                    <div key={r.label} style={{ display: "flex", justifyContent: "space-between", padding: "9px 0", borderBottom: i < 1 ? "1px dashed #e8edf5" : "none" }}>
+                      <span style={{ fontSize: 13, color: "#475569" }}>{r.label}</span>
+                      <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: "#16a34a" }}>{fmt(fromPaise(r.value))}</span>
+                    </div>
+                  ))}
+                </div>
+                <div style={cardStyle}>
+                  <h3 style={{ margin: "0 0 14px", fontSize: 14, fontFamily: "'Roboto Slab', serif" }}>Expenses by Category</h3>
+                  {pl!.expenses_by_category.length === 0 ? (
+                    <div style={{ color: "#94a3b8", fontSize: 13 }}>No expenses in this period.</div>
+                  ) : pl!.expenses_by_category.map((r, i) => (
+                    <div key={r.category} style={{ display: "flex", justifyContent: "space-between", padding: "9px 0", borderBottom: i < pl!.expenses_by_category.length - 1 ? "1px dashed #e8edf5" : "none" }}>
+                      <span style={{ fontSize: 13, color: "#475569" }}>{r.category}</span>
+                      <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: "#dc2626" }}>{fmt(fromPaise(r.amount_paise))}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          )}
+        </>
+      )}
+
+      {activeReport === "commission" && (
+        <>
+          <div style={{ marginBottom: 20 }}>
+            <div style={{ background: "#f0fdf4", border: "1px solid #d1d9e6", borderRadius: 9, padding: "16px 18px", width: "fit-content" }}>
+              <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Total Commission</div>
+              <div style={{ fontFamily: "monospace", fontSize: 22, fontWeight: 700, color: "#16a34a" }}>
+                {commissionLoading || commissionError ? "—" : fmt(fromPaise(commission!.total_commission_paise))}
+              </div>
+            </div>
+          </div>
+          <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, overflow: "hidden" }}>
+            <div style={{ padding: "14px 18px", borderBottom: "1px solid #eef1f7" }}>
+              <h3 style={{ margin: 0, fontSize: 14, fontFamily: "'Roboto Slab', serif" }}>Commission by Account</h3>
+            </div>
+            <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ background: "#f8fafc" }}>
+                  {["Account", "Commission"].map(h => (
+                    <th key={h} style={{ padding: "9px 14px", textAlign: "left", fontSize: 11, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em", borderBottom: "1px solid #eef1f7" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                <TableRowState isLoading={commissionLoading} error={commissionError} colSpan={2} />
+                {!commissionLoading && !commissionError && (commission?.items ?? []).length === 0 && (
+                  <tr><td colSpan={2} style={{ padding: "24px 14px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No commission in this period.</td></tr>
+                )}
+                {(commission?.items ?? []).map((r, i) => (
+                  <tr key={r.account_id} style={{ background: i % 2 === 0 ? "#fff" : "#fafbfd", borderBottom: "1px solid #f1f5f9" }}>
+                    <td style={{ padding: "9px 14px", fontSize: 13 }}>{r.account_name}</td>
+                    <td style={{ padding: "9px 14px", fontFamily: "monospace", fontSize: 12, fontWeight: 700, color: "#16a34a" }}>{fmt(fromPaise(r.total_commission_paise))}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            </div>
+          </div>
+        </>
       )}
     </div>
   )

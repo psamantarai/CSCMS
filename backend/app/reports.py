@@ -1,6 +1,7 @@
-"""Reports (PLAN 7.3/7.4, PRD §3/§8): monthly and service/customer-wise
-breakdowns, each a live derivation off the ledger so a total here always
-equals a direct SUM over ledger for the same period -- nothing cached.
+"""Reports (PLAN 7.3/7.4/7.5, PRD §3/§8): monthly, service/customer-wise,
+banking-commission and profit-loss breakdowns, each a live derivation off the
+ledger so a total here always equals a direct SUM over ledger for the same
+period -- nothing cached.
 
 Daily reporting is already covered by GET /api/day/{date}/report (PLAN 6.5) --
 the same opening/received/paid/transfer/closing-per-account breakdown a
@@ -74,6 +75,57 @@ def service_wise_report(start_date: str | None = None, end_date: str | None = No
         }
         for s in services
     ]
+
+
+@router.get("/banking-commission")
+def banking_commission_report(start_date: str | None = None, end_date: str | None = None, conn: sqlite3.Connection = Depends(get_db)):
+    """Banking commission per account for [start_date, end_date] -- the
+    range-filtered counterpart to GET /api/banking/commission-summary's
+    single-date lookup (PLAN 5.3), for the Reports page's period picker."""
+    params: list = []
+    clauses = ["l.entry_type = 'commission'"] + _date_filters("l.business_date", start_date, end_date, params)
+    rows = conn.execute(
+        f"SELECT l.account_id, a.name AS account_name, SUM(l.amount_paise) AS total_commission_paise "
+        f"FROM ledger l JOIN accounts a ON a.id = l.account_id "
+        f"WHERE {' AND '.join(clauses)} GROUP BY l.account_id ORDER BY a.name", params
+    ).fetchall()
+    items = [dict(r) for r in rows]
+    return {"items": items, "total_commission_paise": sum(r["total_commission_paise"] for r in items)}
+
+
+@router.get("/profit-loss")
+def profit_loss_report(start_date: str | None = None, end_date: str | None = None, conn: sqlite3.Connection = Depends(get_db)):
+    """Income split service income vs banking commission, expenses split by
+    category -- each a direct ledger SUM. Expenses join back to the expense
+    row's *current* category via source_id (the same corrections-safe join
+    service/customer-wise use), so a re-categorised expense reports under its
+    current category rather than double counting."""
+    income_params: list = []
+    income_clauses = ["entry_type IN ('service_income', 'commission')"] + _date_filters("business_date", start_date, end_date, income_params)
+    income_by_type = {r["entry_type"]: r["amount_paise"] for r in conn.execute(
+        f"SELECT entry_type, COALESCE(SUM(amount_paise), 0) AS amount_paise FROM ledger "
+        f"WHERE {' AND '.join(income_clauses)} GROUP BY entry_type", income_params
+    ).fetchall()}
+    service_income_paise = income_by_type.get("service_income", 0)
+    commission_paise = income_by_type.get("commission", 0)
+
+    expense_params: list = []
+    expense_clauses = ["l.entry_type = 'expense'", "l.source_type = 'expense'"] + _date_filters("l.business_date", start_date, end_date, expense_params)
+    expenses_by_category = [dict(r) for r in conn.execute(
+        f"SELECT e.category AS category, COALESCE(SUM(-l.amount_paise), 0) AS amount_paise "
+        f"FROM ledger l JOIN expenses e ON e.id = l.source_id "
+        f"WHERE {' AND '.join(expense_clauses)} GROUP BY e.category ORDER BY e.category", expense_params
+    ).fetchall()]
+    total_expenses_paise = sum(r["amount_paise"] for r in expenses_by_category)
+    total_income_paise = service_income_paise + commission_paise
+
+    return {
+        "start_date": start_date, "end_date": end_date,
+        "service_income_paise": service_income_paise, "commission_paise": commission_paise,
+        "total_income_paise": total_income_paise,
+        "expenses_by_category": expenses_by_category, "total_expenses_paise": total_expenses_paise,
+        "profit_paise": total_income_paise - total_expenses_paise,
+    }
 
 
 @router.get("/customer-wise")

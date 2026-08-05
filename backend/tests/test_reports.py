@@ -1,5 +1,6 @@
-"""Self-check for the monthly/service-wise/customer-wise reports (PLAN 7.3/
-7.4): every total equals a direct SUM over ledger for the same period.
+"""Self-check for the monthly/service-wise/customer-wise/banking-commission/
+profit-loss reports (PLAN 7.3/7.4/7.5): every total equals a direct SUM over
+ledger for the same period.
 Run: python tests/test_reports.py"""
 import sys
 import tempfile
@@ -9,11 +10,16 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from fastapi import HTTPException
 
+from app.accounts import AccountCreate, create_account
+from app.banking import BankingCreate, create_banking
 from app.customers import CustomerCreate, create_customer
 from app.db import get_connection, run_migrations
 from app.expenses import ExpenseCreate, create_expense
 from app.payments import PaymentCreate, create_payment
-from app.reports import customer_wise_report, monthly_report, service_wise_report
+from app.reports import (
+    banking_commission_report, customer_wise_report, monthly_report,
+    profit_loss_report, service_wise_report,
+)
 from app.seed import run_seed
 from app.services import ServiceCreate, create_service
 from app.transactions import TransactionCreate, create_transaction
@@ -122,9 +128,76 @@ def test_customer_wise_report_includes_later_settlement():
         conn.close()
 
 
+def test_banking_commission_report_reconciles_with_ledger():
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id = conn.execute("SELECT id FROM accounts WHERE name = 'Cash Drawer'").fetchone()[0]
+        sbi = create_account(AccountCreate(name="SBI", account_type="settlement", opening_balance_paise=1000000), conn)
+        create_banking(
+            BankingCreate(business_date="2026-09-05", txn_type="withdrawal", principal_paise=100000,
+                           commission_paise=1500, settlement_account_id=sbi["id"], cash_account_id=cash_id),
+            conn,
+        )
+        # Outside the range -- must not leak in.
+        create_banking(
+            BankingCreate(business_date="2026-10-01", txn_type="withdrawal", principal_paise=100000,
+                           commission_paise=9000, settlement_account_id=sbi["id"], cash_account_id=cash_id),
+            conn,
+        )
+
+        report = banking_commission_report(start_date="2026-09-01", end_date="2026-09-30", conn=conn)
+        direct_total = conn.execute(
+            "SELECT SUM(amount_paise) FROM ledger WHERE entry_type = 'commission' AND business_date BETWEEN '2026-09-01' AND '2026-09-30'"
+        ).fetchone()[0]
+        assert report["total_commission_paise"] == direct_total == 1500
+        assert report["items"][0]["account_id"] == cash_id
+        conn.close()
+
+
+def test_profit_loss_report_reconciles_with_ledger():
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id = conn.execute("SELECT id FROM accounts WHERE name = 'Cash Drawer'").fetchone()[0]
+        sbi = create_account(AccountCreate(name="SBI", account_type="settlement", opening_balance_paise=1000000), conn)
+        service = create_service(ServiceCreate(name="PAN Card", category="PAN", default_fee_paise=10000), conn)
+        create_transaction(
+            TransactionCreate(business_date="2026-09-15", service_id=service["id"], fee_paise=10000, account_id=cash_id, amount_paid_paise=10000),
+            conn,
+        )
+        create_banking(
+            BankingCreate(business_date="2026-09-15", txn_type="withdrawal", principal_paise=100000,
+                           commission_paise=1500, settlement_account_id=sbi["id"], cash_account_id=cash_id),
+            conn,
+        )
+        create_expense(ExpenseCreate(business_date="2026-09-20", category="Rent", amount_paise=4000, account_id=cash_id), conn)
+        create_expense(ExpenseCreate(business_date="2026-09-21", category="Paper", amount_paise=500, account_id=cash_id), conn)
+        # Outside the month -- must not leak in.
+        create_expense(ExpenseCreate(business_date="2026-10-01", category="Rent", amount_paise=99900, account_id=cash_id), conn)
+
+        report = profit_loss_report(start_date="2026-09-01", end_date="2026-09-30", conn=conn)
+        assert report["service_income_paise"] == 10000
+        assert report["commission_paise"] == 1500
+        assert report["total_income_paise"] == 11500
+        assert {r["category"]: r["amount_paise"] for r in report["expenses_by_category"]} == {"Rent": 4000, "Paper": 500}
+        assert report["total_expenses_paise"] == 4500
+        assert report["profit_paise"] == 11500 - 4500
+
+        direct_income = conn.execute(
+            "SELECT COALESCE(SUM(amount_paise), 0) FROM ledger WHERE business_date BETWEEN '2026-09-01' AND '2026-09-30' AND entry_type IN ('service_income', 'commission')"
+        ).fetchone()[0]
+        direct_expenses = -conn.execute(
+            "SELECT COALESCE(SUM(amount_paise), 0) FROM ledger WHERE business_date BETWEEN '2026-09-01' AND '2026-09-30' AND entry_type = 'expense'"
+        ).fetchone()[0]
+        assert report["total_income_paise"] == direct_income
+        assert report["total_expenses_paise"] == direct_expenses
+        conn.close()
+
+
 if __name__ == "__main__":
     test_monthly_report_reconciles_with_ledger()
     test_monthly_report_rejects_bad_month()
     test_service_wise_report_reconciles_with_ledger()
     test_customer_wise_report_includes_later_settlement()
+    test_banking_commission_report_reconciles_with_ledger()
+    test_profit_loss_report_reconciles_with_ledger()
     print("OK")

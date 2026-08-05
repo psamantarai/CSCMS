@@ -19,4 +19,8 @@ export const queryKeys = {
   dayStatus: (date: string) => ["day", date, "status"] as const,
   dayReport: (date: string) => ["day", date, "report"] as const,
   dashboard: (date: string) => ["dashboard", date] as const,
+  reportMonthly: (year: number, month: number) => ["reports", "monthly", year, month] as const,
+  reportServiceWise: (filters: Record<string, string>) => ["reports", "service-wise", filters] as const,
+  reportProfitLoss: (filters: Record<string, string>) => ["reports", "profit-loss", filters] as const,
+  reportBankingCommission: (filters: Record<string, string>) => ["reports", "banking-commission", filters] as const,
 }
