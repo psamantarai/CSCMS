@@ -1,3 +1,6 @@
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { cn } from "@/lib/utils"
+
 interface StatCardProps {
   label: string
   value: string
@@ -7,35 +10,27 @@ interface StatCardProps {
 }
 
 const colorMap = {
-  default: { bg: "#ffffff", accent: "#1e3a5f", badge: "#e8edf5" },
-  green:   { bg: "#f0fdf4", accent: "#16a34a", badge: "#dcfce7" },
-  amber:   { bg: "#fffbeb", accent: "#d97706", badge: "#fef3c7" },
-  red:     { bg: "#fef2f2", accent: "#dc2626", badge: "#fee2e2" },
-  blue:    { bg: "#eff6ff", accent: "#2563eb", badge: "#dbeafe" },
+  default: { card: "bg-primary/5", badge: "bg-primary/15 text-primary", text: "text-primary" },
+  green:   { card: "bg-success/5", badge: "bg-success/15 text-success", text: "text-success" },
+  amber:   { card: "bg-warning/5", badge: "bg-warning/15 text-warning", text: "text-warning" },
+  red:     { card: "bg-destructive/5", badge: "bg-destructive/15 text-destructive", text: "text-destructive" },
+  blue:    { card: "bg-ring/5", badge: "bg-ring/15 text-ring", text: "text-ring" },
 }
 
 export default function StatCard({ label, value, sub, color = "default", icon }: StatCardProps) {
   const c = colorMap[color]
   return (
-    <div style={{
-      background: c.bg,
-      border: "1px solid #d1d9e6",
-      borderRadius: 10,
-      padding: "18px 20px",
-      display: "flex",
-      flexDirection: "column",
-      gap: 10,
-    }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-        <span style={{ fontSize: 12, fontWeight: 500, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em" }}>{label}</span>
-        <span style={{ background: c.badge, color: c.accent, borderRadius: 7, padding: "5px 7px", display: "flex", alignItems: "center" }}>
-          {icon}
-        </span>
-      </div>
-      <div style={{ fontFamily: "'JetBrains Mono', monospace", fontSize: 22, fontWeight: 600, color: c.accent, lineHeight: 1 }}>
-        {value}
-      </div>
-      {sub && <div style={{ fontSize: 12, color: "#64748b" }}>{sub}</div>}
-    </div>
+    <Card className={c.card}>
+      <CardHeader className="flex-row items-start justify-between space-y-0">
+        <CardTitle className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+          {label}
+        </CardTitle>
+        <span className={cn("flex items-center rounded-md p-1.5", c.badge)}>{icon}</span>
+      </CardHeader>
+      <CardContent>
+        <div className={cn("font-mono text-2xl font-semibold leading-none", c.text)}>{value}</div>
+        {sub && <div className="mt-2.5 text-xs text-muted-foreground">{sub}</div>}
+      </CardContent>
+    </Card>
   )
 }

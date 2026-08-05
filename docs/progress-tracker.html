@@ -1446,20 +1446,27 @@
   },
   {
     "title": "9.5.4 — Shared primitives: StatCard, QueryState, Modal→Dialog",
-    "status": "pending",
-    "updated": "2026-08-05",
+    "status": "completed",
+    "updated": "2026-08-06",
+    "seq": 127,
     "details": [
-      "P9.5 · Done first because every page consumes them. StatCard.tsx → Card composition, its 5-color colorMap becoming semantic token classes. QueryState.tsx → Skeleton (loading) + Alert variant=destructive (error), keeping all three call shapes (TableRowState/BlockState/InlineState). Modal.tsx deleted, replaced by Dialog — which needs no margin:\"auto\" workaround for the Tailwind-preflight bug Phase 9.1 hit.",
-      "Verify: H.8 explicitly re-checked — a slow query renders a skeleton, a failed one a visible error, and neither can be mistaken for a confirmed ₹0 (a grey shape where a number goes is exactly that ambiguity). Dashboard's three quick-action modals still open/save/close on Dialog. Modal.tsx has no remaining importers."
+      "StatCard.tsx → Card/CardHeader/CardTitle/CardContent composition; the 5-color colorMap now maps to semantic token classes (default→primary, green→success, amber→warning, red→destructive, blue→ring — no new token added since 9.5.2 didn't reserve one for blue) as three literal Tailwind classes each (card tint, icon badge, value text) so the JIT scanner keeps them.",
+      "QueryState.tsx → TableRowState/BlockState/InlineState kept their exact call shapes; loading renders shadcn Skeleton, error renders Alert variant=\"destructive\" with AlertDescription — still visually distinct from a confirmed value per H.8.",
+      "Modal.tsx deleted (no margin:\"auto\" workaround needed — Dialog/DialogContent center correctly). Its only importer, Dashboard.tsx's 3 quick-action modals, converted to Dialog open={openModal===\"x\"}/onOpenChange, kept mounted only while open (same reset-on-reopen behavior as before) — this is the one non-StatCard/QueryState file touched, required by this step's own Verify line.",
+      "Verify: tsc --noEmit clean, pnpm build succeeds (516KB bundle, pre-existing chunk-size warning unrelated to this change). Live browser check blocked — backend isn't running in this session (curl to /api/health → 502) so the login screen couldn't be gotten past; structural check instead: grep confirms zero remaining importers of components/Modal."
     ]
   },
   {
     "title": "9.5.5 — App shell: Sidebar, topbar, lucide icons",
-    "status": "pending",
-    "updated": "2026-08-05",
+    "status": "completed",
+    "updated": "2026-08-06",
+    "seq": 128,
     "details": [
-      "P9.5 · App.tsx's hand-rolled sidebar → shadcn Sidebar (SidebarProvider/SidebarMenu/SidebarGroup), which brings its own collapsible + mobile off-canvas Sheet, deleting .app-sidebar/.hamburger-btn/.app-sidebar-backdrop from index.css. Topbar → Breadcrumb + Badge (API health, day open/closed) + Button. The 12 hand-written inline nav SVGs → lucide-react.",
-      "Verify: every nav link routes and highlights; sidebar collapses and mobile drawer opens below 900px; AND the print stylesheet still hides the chrome — @media print targets .app-sidebar/.app-topbar by name and shadcn Sidebar will not emit those class names."
+      "App.tsx's hand-rolled sidebar replaced with shadcn Sidebar (SidebarProvider/SidebarMenu/SidebarGroup) with its own collapse (SidebarTrigger) and mobile off-canvas Sheet; deleted .app-sidebar/.hamburger-btn/.app-sidebar-backdrop rules from index.css.",
+      "Topbar rebuilt as Breadcrumb + Badge (day open/closed, API health) + Button (\"Close Day\"); 12 hand-written inline nav SVGs replaced with lucide-react icons.",
+      "use-mobile.ts breakpoint changed from shadcn's default 768 to 900, matching index.css's existing .topbar-hide-mobile/.rs-grid breakpoint.",
+      "Print-stylesheet risk from the plan handled: @media print selectors updated from .app-sidebar to [data-slot=\"sidebar\"] (shadcn's actual emitted attribute) plus [data-slot=\"sidebar-wrapper\"] for the height reset; .app-topbar kept since AppShell's header still carries that class directly.",
+      "Verify: tsc --noEmit clean. Live browser check (backend + frontend running) — Dashboard/Customers/Daily Closing nav links route and highlight correctly (amber border + breadcrumb label), Daily Closing's \"!\" SidebarMenuBadge renders, SidebarTrigger collapses/expands. DOM query confirmed shadcn emits data-slot=\"sidebar\"/\"sidebar-wrapper\", matching the updated print selectors. Mobile drawer (<900px) not exercised live — session's browser window wouldn't resize below its default width — verified by code review instead: the mobile path is stock shadcn Sidebar/Sheet, and the only custom bit (the 900px constant) matches existing CSS breakpoints."
     ]
   },
   {

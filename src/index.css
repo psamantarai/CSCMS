@@ -90,41 +90,13 @@ h1, h2, h3, h4 {
   font-family: var(--font-mono);
 }
 
-/* Responsive: collapsible sidebar, wrapping grids */
-.hamburger-btn {
-  display: none;
-}
-.app-sidebar-backdrop {
-  display: none;
-}
+/* Responsive: wrapping grids. PLAN 9.5.5: the sidebar's own collapse and
+   mobile off-canvas now come from shadcn Sidebar, not these rules. */
 .rs-grid {
   min-width: 0;
 }
 
 @media (max-width: 900px) {
-  .hamburger-btn {
-    display: inline-flex !important;
-  }
-  .app-sidebar {
-    position: fixed;
-    top: 0;
-    left: 0;
-    bottom: 0;
-    z-index: 40;
-    transform: translateX(-100%);
-    transition: transform 0.2s ease;
-    box-shadow: 2px 0 16px rgba(0, 0, 0, 0.3);
-  }
-  .app-sidebar.open {
-    transform: translateX(0);
-  }
-  .app-sidebar-backdrop {
-    display: block;
-    position: fixed;
-    inset: 0;
-    background: rgba(0, 0, 0, 0.4);
-    z-index: 30;
-  }
   .rs-grid {
     grid-template-columns: repeat(2, 1fr) !important;
   }
@@ -154,11 +126,14 @@ h1, h2, h3, h4 {
     size: A4;
     margin: 12mm;
   }
-  .app-sidebar, .app-sidebar-backdrop, .app-topbar, .no-print {
+  /* PLAN 9.5.5: shadcn Sidebar emits data-slot, not .app-sidebar — the
+     selector must follow it or the report prints with the navy chrome. */
+  [data-slot="sidebar"], .app-topbar, .no-print {
     display: none !important;
   }
-  #root, main, .print-report {
+  #root, main, .print-report, [data-slot="sidebar-wrapper"] {
     height: auto !important;
+    min-height: 0 !important;
     overflow: visible !important;
   }
   body {

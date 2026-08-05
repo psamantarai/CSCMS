@@ -1,3 +1,6 @@
+import { Skeleton } from "@/components/ui/skeleton"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+
 // H.8: a query that's still in flight or that failed must never render as a
 // confirmed empty/zero result — in a cash ledger "loading" and "₹0" are not
 // the same claim. These three helpers cover the three shapes call sites need
@@ -11,19 +14,19 @@ function message(error: unknown): string {
 }
 
 export function TableRowState({ isLoading, error, colSpan }: Status & { colSpan: number }) {
-  if (isLoading) return <tr><td colSpan={colSpan} style={{ padding: "24px 14px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>Loading…</td></tr>
-  if (error) return <tr><td colSpan={colSpan} style={{ padding: "24px 14px", textAlign: "center", color: "#dc2626", fontSize: 13 }}>Could not load: {message(error)}</td></tr>
+  if (isLoading) return <tr><td colSpan={colSpan} className="p-3"><Skeleton className="h-4 w-full" /></td></tr>
+  if (error) return <tr><td colSpan={colSpan} className="p-2"><Alert variant="destructive"><AlertDescription>Could not load: {message(error)}</AlertDescription></Alert></td></tr>
   return null
 }
 
 export function BlockState({ isLoading, error }: Status) {
-  if (isLoading) return <div style={{ padding: 24, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>Loading…</div>
-  if (error) return <div style={{ padding: 24, textAlign: "center", color: "#dc2626", fontSize: 13 }}>Could not load: {message(error)}</div>
+  if (isLoading) return <div className="space-y-2 p-4"><Skeleton className="h-4 w-3/4" /><Skeleton className="h-4 w-1/2" /></div>
+  if (error) return <div className="p-2"><Alert variant="destructive"><AlertDescription>Could not load: {message(error)}</AlertDescription></Alert></div>
   return null
 }
 
 export function InlineState({ isLoading, error }: Status) {
-  if (isLoading) return <span style={{ color: "#94a3b8" }}>…</span>
-  if (error) return <span style={{ color: "#dc2626" }} title={message(error)}>Error</span>
+  if (isLoading) return <Skeleton className="inline-block h-4 w-10 align-middle" />
+  if (error) return <span className="text-destructive" title={message(error)}>Error</span>
   return null
 }

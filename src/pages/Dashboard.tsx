@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query"
 import { useNavigate } from "react-router-dom"
 import StatCard from "../components/StatCard"
 import { BlockState, TableRowState } from "../components/QueryState"
-import Modal from "../components/Modal"
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import TransactionForm from "../components/forms/TransactionForm"
 import BankingEntryForm from "../components/forms/BankingEntryForm"
 import ExpenseForm from "../components/forms/ExpenseForm"
@@ -222,19 +222,28 @@ export default function Dashboard() {
       </div>
 
       {openModal === "transaction" && (
-        <Modal open onClose={() => setOpenModal(null)} title="New Transaction">
-          <TransactionForm onSuccess={() => setOpenModal(null)} onCancel={() => setOpenModal(null)} />
-        </Modal>
+        <Dialog open onOpenChange={o => !o && setOpenModal(null)}>
+          <DialogContent>
+            <DialogHeader><DialogTitle>New Transaction</DialogTitle></DialogHeader>
+            <TransactionForm onSuccess={() => setOpenModal(null)} onCancel={() => setOpenModal(null)} />
+          </DialogContent>
+        </Dialog>
       )}
       {openModal === "banking" && (
-        <Modal open onClose={() => setOpenModal(null)} title="New Banking Entry">
-          <BankingEntryForm onSuccess={() => setOpenModal(null)} onCancel={() => setOpenModal(null)} />
-        </Modal>
+        <Dialog open onOpenChange={o => !o && setOpenModal(null)}>
+          <DialogContent>
+            <DialogHeader><DialogTitle>New Banking Entry</DialogTitle></DialogHeader>
+            <BankingEntryForm onSuccess={() => setOpenModal(null)} onCancel={() => setOpenModal(null)} />
+          </DialogContent>
+        </Dialog>
       )}
       {openModal === "expense" && (
-        <Modal open onClose={() => setOpenModal(null)} title="Record Expense">
-          <ExpenseForm onSuccess={() => setOpenModal(null)} onCancel={() => setOpenModal(null)} />
-        </Modal>
+        <Dialog open onOpenChange={o => !o && setOpenModal(null)}>
+          <DialogContent>
+            <DialogHeader><DialogTitle>Record Expense</DialogTitle></DialogHeader>
+            <ExpenseForm onSuccess={() => setOpenModal(null)} onCancel={() => setOpenModal(null)} />
+          </DialogContent>
+        </Dialog>
       )}
     </div>
   )
