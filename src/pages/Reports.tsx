@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query"
 import { api } from "../lib/api"
 import { queryKeys } from "../lib/queries"
 import { fmt, fromPaise, localDateISO } from "../lib/format"
+import { downloadCsv } from "../lib/csv"
 import { BlockState, TableRowState } from "../components/QueryState"
 
 const reportTypes = [
@@ -107,20 +108,103 @@ export default function Reports() {
     enabled: activeReport === "commission",
   })
 
+  // PLAN 7.7: CSV export builds rows straight from the same fetched data the
+  // active tab renders, so exported totals can't drift from on-screen ones.
+  // Amounts go out as raw rupee numbers (fromPaise), not fmt()'s "₹"/comma
+  // strings, so a spreadsheet can sum them.
+  const csvBuilders: Record<ReportType, { ready: boolean; rows: () => (string | number)[][]; filename: string }> = {
+    daily: {
+      ready: !dayLoading && !dayError && !txnLoading && !txnError && !!dayReport && !!cashRow,
+      filename: `daily-report-${dailyDate}.csv`,
+      rows: () => [
+        ["Cash Summary", dailyDate],
+        ["Opening Cash Balance", fromPaise(cashRow!.opening_paise)],
+        ["Received", fromPaise(cashRow!.received_paise)],
+        ["Paid Out", fromPaise(cashRow!.paid_paise)],
+        ["Closing Cash Balance", fromPaise(cashRow!.closing_paise)],
+        [],
+        ["Account Balances"],
+        ["Account", "Closing Balance"],
+        ...dayReport!.accounts.map(a => [a.account_name, fromPaise(a.closing_paise)]),
+        [],
+        ["Transaction Register"],
+        ["TXN", "Customer", "Service", "Fees", "Charge", "Payment", "Status"],
+        ...dailyTxns.map(t => [t.id, t.customer_name ?? "Walk-in", t.service_name, fromPaise(t.fee_paise), fromPaise(t.charge_paise), fromPaise(t.paid_paise), t.status]),
+      ],
+    },
+    monthly: {
+      ready: !monthlyLoading && !monthlyError && !!monthly,
+      filename: `monthly-report-${year}-${String(month).padStart(2, "0")}.csv`,
+      rows: () => [
+        [`${monthNames[month - 1]} ${year}`],
+        ["Income", fromPaise(monthly!.income_paise)],
+        ["Expenses", fromPaise(monthly!.expenses_paise)],
+        ["Profit", fromPaise(monthly!.profit_paise)],
+      ],
+    },
+    service: {
+      ready: !serviceLoading && !serviceError && !!serviceRows,
+      filename: `service-wise-report-${startDate}-to-${endDate}.csv`,
+      rows: () => [
+        ["Service", "Transactions", "Billed", "Income Collected"],
+        ...(serviceRows ?? []).map(s => [s.service_name, s.transaction_count, fromPaise(s.billed_paise), fromPaise(s.income_paise)]),
+      ],
+    },
+    pl: {
+      ready: !plLoading && !plError && !!pl,
+      filename: `profit-loss-report-${startDate}-to-${endDate}.csv`,
+      rows: () => [
+        ["Total Income", fromPaise(pl!.total_income_paise)],
+        ["Total Expenses", fromPaise(pl!.total_expenses_paise)],
+        ["Net Profit", fromPaise(pl!.profit_paise)],
+        [],
+        ["Income Sources"],
+        ["Service Income", fromPaise(pl!.service_income_paise)],
+        ["Banking Commission", fromPaise(pl!.commission_paise)],
+        [],
+        ["Expenses by Category"],
+        ...pl!.expenses_by_category.map(r => [r.category, fromPaise(r.amount_paise)]),
+      ],
+    },
+    commission: {
+      ready: !commissionLoading && !commissionError && !!commission,
+      filename: `banking-commission-report-${startDate}-to-${endDate}.csv`,
+      rows: () => [
+        ["Total Commission", fromPaise(commission!.total_commission_paise)],
+        [],
+        ["Account", "Commission"],
+        ...commission!.items.map(r => [r.account_name, fromPaise(r.total_commission_paise)]),
+      ],
+    },
+  }
+  const activeCsv = csvBuilders[activeReport]
+
   return (
-    <div style={{ padding: "28px 32px", overflowY: "auto", height: "100%" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
+    <div className="print-report" style={{ padding: "28px 32px", overflowY: "auto", height: "100%" }}>
+      <div className="no-print" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
         <div>
           <h1 style={{ fontSize: 22, margin: 0 }}>Reports</h1>
           <p style={{ margin: "4px 0 0", color: "#64748b", fontSize: 13 }}>Daily, monthly, and service-wise financial summaries</p>
         </div>
-        <button style={{ background: "#1e3a5f", color: "#fff", border: "none", borderRadius: 7, padding: "9px 18px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-          ⬇ Export PDF
-        </button>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button onClick={() => window.print()} style={{ background: "#fff", color: "#1e3a5f", border: "1px solid #d1d9e6", borderRadius: 7, padding: "9px 18px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
+            🖨 Print
+          </button>
+          <button
+            disabled={!activeCsv.ready}
+            onClick={() => downloadCsv(activeCsv.filename, activeCsv.rows())}
+            style={{
+              background: activeCsv.ready ? "#1e3a5f" : "#94a3b8", color: "#fff", border: "none", borderRadius: 7,
+              padding: "9px 18px", fontSize: 13, fontWeight: 600, cursor: activeCsv.ready ? "pointer" : "not-allowed",
+            }}
+          >
+            ⬇ Export CSV
+          </button>
+        </div>
       </div>
 
       {/* Report type tabs */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 20, background: "#f0f4f8", borderRadius: 9, padding: 4, width: "fit-content" }}>
+      <div className="no-print" style={{ display: "flex", gap: 4, marginBottom: 20, background: "#f0f4f8", borderRadius: 9, padding: 4, width: "fit-content" }}>
         {reportTypes.map(r => (
           <button key={r.id} onClick={() => setActiveReport(r.id)} style={{
             padding: "7px 16px", borderRadius: 6, fontSize: 13, fontWeight: 500, cursor: "pointer", border: "none",
@@ -133,13 +217,13 @@ export default function Reports() {
 
       {/* Period controls */}
       {activeReport === "daily" && (
-        <div style={{ marginBottom: 20 }}>
+        <div className="no-print" style={{ marginBottom: 20 }}>
           <label style={labelStyle}>Date</label>
           <input type="date" value={dailyDate} onChange={e => setDailyDate(e.target.value)} style={{ ...inputStyle, width: 180 }} />
         </div>
       )}
       {activeReport === "monthly" && (
-        <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
+        <div className="no-print" style={{ display: "flex", gap: 10, marginBottom: 20 }}>
           <div>
             <label style={labelStyle}>Month</label>
             <select value={month} onChange={e => setMonth(Number(e.target.value))} style={{ ...inputStyle, background: "#fff" }}>
@@ -153,7 +237,7 @@ export default function Reports() {
         </div>
       )}
       {(activeReport === "service" || activeReport === "pl" || activeReport === "commission") && (
-        <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
+        <div className="no-print" style={{ display: "flex", gap: 10, marginBottom: 20 }}>
           <div>
             <label style={labelStyle}>From</label>
             <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={{ ...inputStyle, width: 160 }} />
