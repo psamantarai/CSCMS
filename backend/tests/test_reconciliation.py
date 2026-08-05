@@ -23,7 +23,7 @@ from app.dashboard import get_dashboard
 from app.db import get_connection, run_migrations
 from app.expenses import ExpenseCreate, ExpenseUpdate, create_expense, update_expense
 from app.closing import close_day, get_day_report, CloseDayRequest
-from app.ledger import account_balance, income_expenses
+from app.ledger import closing_balance, income_expenses
 from app.payments import PaymentCreate, create_payment
 from app.reports import (
     banking_commission_report, customer_wise_report, monthly_report,
@@ -161,14 +161,15 @@ def test_reconciliation_suite_scripted_month():
         assert customer_rows[bob["id"]]["collected_paise"] == 10700 + 24300 == 35000
 
         # ---- dashboard (2024-11-01, now closed): today's figures scope to
-        # that single day; running balances reconcile against account_balance
-        # directly (the only cash / non-cash accounts in this scenario).
+        # that single day; running balances reconcile against closing_balance
+        # as of that date (H.39: not account_balance's whole-ledger sum, which
+        # would leak in the 5th/10th/15th/Dec activity dated after this day).
         dash = get_dashboard(business_date="2024-11-01", conn=conn)
         assert dash["today_income_paise"] == 10000 + 750  # txn1 + corrected txn2, not txn3 (dated the 5th)
         assert dash["today_expenses_paise"] == 4000
         assert dash["today_profit_paise"] == 10000 + 750 - 4000
-        assert dash["cash_in_hand_paise"] == account_balance(conn, cash_id)
-        assert dash["total_bank_balance_paise"] == account_balance(conn, sbi_id)
+        assert dash["cash_in_hand_paise"] == closing_balance(conn, cash_id, "2024-11-01")
+        assert dash["total_bank_balance_paise"] == closing_balance(conn, sbi_id, "2024-11-01")
         assert dash["pending_credits_paise"] == 0  # Alice and Bob are both fully settled by month end
         assert dash["today_customers"] == 1  # Alice only -- txn2 is a walk-in
         assert dash["closing_status"] == "closed"
@@ -184,13 +185,14 @@ def test_reconciliation_suite_scripted_month():
         for a in report["accounts"]:
             assert (a["opening_paise"] + a["received_paise"] - a["paid_paise"]
                     + a["transfer_in_paise"] - a["transfer_out_paise"] + a["adjustment_paise"]) == a["closing_paise"]
-        # no physical-count variance was recorded (CloseDayRequest() left
-        # physical_cash_paise unset) -- the only thing in the cash account's
-        # adjustment bucket is txn2's -500 reversal, dated 2024-11-01, from
-        # its fee correction (closing.py deliberately buckets every
-        # entry_type='reversal' row as "adjustment" regardless of source).
+        # the cash account's adjustment bucket still includes txn2's -500
+        # reversal, dated 2024-11-01, from its fee correction (closing.py
+        # deliberately buckets every entry_type='reversal' row as
+        # "adjustment" regardless of source) -- but cash_variance_paise
+        # (H.38) excludes it: no physical-count variance was recorded
+        # (CloseDayRequest() left physical_cash_paise unset), so it's 0.
         assert cash_row["adjustment_paise"] == -500
-        assert report["cash_variance_paise"] == -500
+        assert report["cash_variance_paise"] == 0
 
         conn.close()
 

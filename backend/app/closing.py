@@ -83,15 +83,28 @@ def get_day_report(business_date: str, conn: sqlite3.Connection = Depends(get_db
         key: sum(a[key] for a in accounts)
         for key in ("opening_paise", "received_paise", "paid_paise", "transfer_in_paise", "transfer_out_paise", "adjustment_paise", "closing_paise")
     }
-    cash_account = next((a for a in accounts if a["account_id"] == _primary_cash_account_id(conn)), None)
+    cash_account_id = _primary_cash_account_id(conn)
 
     return {
         "business_date": business_date,
         "status": status,
         "accounts": accounts,
         "totals": totals,
-        "cash_variance_paise": cash_account["adjustment_paise"] if cash_account else 0,
+        "cash_variance_paise": _cash_variance_paise(conn, cash_account_id, business_date) if cash_account_id else 0,
     }
+
+
+def _cash_variance_paise(conn: sqlite3.Connection, account_id: int, business_date: str) -> int:
+    # H.38: adjustment_paise in _BREAKDOWN_SQL also catches entry_type='reversal'
+    # rows from unrelated same-day corrections/deletions — those aren't part of
+    # the physical-count variance. Only the closing entry itself is
+    # (source_type='closing', see the insert in close_day below).
+    row = conn.execute(
+        "SELECT COALESCE(SUM(amount_paise), 0) AS v FROM ledger "
+        "WHERE account_id = ? AND business_date = ? AND entry_type = 'adjustment' AND source_type = 'closing'",
+        (account_id, business_date),
+    ).fetchone()
+    return row["v"]
 
 
 def _primary_cash_account_id(conn: sqlite3.Connection) -> int | None:

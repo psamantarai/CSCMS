@@ -10,9 +10,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from fastapi import HTTPException
 
 from app.accounts import AccountCreate, create_account
+from app.banking import BankingCreate, BankingUpdate, create_banking, update_banking
 from app.closing import CloseDayRequest, close_day, get_day_report, get_day_status
 from app.db import get_connection, run_migrations
 from app.expenses import ExpenseCreate, create_expense
+from app.ledger import closing_balance
 from app.seed import run_seed
 from app.transfers import TransferCreate, create_transfer
 
@@ -224,6 +226,32 @@ def test_closing_todays_date_still_succeeds():
         conn.close()
 
 
+def test_variance_ignores_unrelated_reversal_rows():
+    # H.38: cash_variance_paise used to sum entry_type IN ('adjustment',
+    # 'reversal') for the cash account, folding an unrelated same-day
+    # correction's reversal rows in on top of the genuine physical-count
+    # variance.
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id = conn.execute("SELECT id FROM accounts WHERE name = 'Cash Drawer'").fetchone()[0]
+        _fund_cash(conn, cash_id, 1024100, "2024-10-20")
+
+        sbi = create_account(AccountCreate(name="SBI2", account_type="settlement", opening_balance_paise=2000000), conn)
+        banking = create_banking(
+            BankingCreate(business_date="2024-10-20", txn_type="withdrawal", principal_paise=500000,
+                          commission_paise=5000, settlement_account_id=sbi["id"], cash_account_id=cash_id),
+            conn,
+        )
+        # correcting the commission posts a reversal + replacement entry onto the cash account
+        update_banking(banking["id"], BankingUpdate(commission_paise=8000), conn)
+
+        genuine_variance = -24100
+        system_cash = closing_balance(conn, cash_id, "2024-10-20")
+        result = close_day("2024-10-20", CloseDayRequest(physical_cash_paise=system_cash + genuine_variance, remarks="counted short"), conn)
+        assert result["cash_variance_paise"] == genuine_variance, result["cash_variance_paise"]
+        conn.close()
+
+
 if __name__ == "__main__":
     test_untouched_date_reads_as_open()
     test_close_with_no_variance_needs_no_remarks()
@@ -237,4 +265,5 @@ if __name__ == "__main__":
     test_genuine_non_negative_count_still_closes_normally()
     test_closing_a_future_date_rejected()
     test_closing_todays_date_still_succeeds()
+    test_variance_ignores_unrelated_reversal_rows()
     print("OK")

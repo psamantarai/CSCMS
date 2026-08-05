@@ -26,8 +26,9 @@ def get_dashboard(business_date: str, conn: sqlite3.Connection = Depends(get_db)
         "SELECT "
         "COALESCE(SUM(CASE WHEN a.account_type = 'cash' THEN l.amount_paise ELSE 0 END), 0) AS cash_paise, "
         "COALESCE(SUM(CASE WHEN a.account_type != 'cash' THEN l.amount_paise ELSE 0 END), 0) AS bank_paise "
-        "FROM accounts a LEFT JOIN ledger l ON l.account_id = a.id "
-        "WHERE a.deleted_at IS NULL"
+        "FROM accounts a LEFT JOIN ledger l ON l.account_id = a.id AND l.business_date <= ? "
+        "WHERE a.deleted_at IS NULL",
+        (business_date,),
     ).fetchone()
 
     # PLAN 2.4's outstanding formula (billed - paid), summed across every

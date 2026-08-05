@@ -21,7 +21,7 @@ const monthNames = [
 ]
 
 type Account = { id: number; account_type: string }
-type DayReportAccount = { account_id: number; account_name: string; opening_paise: number; received_paise: number; paid_paise: number; closing_paise: number }
+type DayReportAccount = { account_id: number; account_name: string; opening_paise: number; received_paise: number; paid_paise: number; transfer_in_paise: number; transfer_out_paise: number; adjustment_paise: number; closing_paise: number }
 type DayReport = { business_date: string; status: "open" | "closed"; accounts: DayReportAccount[] }
 type Transaction = { id: number; customer_name: string | null; service_name: string; fee_paise: number; charge_paise: number; paid_paise: number; status: "completed" | "partial" | "pending" }
 type MonthlyReport = { income_paise: number; expenses_paise: number; profit_paise: number }
@@ -121,6 +121,9 @@ export default function Reports() {
         ["Opening Cash Balance", fromPaise(cashRow!.opening_paise)],
         ["Received", fromPaise(cashRow!.received_paise)],
         ["Paid Out", fromPaise(cashRow!.paid_paise)],
+        ["Transfer In", fromPaise(cashRow!.transfer_in_paise)],
+        ["Transfer Out", fromPaise(cashRow!.transfer_out_paise)],
+        ["Adjustment", fromPaise(cashRow!.adjustment_paise)],
         ["Closing Cash Balance", fromPaise(cashRow!.closing_paise)],
         [],
         ["Account Balances"],
@@ -262,17 +265,23 @@ export default function Reports() {
               {dayLoading || dayError || !dayReport ? <BlockState isLoading={dayLoading || !dayError} error={dayError} /> : !cashRow ? (
                 <div style={{ color: "#94a3b8", fontSize: 13 }}>No cash account found.</div>
               ) : (
-                [
-                  { label: "Opening Cash Balance", value: fmt(fromPaise(cashRow.opening_paise)), color: "#64748b" },
-                  { label: "Received", value: "+ " + fmt(fromPaise(cashRow.received_paise)), color: "#16a34a" },
-                  { label: "Paid Out", value: "− " + fmt(fromPaise(cashRow.paid_paise)), color: "#dc2626" },
-                  { label: "Closing Cash Balance", value: fmt(fromPaise(cashRow.closing_paise)), color: "#1e3a5f" },
-                ].map((r, i) => (
-                  <div key={r.label} style={{ display: "flex", justifyContent: "space-between", padding: "9px 0", borderBottom: i < 3 ? "1px dashed #e8edf5" : "2px solid #d1d9e6" }}>
-                    <span style={{ fontSize: 13, color: "#475569" }}>{r.label}</span>
-                    <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: r.color }}>{r.value}</span>
-                  </div>
-                ))
+                (() => {
+                  const rows = [
+                    { label: "Opening Cash Balance", value: fmt(fromPaise(cashRow.opening_paise)), color: "#64748b" },
+                    { label: "Received", value: "+ " + fmt(fromPaise(cashRow.received_paise)), color: "#16a34a" },
+                    { label: "Paid Out", value: "− " + fmt(fromPaise(cashRow.paid_paise)), color: "#dc2626" },
+                    { label: "Transfer In", value: "+ " + fmt(fromPaise(cashRow.transfer_in_paise)), color: "#16a34a" },
+                    { label: "Transfer Out", value: "− " + fmt(fromPaise(cashRow.transfer_out_paise)), color: "#dc2626" },
+                    { label: "Adjustment", value: fmt(fromPaise(cashRow.adjustment_paise)), color: "#64748b" },
+                    { label: "Closing Cash Balance", value: fmt(fromPaise(cashRow.closing_paise)), color: "#1e3a5f" },
+                  ]
+                  return rows.map((r, i) => (
+                    <div key={r.label} style={{ display: "flex", justifyContent: "space-between", padding: "9px 0", borderBottom: i < rows.length - 1 ? "1px dashed #e8edf5" : "2px solid #d1d9e6" }}>
+                      <span style={{ fontSize: 13, color: "#475569" }}>{r.label}</span>
+                      <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: r.color }}>{r.value}</span>
+                    </div>
+                  ))
+                })()
               )}
             </div>
 

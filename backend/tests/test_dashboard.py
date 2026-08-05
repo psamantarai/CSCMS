@@ -128,10 +128,31 @@ def test_closing_status_reflects_business_days():
         conn.close()
 
 
+def test_future_dated_entries_do_not_move_an_earlier_dates_balances():
+    # H.39: cash_in_hand_paise/total_bank_balance_paise had no business_date
+    # filter at all, so a transaction dated after D still moved D's dashboard
+    # figures, disagreeing with Daily Closing/Reports (business_date <= D).
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id = conn.execute("SELECT id FROM accounts WHERE name = 'Cash Drawer'").fetchone()[0]
+        service = create_service(ServiceCreate(name="Xerox", category="Printing", default_fee_paise=1000), conn)
+
+        dash_before = get_dashboard("2026-09-01", conn)
+        create_transaction(
+            TransactionCreate(business_date="2026-09-05", service_id=service["id"],
+                               fee_paise=1000, account_id=cash_id, amount_paid_paise=1000),
+            conn,
+        )
+        dash_after = get_dashboard("2026-09-01", conn)
+        assert dash_after["cash_in_hand_paise"] == dash_before["cash_in_hand_paise"]
+        conn.close()
+
+
 if __name__ == "__main__":
     test_income_expenses_profit_reconcile_with_ledger()
     test_cash_and_bank_balances_reconcile_with_ledger()
     test_pending_credits_sums_every_customers_outstanding()
     test_todays_customers_counts_distinct_customers_not_walkins()
     test_closing_status_reflects_business_days()
+    test_future_dated_entries_do_not_move_an_earlier_dates_balances()
     print("OK")
