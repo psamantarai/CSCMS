@@ -1,6 +1,6 @@
 # CSCMS — Implementation Plan
 
-17 phases, 117 steps. Phases run in order; each depends on the one before.
+18 phases, 122 steps. Phases run in order; each depends on the one before.
 (Phase 2.5 was inserted after an edge-case audit of the shipped Phase 0–2
 code — see that phase for what it found and why it blocks Phase 3. Phase 3.5
 came from the same pass repeated over the shipped Phase 3 code. Phase 4.5
@@ -473,7 +473,7 @@ two client-side defects in the transaction form's layer:
   `businessDate` calls `localDateISO()` **once at import**, and both
   `openForm()` (line 132) and the create `onSuccess` (line 102) reset to that
   frozen object. A session left open across midnight — the normal case for the
-  Electron desktop app of Phase 9 — keeps stamping new transactions with the
+  Electron desktop app of Phase 10 — keeps stamping new transactions with the
   previous business day, which is the same class of defect H.3 fixed in the
   Accounts page. *(Mechanism read from source; the midnight rollover itself
   was not driven live — see the note below on browser coverage.)*
@@ -1230,7 +1230,7 @@ Three user-reported symptoms against already-shipped Dashboard (Phase 7) and
 Transactions (Phase 3) code, checked against a `CSCMS_DB_PATH`-isolated
 scratch backend on port 8100 plus direct reading of the exact lines involved
 — small enough not to need a full probe sweep, but each is a reproduced
-defect, not an opinion. All three confirmed. This blocks Phase 9: packaging
+defect, not an opinion. All three confirmed. This blocks Phase 10: packaging
 a release whose Dashboard "quick actions" are decorative and whose
 transaction path can strand money against no customer record ships both
 defects to every install.
@@ -1299,35 +1299,90 @@ lands.
 
 ---
 
-## Phase 9 — Electron packaging
+## Phase 9 — Dashboard quick-action modals
+
+The four Dashboard "Quick Actions" (H.48) currently navigate away to a full
+page. Per user request: New Transaction, New Banking Entry and Record
+Expense become inline modals so the operator completes them without leaving
+the Dashboard; Close Business Day stays a navigation link — it is a 5-step
+wizard (`DailyClosing.tsx`) with pending-transaction and bank-verification
+checks ahead of an irreversible lock, not a form, and compressing it into a
+popup would either hide those checks or need a second wizard implementation.
+Each of the three modalized forms is extracted out of its page into its own
+component so the page and the modal call the same validation and mutation
+code — no duplicated money-path logic (`ARCHITECTURE.md` §8, H.13's shared-
+validator lesson).
+
+**9.1 Modal shell** — `src/components/Modal.tsx`, built on the native
+`<dialog>` element (`showModal()`/`close()`), so Escape-to-close, backdrop,
+and focus trapping come from the platform instead of hand-rolled JS. Takes
+`open`, `onClose`, `title`, `children`.
+*Verify:* opening a test usage traps focus, Escape closes it, and clicking
+the backdrop closes it; no console errors.
+
+**9.2 Extract the New Transaction form** — the form block in
+`Transactions.tsx:189-270` (state, `createMutation`, `submitTransaction`)
+moves into `src/components/forms/TransactionForm.tsx` as a self-contained
+component (`onSuccess`, `onCancel` props); `Transactions.tsx` renders it
+unchanged in place of the inline block.
+*Verify:* Transactions page create flow behaves exactly as before the
+extraction (same validation errors, same success behavior).
+
+**9.3 Extract the New Banking Entry form (create mode)** — the create half
+of `Banking.tsx:236-319` moves into `src/components/forms/BankingEntryForm.tsx`;
+edit mode stays inline in `Banking.tsx` since only create is reused.
+*Verify:* Banking page's own "+ New Banking Entry" and quick-launch cards
+still create entries identically; Edit still works from the page.
+
+**9.4 Extract the Record Expense form (create mode)** — the create half of
+`Expenses.tsx:165-205` moves into `src/components/forms/ExpenseForm.tsx`;
+edit mode stays inline in `Expenses.tsx`.
+*Verify:* Expenses page's own "+ Record Expense" still creates entries
+identically; Edit still works from the page.
+
+**9.5 Wire the Dashboard quick actions** — "New Transaction", "New Banking
+Entry" and "Record Expense" open their respective form inside the Phase 9.1
+modal instead of calling `navigate()`; "Close Business Day" keeps its
+existing `navigate("/closing")`. Each form's `onSuccess` closes the modal and
+does nothing else — the existing `invalidateQueries(["dashboard"])` already
+in each mutation (H.48-era wiring) refreshes the Dashboard's own stats and
+recent-transactions table in place.
+*Verify:* clicking each of the three buttons opens its modal with the URL
+unchanged; saving closes the modal and the Dashboard's stats/recent-
+transactions update without a navigation or reload; "Close Business Day"
+still navigates to `/closing`.
+
+---
+
+## Phase 10 — Electron packaging
 
 Deliberately last. Packaging a moving target does the work twice.
 
-**9.1 Electron shell** — loads the built frontend, single window, app menu.
+**10.1 Electron shell** — loads the built frontend, single window, app menu.
 *Verify:* `npm run electron` opens the built app.
 
-**9.2 Backend bundling & lifecycle** — PyInstaller build, spawned as a child
+**10.2 Backend bundling & lifecycle** — PyInstaller build, spawned as a child
 process on a fixed loopback port, terminated on quit.
 *Verify:* no orphaned Python process remains after closing the app.
 
-**9.3 App data paths** — DB and backups in `%APPDATA%\CSCMS`; migrations run on
+**10.3 App data paths** — DB and backups in `%APPDATA%\CSCMS`; migrations run on
 version upgrade.
 *Verify:* installing a newer build over an older one migrates the existing DB
 without data loss.
 
-**9.4 Windows installer** — electron-builder, icon, shortcuts.
+**10.4 Windows installer** — electron-builder, icon, shortcuts.
 *Verify:* the installer completes on a clean machine.
 
-**9.5 First-run setup wizard** — shop name, accounts, opening balances.
+**10.5 First-run setup wizard** — shop name, accounts, opening balances.
 *Verify:* a fresh install reaches a usable state without touching a terminal.
 
-**9.6 Clean-machine acceptance test** — full PRD §12 pass.
+**10.6 Clean-machine acceptance test** — full PRD §12 pass.
 *Verify:* installs on a machine with no Python and no Node, works with the
 network disabled, and a transaction survives a full restart.
 
 ---
 
-## Phase 10 — Deferred
+## Phase 11 — Deferred
 
 Genuinely useful, genuinely not blocking. Pulled forward on request. Left
 unbroken deliberately — breaking down work this far out is speculation.

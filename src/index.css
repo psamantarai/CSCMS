@@ -130,6 +130,11 @@ h1, h2, h3, h4 {
   }
 }
 
+/* PLAN 9.1: dialog backdrop, matching .app-sidebar-backdrop's dim */
+dialog::backdrop {
+  background: rgba(0, 0, 0, 0.4);
+}
+
 /* Scrollbar polish */
 ::-webkit-scrollbar {
   width: 5px;

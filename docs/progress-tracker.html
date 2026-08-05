@@ -1389,61 +1389,77 @@
     ]
   },
   {
-    "title": "9.1 — Electron shell",
+    "title": "Phase 9 — Dashboard quick-action modals",
+    "status": "completed",
+    "updated": "2026-08-05",
+    "seq": 123,
+    "details": [
+      "User request: New Transaction, New Banking Entry and Record Expense open as inline modals on the Dashboard instead of navigating away; Close Business Day stays a navigation link since DailyClosing.tsx is a 5-step wizard, not a form (confirmed with user first)",
+      "9.1 src/components/Modal.tsx — native <dialog> (showModal/close), Escape + backdrop-click to close. Found+fixed a real bug during verify: Tailwind preflight's margin:0 broke native dialog centering (pinned top-left); fixed with inline margin:\"auto\"",
+      "9.2 Extracted src/components/forms/TransactionForm.tsx from Transactions.tsx (create-only — page never had an edit mode for transactions)",
+      "9.3 Extracted src/components/forms/BankingEntryForm.tsx from Banking.tsx — supports both create and edit via an `editing` prop, so the page's inline edit flow and the Dashboard's create-only modal share one validation/mutation path, no duplicated logic",
+      "9.4 Extracted src/components/forms/ExpenseForm.tsx from Expenses.tsx — same create/edit pattern as 9.3",
+      "9.5 Wired the three Dashboard buttons to open their modal (state stays on Dashboard); each form's onSuccess just closes the modal — existing invalidateQueries([\"dashboard\"]) already refreshes stats/recent-transactions in place",
+      "Verify: tsc --noEmit clean throughout. Live browser click-through logged in as admin — all three modals open centered, save successfully (Dashboard stat deltas confirmed: Today's Income +₹250, Cash in Hand +₹1000 then -₹75, Today's Expenses +₹75), close and stay on Dashboard with stats refreshed, no navigation. Close Business Day still navigates to /closing untouched. Banking/Expenses/Transactions pages' own inline create and edit forms re-verified working identically after extraction (Banking Edit prefill checked directly)",
+      "docs/PLAN.md: inserted as new Phase 9 (was previously unplanned); old Phase 9 (Electron packaging) renumbered to Phase 10, old Phase 10 (Deferred) to Phase 11, two stray cross-references fixed, header counts updated (17→18 phases, 117→122 steps)"
+    ]
+  },
+  {
+    "title": "10.1 — Electron shell",
     "status": "pending",
     "updated": "2026-08-04",
     "details": [
-      "P9 · Loads the built frontend, single window, app menu.",
+      "P10 · Loads the built frontend, single window, app menu.",
       "Verify: npm run electron opens the built app."
     ]
   },
   {
-    "title": "9.2 — Backend bundling & lifecycle",
+    "title": "10.2 — Backend bundling & lifecycle",
     "status": "pending",
     "updated": "2026-08-04",
     "details": [
-      "P9 · PyInstaller build, child process on fixed loopback port, killed on quit.",
+      "P10 · PyInstaller build, child process on fixed loopback port, killed on quit.",
       "Verify: no orphaned Python process after closing."
     ]
   },
   {
-    "title": "9.3 — App data paths",
+    "title": "10.3 — App data paths",
     "status": "pending",
     "updated": "2026-08-04",
     "details": [
-      "P9 · DB and backups in APPDATA/RSCMS; migrations run on upgrade.",
+      "P10 · DB and backups in APPDATA/RSCMS; migrations run on upgrade.",
       "Verify: installing a newer build migrates the existing DB without data loss."
     ]
   },
   {
-    "title": "9.4 — Windows installer",
+    "title": "10.4 — Windows installer",
     "status": "pending",
     "updated": "2026-08-04",
     "details": [
-      "P9 · electron-builder, icon, shortcuts.",
+      "P10 · electron-builder, icon, shortcuts.",
       "Verify: installer completes on a clean machine."
     ]
   },
   {
-    "title": "9.5 — First-run setup wizard",
+    "title": "10.5 — First-run setup wizard",
     "status": "pending",
     "updated": "2026-08-04",
     "details": [
-      "P9 · Shop name, accounts, opening balances.",
+      "P10 · Shop name, accounts, opening balances.",
       "Verify: a fresh install reaches a usable state without touching a terminal."
     ]
   },
   {
-    "title": "9.6 — Clean-machine acceptance test",
+    "title": "10.6 — Clean-machine acceptance test",
     "status": "pending",
     "updated": "2026-08-04",
     "details": [
-      "P9 · Full PRD section 12 pass.",
+      "P10 · Full PRD section 12 pass.",
       "Verify: installs with no Python or Node, works with network disabled, transaction survives restart."
     ]
   },
   {
-    "title": "Phase 10 — Deferred scope",
+    "title": "Phase 11 — Deferred scope",
     "status": "pending",
     "updated": "2026-08-04",
     "details": [

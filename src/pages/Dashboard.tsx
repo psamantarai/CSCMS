@@ -1,10 +1,21 @@
+import { useState } from "react"
 import { useQuery } from "@tanstack/react-query"
 import { useNavigate } from "react-router-dom"
 import StatCard from "../components/StatCard"
 import { BlockState, TableRowState } from "../components/QueryState"
+import Modal from "../components/Modal"
+import TransactionForm from "../components/forms/TransactionForm"
+import BankingEntryForm from "../components/forms/BankingEntryForm"
+import ExpenseForm from "../components/forms/ExpenseForm"
 import { api } from "../lib/api"
 import { queryKeys } from "../lib/queries"
 import { fmt, fromPaise, localDateISO } from "../lib/format"
+
+// PLAN 9.5: the three quick actions that are single forms open inline here
+// instead of navigating away; "Close Business Day" stays a navigation link
+// since DailyClosing.tsx is a multi-step wizard, not a form (see PLAN.md
+// Phase 9's rationale).
+type QuickModal = "transaction" | "banking" | "expense" | null
 
 type Dashboard = {
   business_date: string
@@ -33,6 +44,7 @@ type Account = { account_type: string; is_active: number }
 export default function Dashboard() {
   const today = localDateISO()
   const navigate = useNavigate()
+  const [openModal, setOpenModal] = useState<QuickModal>(null)
 
   const { data: dash, isLoading: dashLoading, error: dashError } = useQuery({
     queryKey: queryKeys.dashboard(today),
@@ -191,12 +203,12 @@ export default function Dashboard() {
             <div style={{ fontSize: 12, color: "#93b4d4", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>Quick Actions</div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
               {[
-                { label: "New Transaction", path: "/transactions" },
-                { label: "New Banking Entry", path: "/banking" },
-                { label: "Record Expense", path: "/expenses" },
-                { label: "Close Business Day", path: "/closing" },
+                { label: "New Transaction", modal: "transaction" as QuickModal, path: null as string | null },
+                { label: "New Banking Entry", modal: "banking" as QuickModal, path: null as string | null },
+                { label: "Record Expense", modal: "expense" as QuickModal, path: null as string | null },
+                { label: "Close Business Day", modal: null as QuickModal, path: "/closing" as string | null },
               ].map((a, i) => (
-                <button key={a.label} onClick={() => navigate(a.path)} style={{
+                <button key={a.label} onClick={() => (a.modal ? setOpenModal(a.modal) : navigate(a.path!))} style={{
                   background: i === 3 ? "#f59e0b" : "rgba(255,255,255,0.08)",
                   border: "1px solid " + (i === 3 ? "#f59e0b" : "rgba(255,255,255,0.12)"),
                   borderRadius: 7, padding: "9px 14px", color: i === 3 ? "#1a1000" : "#e2ebf5",
@@ -208,6 +220,22 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
+
+      {openModal === "transaction" && (
+        <Modal open onClose={() => setOpenModal(null)} title="New Transaction">
+          <TransactionForm onSuccess={() => setOpenModal(null)} onCancel={() => setOpenModal(null)} />
+        </Modal>
+      )}
+      {openModal === "banking" && (
+        <Modal open onClose={() => setOpenModal(null)} title="New Banking Entry">
+          <BankingEntryForm onSuccess={() => setOpenModal(null)} onCancel={() => setOpenModal(null)} />
+        </Modal>
+      )}
+      {openModal === "expense" && (
+        <Modal open onClose={() => setOpenModal(null)} title="Record Expense">
+          <ExpenseForm onSuccess={() => setOpenModal(null)} onCancel={() => setOpenModal(null)} />
+        </Modal>
+      )}
     </div>
   )
 }
