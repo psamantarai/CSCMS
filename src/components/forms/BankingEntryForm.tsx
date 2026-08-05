@@ -3,6 +3,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "../../lib/api"
 import { queryKeys } from "../../lib/queries"
 import { fromPaise, localDateISO, toPaise } from "../../lib/format"
+import { Field, FieldLabel } from "@/components/ui/field"
+import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Button } from "@/components/ui/button"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 
 type Account = { id: number; name: string; is_active: number }
 type Customer = { id: number; name: string; phone: string | null }
@@ -71,6 +76,9 @@ export default function BankingEntryForm({ editing, initialTxnType, onSuccess, o
 }) {
   const [form, setForm] = useState(() => editing ? formFromTxn(editing) : emptyForm(initialTxnType ?? ""))
   const [formError, setFormError] = useState("")
+  // PLAN 9.5.7: which field the last client-side validation failure was
+  // about — see TransactionForm.tsx for why server errors don't set this.
+  const [invalidField, setInvalidField] = useState<string | null>(null)
   const queryClient = useQueryClient()
 
   const { data: accounts = [] } = useQuery({
@@ -107,31 +115,37 @@ export default function BankingEntryForm({ editing, initialTxnType, onSuccess, o
   const createMutation = useMutation({
     mutationFn: () => api.post("/banking", payload()),
     onSuccess: () => { invalidate(); onSuccess() },
-    onError: (e: Error) => setFormError(e.message),
+    onError: (e: Error) => { setInvalidField(null); setFormError(e.message) },
   })
 
   const updateMutation = useMutation({
     mutationFn: () => api.patch(`/banking/${editing!.id}`, payload()),
     onSuccess: () => { invalidate(); onSuccess() },
-    onError: (e: Error) => setFormError(e.message),
+    onError: (e: Error) => { setInvalidField(null); setFormError(e.message) },
   })
 
   function selectCustomer(c: Customer) {
     setForm({ ...form, customerId: c.id, customerName: c.name, customerSearch: "" })
   }
 
+  function fail(field: string, message: string) {
+    setInvalidField(field)
+    setFormError(message)
+  }
+
   function submitForm() {
-    if (!form.txnType) { setFormError("Select a transaction type"); return }
+    if (!form.txnType) { fail("txnType", "Select a transaction type"); return }
     if (form.txnType === "balance_enquiry") {
-      if (form.principal) { setFormError("Balance enquiry has no principal amount"); return }
+      if (form.principal) { fail("principal", "Balance enquiry has no principal amount"); return }
     } else if (!(Number(form.principal) > 0)) {
-      setFormError("Enter the transaction amount"); return
+      fail("principal", "Enter the transaction amount"); return
     }
-    if (!form.settlementAccountId) { setFormError("Select a settlement account"); return }
-    if (!form.cashAccountId) { setFormError("Select a cash account"); return }
+    if (!form.settlementAccountId) { fail("settlementAccountId", "Select a settlement account"); return }
+    if (!form.cashAccountId) { fail("cashAccountId", "Select a cash account"); return }
     if (form.txnType !== "balance_enquiry" && form.settlementAccountId === form.cashAccountId) {
-      setFormError("Settlement and cash accounts must differ"); return
+      fail("cashAccountId", "Settlement and cash accounts must differ"); return
     }
+    setInvalidField(null)
     setFormError("")
     if (editing) updateMutation.mutate()
     else createMutation.mutate()
@@ -143,83 +157,109 @@ export default function BankingEntryForm({ editing, initialTxnType, onSuccess, o
 
   return (
     <>
-      <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 14 }}>
-        <div>
-          <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>Date</label>
-          <input type="date" value={form.businessDate} onChange={e => setForm({ ...form, businessDate: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
-        </div>
+      <div className="rs-grid mb-3.5 grid grid-cols-3 gap-3.5">
+        <Field>
+          <FieldLabel htmlFor="bank-date">Date</FieldLabel>
+          <Input id="bank-date" type="date" value={form.businessDate} onChange={e => setForm({ ...form, businessDate: e.target.value })} />
+        </Field>
 
-        <div style={{ position: "relative" }}>
-          <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>Customer</label>
+        <Field className="relative">
+          <FieldLabel htmlFor="bank-customer">Customer</FieldLabel>
           {form.customerId ? (
-            <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, background: "#f8fafc" }}>
-              <span style={{ fontSize: 13, flex: 1 }}>{form.customerName}</span>
-              <button onClick={() => setForm({ ...form, customerId: null, customerName: "" })} style={{ border: "none", background: "none", color: "#64748b", cursor: "pointer", fontSize: 13 }}>×</button>
+            <div className="flex items-center gap-1.5 rounded-lg border border-input bg-muted px-2.5 py-1.5">
+              <span className="flex-1 text-sm">{form.customerName}</span>
+              <button type="button" onClick={() => setForm({ ...form, customerId: null, customerName: "" })} className="text-muted-foreground hover:text-foreground">×</button>
             </div>
           ) : (
-            <input
+            <Input
+              id="bank-customer"
               value={form.customerSearch}
               onChange={e => setForm({ ...form, customerSearch: e.target.value })}
               placeholder="Search customer… (optional)"
-              style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box" }}
             />
           )}
           {form.customerSearch && !form.customerId && customerMatches.length > 0 && (
-            <div style={{ position: "absolute", zIndex: 1, top: "100%", left: 0, right: 0, background: "#fff", border: "1px solid #d1d9e6", borderRadius: 6, marginTop: 2, maxHeight: 160, overflowY: "auto", boxShadow: "0 4px 10px rgba(0,0,0,0.08)" }}>
+            <div className="absolute top-full right-0 left-0 z-10 mt-0.5 max-h-40 overflow-y-auto rounded-lg border border-input bg-popover shadow-md">
               {customerMatches.map(c => (
-                <div key={c.id} onClick={() => selectCustomer(c)} style={{ padding: "8px 10px", fontSize: 13, cursor: "pointer", borderBottom: "1px solid #f1f5f9" }}>
-                  {c.name} {c.phone && <span style={{ color: "#94a3b8" }}>· {c.phone}</span>}
+                <div key={c.id} onClick={() => selectCustomer(c)} className="cursor-pointer border-b border-border px-2.5 py-2 text-sm last:border-b-0 hover:bg-muted">
+                  {c.name} {c.phone && <span className="text-muted-foreground">· {c.phone}</span>}
                 </div>
               ))}
             </div>
           )}
-        </div>
+        </Field>
 
-        <div>
-          <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>Transaction Type</label>
-          <select value={form.txnType} onChange={e => setForm({ ...form, txnType: e.target.value as TxnType })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, background: "#fff", outline: "none" }}>
-            <option value="">Select type…</option>
-            {(Object.keys(typeLabels) as TxnType[]).map(t => <option key={t} value={t}>{typeLabels[t]}</option>)}
-          </select>
-        </div>
+        <Field data-invalid={invalidField === "txnType"}>
+          <FieldLabel htmlFor="bank-type">Transaction Type</FieldLabel>
+          <Select items={typeLabels} value={form.txnType || undefined} onValueChange={v => setForm({ ...form, txnType: v as TxnType })}>
+            <SelectTrigger id="bank-type" className="w-full" aria-invalid={invalidField === "txnType"}>
+              <SelectValue placeholder="Select type…" />
+            </SelectTrigger>
+            <SelectContent>
+              {(Object.keys(typeLabels) as TxnType[]).map(t => <SelectItem key={t} value={t}>{typeLabels[t]}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </Field>
 
         {/* Balance enquiry has no principal (ARCHITECTURE.md §3) */}
         {!isBalanceEnquiry && (
-          <div>
-            <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>Amount (₹)</label>
-            <input type="number" placeholder="0.00" value={form.principal} onChange={e => setForm({ ...form, principal: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
-          </div>
+          <Field data-invalid={invalidField === "principal"}>
+            <FieldLabel htmlFor="bank-amount">Amount (₹)</FieldLabel>
+            <Input id="bank-amount" type="number" placeholder="0.00" value={form.principal} onChange={e => setForm({ ...form, principal: e.target.value })} aria-invalid={invalidField === "principal"} />
+          </Field>
         )}
-        <div>
-          <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>Commission (₹)</label>
-          <input type="number" placeholder="0.00" value={form.commission} onChange={e => setForm({ ...form, commission: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
-        </div>
-        <div>
-          <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>Settlement Account</label>
-          <select value={form.settlementAccountId} onChange={e => setForm({ ...form, settlementAccountId: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, background: "#fff", outline: "none" }}>
-            <option value="">Select account…</option>
-            {activeAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
-        </div>
-        <div>
-          <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>Cash Account</label>
-          <select value={form.cashAccountId} onChange={e => setForm({ ...form, cashAccountId: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, background: "#fff", outline: "none" }}>
-            <option value="">Select account…</option>
-            {activeAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
-        </div>
+        <Field>
+          <FieldLabel htmlFor="bank-commission">Commission (₹)</FieldLabel>
+          <Input id="bank-commission" type="number" placeholder="0.00" value={form.commission} onChange={e => setForm({ ...form, commission: e.target.value })} />
+        </Field>
+        <Field data-invalid={invalidField === "settlementAccountId"}>
+          <FieldLabel htmlFor="bank-settlement-account">Settlement Account</FieldLabel>
+          <Select
+            items={Object.fromEntries(activeAccounts.map(a => [String(a.id), a.name]))}
+            value={form.settlementAccountId || undefined}
+            onValueChange={v => setForm({ ...form, settlementAccountId: v as string })}
+          >
+            <SelectTrigger id="bank-settlement-account" className="w-full" aria-invalid={invalidField === "settlementAccountId"}>
+              <SelectValue placeholder="Select account…" />
+            </SelectTrigger>
+            <SelectContent>
+              {activeAccounts.map(a => <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </Field>
+        <Field data-invalid={invalidField === "cashAccountId"}>
+          <FieldLabel htmlFor="bank-cash-account">Cash Account</FieldLabel>
+          <Select
+            items={Object.fromEntries(activeAccounts.map(a => [String(a.id), a.name]))}
+            value={form.cashAccountId || undefined}
+            onValueChange={v => setForm({ ...form, cashAccountId: v as string })}
+          >
+            <SelectTrigger id="bank-cash-account" className="w-full" aria-invalid={invalidField === "cashAccountId"}>
+              <SelectValue placeholder="Select account…" />
+            </SelectTrigger>
+            <SelectContent>
+              {activeAccounts.map(a => <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </Field>
         {/* money_transfer needs a destination — no separate column for it, so it's captured in remarks */}
-        <div>
-          <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>{isMoneyTransfer ? "Destination / Remarks" : "Remarks"}</label>
-          <input placeholder={isMoneyTransfer ? "Recipient name / account…" : "Optional note…"} value={form.remarks} onChange={e => setForm({ ...form, remarks: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
-        </div>
+        <Field>
+          <FieldLabel htmlFor="bank-remarks">{isMoneyTransfer ? "Destination / Remarks" : "Remarks"}</FieldLabel>
+          <Input id="bank-remarks" placeholder={isMoneyTransfer ? "Recipient name / account…" : "Optional note…"} value={form.remarks} onChange={e => setForm({ ...form, remarks: e.target.value })} />
+        </Field>
       </div>
-      <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-        <button onClick={submitForm} disabled={isPending} style={{ background: "#1e3a5f", color: "#fff", border: "none", borderRadius: 7, padding: "9px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-          {isPending ? "Saving…" : editing ? "Save Changes" : "Save"}
-        </button>
-        <button onClick={onCancel} style={{ background: "#f1f5f9", border: "1px solid #d1d9e6", borderRadius: 7, padding: "9px 20px", fontSize: 13, cursor: "pointer" }}>Cancel</button>
-        {formError && <span style={{ color: "#dc2626", fontSize: 12 }}>{formError}</span>}
+      <div className="flex flex-col gap-2.5">
+        {formError && (
+          <Alert variant="destructive">
+            <AlertDescription>{formError}</AlertDescription>
+          </Alert>
+        )}
+        <div className="flex items-center gap-2.5">
+          <Button onClick={submitForm} disabled={isPending}>
+            {isPending ? "Saving…" : editing ? "Save Changes" : "Save"}
+          </Button>
+          <Button variant="outline" onClick={onCancel}>Cancel</Button>
+        </div>
       </div>
     </>
   )

@@ -1482,11 +1482,15 @@
   },
   {
     "title": "9.5.7 — The three extracted forms",
-    "status": "pending",
-    "updated": "2026-08-05",
+    "status": "completed",
+    "updated": "2026-08-06",
+    "seq": 130,
     "details": [
-      "P9.5 · TransactionForm/BankingEntryForm/ExpenseForm → FieldGroup + Field + Input/Select, validation as data-invalid on the Field and aria-invalid on the control. Shared by their page AND the Dashboard modal (Phase 9.3/9.4), so both call sites are exercised.",
-      "Verify: each form still creates from its own page and from the Dashboard modal; Banking's and Expenses' inline edit mode still prefills and saves; validation errors appear on the same fields for the same inputs as before."
+      "Migrated TransactionForm.tsx, BankingEntryForm.tsx, ExpenseForm.tsx from inline-style divs/inputs/selects to FieldGroup/Field/Input/Select/Button/Alert (shadcn), matching the Login.tsx (9.5.6) pattern",
+      "Validation now surfaces via data-invalid on Field + aria-invalid on the control, tracked with a new local invalidField state set alongside each existing setFormError call — no validation rule changed, only where the failure is shown",
+      "Deviation found and fixed: base-ui's Select.Value renders the raw string value by default (showed \"1\" instead of \"PAN\"), not the SelectItem's children — fixed by passing an items record (id -> label) to each Select root; confirmed in-browser that Service/Account/Transaction Type/Paying Account triggers all show names, not ids",
+      "Verified live in the running app: Transactions \"+ New Transaction\" created a real ₹250 PAN transaction (list 5→6, total updated); Banking's AEPS quick-action created entry #2 and Edit correctly prefilled all fields including both Selects; Expenses' \"+ Record Expense\" created entry #3 and Edit prefilled category/amount/account; submitting Transactions empty highlighted the Service field red with \"Select a service\" in an Alert",
+      "tsc --noEmit and pnpm build both clean"
     ]
   },
   {

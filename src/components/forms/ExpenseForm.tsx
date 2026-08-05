@@ -3,6 +3,11 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "../../lib/api"
 import { queryKeys } from "../../lib/queries"
 import { fromPaise, localDateISO, toPaise } from "../../lib/format"
+import { Field, FieldLabel } from "@/components/ui/field"
+import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Button } from "@/components/ui/button"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 
 type Account = { id: number; name: string; is_active: number }
 
@@ -46,6 +51,9 @@ export default function ExpenseForm({ editing, onSuccess, onCancel }: {
 }) {
   const [form, setForm] = useState(() => editing ? formFromExpense(editing) : emptyForm())
   const [formError, setFormError] = useState("")
+  // PLAN 9.5.7: which field the last client-side validation failure was
+  // about — see TransactionForm.tsx for why server errors don't set this.
+  const [invalidField, setInvalidField] = useState<string | null>(null)
   const queryClient = useQueryClient()
 
   const { data: categories = [] } = useQuery({
@@ -78,19 +86,25 @@ export default function ExpenseForm({ editing, onSuccess, onCancel }: {
   const createMutation = useMutation({
     mutationFn: () => api.post("/expenses", payload()),
     onSuccess: () => { invalidate(); onSuccess() },
-    onError: (e: Error) => setFormError(e.message),
+    onError: (e: Error) => { setInvalidField(null); setFormError(e.message) },
   })
 
   const updateMutation = useMutation({
     mutationFn: () => api.patch(`/expenses/${editing!.id}`, payload()),
     onSuccess: () => { invalidate(); onSuccess() },
-    onError: (e: Error) => setFormError(e.message),
+    onError: (e: Error) => { setInvalidField(null); setFormError(e.message) },
   })
 
+  function fail(field: string, message: string) {
+    setInvalidField(field)
+    setFormError(message)
+  }
+
   function submitForm() {
-    if (!form.category) { setFormError("Select a category"); return }
-    if (!(Number(form.amount) > 0)) { setFormError("Amount must be positive"); return }
-    if (!form.accountId) { setFormError("Select a paying account"); return }
+    if (!form.category) { fail("category", "Select a category"); return }
+    if (!(Number(form.amount) > 0)) { fail("amount", "Amount must be positive"); return }
+    if (!form.accountId) { fail("accountId", "Select a paying account"); return }
+    setInvalidField(null)
     setFormError("")
     if (editing) updateMutation.mutate()
     else createMutation.mutate()
@@ -100,40 +114,58 @@ export default function ExpenseForm({ editing, onSuccess, onCancel }: {
 
   return (
     <>
-      <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: 12 }}>
-        <div>
-          <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>Category</label>
-          <select value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, background: "#fff", outline: "none" }}>
-            <option value="">Select category…</option>
-            {categories.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-        </div>
-        <div>
-          <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>Amount (₹)</label>
-          <input type="number" placeholder="0.00" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
-        </div>
-        <div>
-          <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>Date</label>
-          <input type="date" value={form.businessDate} onChange={e => setForm({ ...form, businessDate: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
-        </div>
-        <div>
-          <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>Paying Account</label>
-          <select value={form.accountId} onChange={e => setForm({ ...form, accountId: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, background: "#fff", outline: "none" }}>
-            <option value="">Select account…</option>
-            {activeAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
-        </div>
-        <div>
-          <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>Note</label>
-          <input placeholder="Brief description…" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
-        </div>
+      <div className="rs-grid grid grid-cols-5 gap-3">
+        <Field data-invalid={invalidField === "category"}>
+          <FieldLabel htmlFor="expense-category">Category</FieldLabel>
+          <Select value={form.category || undefined} onValueChange={v => setForm({ ...form, category: v as string })}>
+            <SelectTrigger id="expense-category" className="w-full" aria-invalid={invalidField === "category"}>
+              <SelectValue placeholder="Select category…" />
+            </SelectTrigger>
+            <SelectContent>
+              {categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </Field>
+        <Field data-invalid={invalidField === "amount"}>
+          <FieldLabel htmlFor="expense-amount">Amount (₹)</FieldLabel>
+          <Input id="expense-amount" type="number" placeholder="0.00" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} aria-invalid={invalidField === "amount"} />
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="expense-date">Date</FieldLabel>
+          <Input id="expense-date" type="date" value={form.businessDate} onChange={e => setForm({ ...form, businessDate: e.target.value })} />
+        </Field>
+        <Field data-invalid={invalidField === "accountId"}>
+          <FieldLabel htmlFor="expense-account">Paying Account</FieldLabel>
+          <Select
+            items={Object.fromEntries(activeAccounts.map(a => [String(a.id), a.name]))}
+            value={form.accountId || undefined}
+            onValueChange={v => setForm({ ...form, accountId: v as string })}
+          >
+            <SelectTrigger id="expense-account" className="w-full" aria-invalid={invalidField === "accountId"}>
+              <SelectValue placeholder="Select account…" />
+            </SelectTrigger>
+            <SelectContent>
+              {activeAccounts.map(a => <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>)}
+            </SelectContent>
+          </Select>
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="expense-note">Note</FieldLabel>
+          <Input id="expense-note" placeholder="Brief description…" value={form.note} onChange={e => setForm({ ...form, note: e.target.value })} />
+        </Field>
       </div>
-      <div style={{ marginTop: 14, display: "flex", gap: 10, alignItems: "center" }}>
-        <button onClick={submitForm} disabled={isPending} style={{ background: "#1e3a5f", color: "#fff", border: "none", borderRadius: 7, padding: "9px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-          {isPending ? "Saving…" : editing ? "Save Changes" : "Save"}
-        </button>
-        <button onClick={onCancel} style={{ background: "#f1f5f9", border: "1px solid #d1d9e6", borderRadius: 7, padding: "9px 20px", fontSize: 13, cursor: "pointer" }}>Cancel</button>
-        {formError && <span style={{ color: "#dc2626", fontSize: 12 }}>{formError}</span>}
+      <div className="mt-3.5 flex flex-col gap-2.5">
+        {formError && (
+          <Alert variant="destructive">
+            <AlertDescription>{formError}</AlertDescription>
+          </Alert>
+        )}
+        <div className="flex items-center gap-2.5">
+          <Button onClick={submitForm} disabled={isPending}>
+            {isPending ? "Saving…" : editing ? "Save Changes" : "Save"}
+          </Button>
+          <Button variant="outline" onClick={onCancel}>Cancel</Button>
+        </div>
       </div>
     </>
   )
