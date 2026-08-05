@@ -130,7 +130,7 @@ export default function Dashboard() {
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
               <tr style={{ background: "#f8fafc" }}>
-                {["ID", "Customer", "Service", "Fees", "Charge", "Payment", "Status"].map(h => (
+                {["S.No", "Customer", "Service", "Fees", "Charge", "Payment", "Status"].map(h => (
                   <th key={h} style={{ padding: "8px 12px", textAlign: "left", fontSize: 11, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em", borderBottom: "1px solid #eef1f7" }}>{h}</th>
                 ))}
               </tr>
@@ -142,7 +142,7 @@ export default function Dashboard() {
               )}
               {recentTxns.map((t, i) => (
                 <tr key={t.id} style={{ background: i % 2 === 0 ? "#fff" : "#fafbfd", borderBottom: "1px solid #f1f5f9" }}>
-                  <td style={{ padding: "9px 12px", fontFamily: "monospace", fontSize: 12, color: "#3b6cb7", fontWeight: 600 }}>{t.id}</td>
+                  <td style={{ padding: "9px 12px", fontFamily: "monospace", fontSize: 12, color: "#3b6cb7", fontWeight: 600 }}>{i + 1}</td>
                   <td style={{ padding: "9px 12px", fontSize: 13 }}>{t.customer_name ?? "Walk-in"}</td>
                   <td style={{ padding: "9px 12px", fontSize: 13, color: "#475569" }}>{t.service_name}</td>
                   <td style={{ padding: "9px 12px", fontFamily: "monospace", fontSize: 12 }}>{fmt(fromPaise(t.fee_paise))}</td>

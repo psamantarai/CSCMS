@@ -99,8 +99,11 @@ def test_service_wise_report_reconciles_with_ledger():
         cash_id = conn.execute("SELECT id FROM accounts WHERE name = 'Cash Drawer'").fetchone()[0]
         pan = create_service(ServiceCreate(name="PAN Card", category="PAN", default_fee_paise=10000), conn)
         printing = create_service(ServiceCreate(name="Printing", category="Printing", default_fee_paise=500), conn)
+        # H.50: a walk-in can't be left partially paid, so the partial one
+        # below needs a registered customer to attach the remainder to.
+        alice = create_customer(CustomerCreate(name="Alice"), conn)
         create_transaction(TransactionCreate(business_date="2026-09-01", service_id=pan["id"], fee_paise=10000, account_id=cash_id, amount_paid_paise=10000), conn)
-        create_transaction(TransactionCreate(business_date="2026-09-02", service_id=pan["id"], fee_paise=10000, account_id=cash_id, amount_paid_paise=5000), conn)
+        create_transaction(TransactionCreate(business_date="2026-09-02", customer_id=alice["id"], service_id=pan["id"], fee_paise=10000, account_id=cash_id, amount_paid_paise=5000), conn)
         create_transaction(TransactionCreate(business_date="2026-09-02", service_id=printing["id"], fee_paise=500, account_id=cash_id, amount_paid_paise=500), conn)
 
         rows = {r["service_id"]: r for r in service_wise_report(conn=conn)}

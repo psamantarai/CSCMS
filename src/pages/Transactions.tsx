@@ -130,6 +130,14 @@ export default function Transactions() {
     if (!form.accountId) { setFormError("Select an account"); return }
     if (!(fee >= 0)) { setFormError("Fee cannot be negative"); return }
     if (paid > formTotal) { setFormError("Payment cannot exceed the total"); return }
+    // H.50: a walk-in (no customer_id) has no customer row to carry an
+    // unpaid remainder as outstanding, so it can't be left partially paid —
+    // prompt to register/select a customer via the search field above
+    // instead. Fully unpaid (paid = 0, pending) is still fine.
+    if (form.customerId === null && paid > 0 && paid < formTotal) {
+      setFormError("Walk-in transactions can't be partially paid — select or register a customer to allow partial payment")
+      return
+    }
     setFormError("")
     createMutation.mutate()
   }

@@ -24,6 +24,10 @@ frontend-only and not aggregated here either: H.37/H.38 are a label/bucket-
 math fix asserted against closing.py's own output directly in test_closing.py
 rather than through this file's imports, and H.33/H.40/H.41 were verified
 with a live browser walkthrough of their Verify lines.
+
+H.48 and H.49 (Phase 8.9) are frontend-only display/wiring defects with no
+backend behavior to assert — covered instead by a live browser walkthrough
+of PLAN.md's Verify lines, same as H.33/H.40/H.41 above.
 """
 import sys
 from pathlib import Path
@@ -182,6 +186,14 @@ from test_backup import (
     test_restore_of_the_oldest_backup_at_retention_cap_succeeds,
 )
 
+# H.50: a walk-in left partially paid at creation had no customer row to
+# carry the remainder as outstanding, making it permanently uncollectable
+from test_transaction_status import (
+    test_walk_in_full_payment_at_creation_is_completed,
+    test_walk_in_partial_payment_at_creation_is_rejected,
+)
+from test_transactions import test_partial_payment_posts_only_the_amount_paid
+
 CHECKS = [
     test_connection_usable_from_another_thread,
     test_concurrent_writers_do_not_error,
@@ -252,6 +264,9 @@ CHECKS = [
     test_reopen_then_reclose_replaces_the_snapshot_not_duplicates_it,
     test_restore_of_the_oldest_backup_at_retention_cap_succeeds,
     test_concurrent_backup_creation_all_succeed,
+    test_walk_in_partial_payment_at_creation_is_rejected,
+    test_walk_in_full_payment_at_creation_is_completed,
+    test_partial_payment_posts_only_the_amount_paid,
 ]
 
 if __name__ == "__main__":

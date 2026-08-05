@@ -211,6 +211,15 @@ def create_transaction(body: TransactionCreate, conn: sqlite3.Connection = Depen
     # why the server must too, since that's the side that can be bypassed.
     if body.amount_paid_paise > total_paise:
         raise HTTPException(status_code=400, detail="amount paid exceeds the transaction total")
+    # H.50: a walk-in has no customer row to carry an unpaid remainder as
+    # outstanding (see recompute_status above) — leaving one *partially*
+    # paid makes that remainder permanently uncollectable. An unpaid walk-in
+    # (amount_paid_paise == 0, status "pending") is left alone — that's the
+    # normal "record now, collect at the counter" state. Same H.12
+    # reasoning: the frontend guard alone isn't enough since this endpoint
+    # is reachable directly.
+    if body.customer_id is None and 0 < body.amount_paid_paise < total_paise:
+        raise HTTPException(status_code=400, detail="a walk-in transaction cannot be left partially paid")
 
     # H.31: begin_write must wrap the closed-day check *and* the INSERT
     # below, not just precede it — an unpaid transaction (amount_paid_paise

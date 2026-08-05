@@ -6,6 +6,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from fastapi import HTTPException
+
 from app.customers import CustomerCreate, create_customer
 from app.db import get_connection, run_migrations
 from app.payments import PaymentCreate, create_payment
@@ -72,17 +74,23 @@ def test_walk_in_full_payment_at_creation_is_completed():
         conn.close()
 
 
-def test_walk_in_partial_payment_at_creation_is_partial():
+def test_walk_in_partial_payment_at_creation_is_rejected():
+    # H.50: a walk-in has no customer row to carry the unpaid remainder as
+    # outstanding, so a partial payment at creation is now rejected instead
+    # of silently landing in "partial" status.
     with tempfile.TemporaryDirectory() as tmp:
         conn = _seeded_conn(Path(tmp))
         cash_id, service_id = _cash_and_service(conn)
 
-        txn = create_transaction(
-            TransactionCreate(business_date="2026-08-01", service_id=service_id,
-                               fee_paise=200, account_id=cash_id, amount_paid_paise=50),
-            conn,
-        )
-        assert txn["status"] == "partial"
+        try:
+            create_transaction(
+                TransactionCreate(business_date="2026-08-01", service_id=service_id,
+                                   fee_paise=200, account_id=cash_id, amount_paid_paise=50),
+                conn,
+            )
+            assert False, "a walk-in partial payment at creation must be rejected"
+        except HTTPException as e:
+            assert e.status_code == 400
 
         conn.close()
 
@@ -90,5 +98,5 @@ def test_walk_in_partial_payment_at_creation_is_partial():
 if __name__ == "__main__":
     test_status_flips_to_completed_on_final_payment_with_no_explicit_write()
     test_walk_in_full_payment_at_creation_is_completed()
-    test_walk_in_partial_payment_at_creation_is_partial()
+    test_walk_in_partial_payment_at_creation_is_rejected()
     print("OK")

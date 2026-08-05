@@ -12,6 +12,7 @@ from fastapi import HTTPException
 
 from app.accounts import AccountCreate, AccountUpdate, create_account, update_account
 from app.closing import CloseDayRequest, close_day
+from app.customers import CustomerCreate, create_customer
 from app.db import get_connection, run_migrations
 from app.ledger import account_balance
 from app.seed import run_seed
@@ -146,14 +147,18 @@ def test_full_payment_raises_cash_by_exact_amount_and_completes():
 
 
 def test_partial_payment_posts_only_the_amount_paid():
-    # PLAN 3.2: the unpaid remainder is never a ledger row.
+    # PLAN 3.2: the unpaid remainder is never a ledger row. A registered
+    # customer (not a walk-in) — H.50 forbids a walk-in from being left
+    # partially paid, so partial payment needs a customer to attach the
+    # remainder to as outstanding.
     with tempfile.TemporaryDirectory() as tmp:
         conn = _seeded_conn(Path(tmp))
         cash_id, service_id = _cash_and_service(conn)
+        customer = create_customer(CustomerCreate(name="Test Customer"), conn)
         balance_before = account_balance(conn, cash_id)
 
         txn = create_transaction(
-            TransactionCreate(business_date="2026-08-04", service_id=service_id,
+            TransactionCreate(business_date="2026-08-04", customer_id=customer["id"], service_id=service_id,
                                fee_paise=357, account_id=cash_id, amount_paid_paise=107),
             conn,
         )

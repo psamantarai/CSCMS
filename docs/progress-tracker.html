@@ -1354,31 +1354,38 @@
   },
   {
     "title": "H.49 — Dashboard shows raw transaction id instead of a same-day serial number",
-    "status": "pending",
+    "status": "completed",
     "updated": "2026-08-05",
+    "seq": 120,
     "details": [
-      "src/pages/Dashboard.tsx:131,143 renders {t.id}, the global INTEGER PRIMARY KEY (backend/migrations/001_init.sql:56) shared across every business date",
-      "Reproduced: IDs 1-4 seeded across two dates show as \"3\",\"4\" on day two instead of \"1\",\"2\"",
-      "Fix: render row position (i+1) as \"S.No\" instead, Dashboard.tsx only"
+      "src/pages/Dashboard.tsx: header \"ID\" → \"S.No\", cell {t.id} → {i + 1} (row position in recentTxns), scoped to Dashboard.tsx only — Transactions page's own TXN ID column untouched",
+      "Verified in the running dev app: today's transaction is TXN ID #3 on the Transactions page but renders as S.No 1 on the Dashboard",
+      "Frontend-only display fix, no backend change — no regression test added per PLAN.md, which scopes H.48/H.49 to the browser Verify walk instead of test_edge_cases.py"
     ]
   },
   {
     "title": "H.50 — Walk-in customer can be left with an uncollectable partial payment",
-    "status": "pending",
+    "status": "completed",
     "updated": "2026-08-05",
+    "seq": 121,
     "details": [
-      "Confirmed live — POST /transactions with customer_id: null, total_paise: 10000, amount_paid_paise: 4000 returns 201 status \"partial\"",
-      "recompute_status (backend/app/transactions.py:122-145) documents a walk-in can never be settled again after creation, so the unpaid balance is permanently uncollectable",
-      "Fix: reject amount_paid_paise < total_paise when customer_id is None (400) in create_transaction (backend/app/transactions.py:201), and prompt to register/select a customer in the frontend form instead of allowing the save"
+      "Scope narrowed with user input from PLAN.md's literal text: guard blocks only *partial* payment (0 < paid < total) for a walk-in, not a fully-unpaid (pending, paid=0) one — pending walk-ins are the normal 'record now, collect at the counter' state and are heavily relied on as fixtures elsewhere in the suite",
+      "backend/app/transactions.py create_transaction: reject 0 < amount_paid_paise < total_paise when customer_id is None → 400 \"a walk-in transaction cannot be left partially paid\"",
+      "src/pages/Transactions.tsx submitTransaction: matching pre-submit guard, same condition, prompts to select/register a customer via the existing search field",
+      "Fixed 3 existing tests whose fixtures/assertions relied on the pre-fix behavior: test_transactions.py's test_partial_payment_posts_only_the_amount_paid and test_reports.py's test_service_wise_report_reconciles_with_ledger now attach a customer to their partial-pay fixture; test_transaction_status.py's test_walk_in_partial_payment_at_creation_is_partial renamed to test_walk_in_partial_payment_at_creation_is_rejected, now asserts 400",
+      "Verify: all 30 backend/tests/test_*.py files pass individually, plus test_edge_cases.py (OK, 69 checks) — confirms walk-in partial-pay is rejected 400, walk-in full-pay and pending still succeed, registered-customer partial-pay still succeeds"
     ]
   },
   {
     "title": "H.51 — Regression tests for H.48-H.50",
-    "status": "pending",
+    "status": "completed",
     "updated": "2026-08-05",
+    "seq": 122,
     "details": [
-      "Extend backend/tests/test_edge_cases.py with H.50's case (walk-in partial-pay rejected 400, walk-in full-pay still 201/completed, registered-customer partial-pay still 201/partial)",
-      "H.48/H.49 are frontend-only, covered by the PLAN.md Verify browser walk instead"
+      "backend/tests/test_edge_cases.py: no new test logic, imported and aggregated existing functions per the file's own pattern (H.47 did the same) — test_walk_in_partial_payment_at_creation_is_rejected + test_walk_in_full_payment_at_creation_is_completed (test_transaction_status.py), test_partial_payment_posts_only_the_amount_paid (test_transactions.py, now uses a registered customer)",
+      "Covers all three of H.50's cases: walk-in partial-pay rejected 400, walk-in full-pay still 201/completed, registered-customer partial-pay still 201/partial",
+      "Docstring note added: H.48/H.49 stay frontend-only/not aggregated, covered by the PLAN.md Verify browser walk instead, same as H.33/H.40/H.41",
+      "Verify: sanity-checked the new checks actually exercise the H.50 guard (temporarily disabled it, confirmed test_edge_cases.py fails, restored it, confirmed OK (72 checks) again); full backend/tests/test_*.py sweep (30 files) also passes"
     ]
   },
   {
