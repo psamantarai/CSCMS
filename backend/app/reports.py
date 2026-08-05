@@ -21,6 +21,8 @@ router = APIRouter(prefix="/api/reports", tags=["reports"])
 def monthly_report(year: int, month: int, conn: sqlite3.Connection = Depends(get_db)):
     if not (1 <= month <= 12):
         raise HTTPException(status_code=400, detail="month must be between 1 and 12")
+    if not (1 <= year <= 9999):
+        raise HTTPException(status_code=400, detail="year must be between 1 and 9999")
     start_date = f"{year:04d}-{month:02d}-01"
     end_date = f"{year:04d}-{month:02d}-{calendar.monthrange(year, month)[1]:02d}"
     income_paise, expenses_paise = income_expenses(conn, start_date, end_date)

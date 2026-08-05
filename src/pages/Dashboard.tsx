@@ -47,6 +47,11 @@ export default function Dashboard() {
   })
   const todaysTxns = txnData?.items ?? []
   const recentTxns = todaysTxns.slice(0, 5)
+  // H.41: !txnLoading && !txnError isn't proof of a confirmed empty result --
+  // a query stuck between retries (or otherwise settled with no data) reads
+  // that way too. Only treat it as genuinely empty once txnData has arrived;
+  // otherwise surface it through the same "could not load" state as a real error.
+  const txnUnavailable = txnError ?? (!txnLoading && !txnData ? new Error("failed to load") : undefined)
 
   const { data: expenseData } = useQuery({
     queryKey: queryKeys.expenses({ business_date: today, limit: 1 }),
@@ -129,8 +134,8 @@ export default function Dashboard() {
               </tr>
             </thead>
             <tbody>
-              <TableRowState isLoading={txnLoading} error={txnError} colSpan={7} />
-              {!txnLoading && !txnError && recentTxns.length === 0 && (
+              <TableRowState isLoading={txnLoading} error={txnUnavailable} colSpan={7} />
+              {!txnLoading && !txnUnavailable && recentTxns.length === 0 && (
                 <tr><td colSpan={7} style={{ padding: "24px 14px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No transactions yet today.</td></tr>
               )}
               {recentTxns.map((t, i) => (
@@ -162,8 +167,8 @@ export default function Dashboard() {
               <h3 style={{ margin: 0, fontSize: 14, fontFamily: "'Roboto Slab', serif" }}>Service Breakdown</h3>
             </div>
             <div style={{ padding: "6px 0" }}>
-              {txnLoading || txnError ? (
-                <BlockState isLoading={txnLoading} error={txnError} />
+              {txnLoading || txnUnavailable ? (
+                <BlockState isLoading={txnLoading} error={txnUnavailable} />
               ) : serviceBreakdown.length === 0 ? (
                 <div style={{ padding: "20px 18px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No services rendered today.</div>
               ) : (

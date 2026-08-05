@@ -76,6 +76,23 @@ def test_monthly_report_rejects_bad_month():
         conn.close()
 
 
+def test_monthly_report_rejects_out_of_range_year():
+    # H.42: year had no bound while month did -- year=0/-5/99999/10**19 all
+    # produced non-ISO start_date strings that flowed straight into the CSV
+    # export instead of being rejected.
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        for bad_year in (0, -5, 99999, 10**19):
+            try:
+                monthly_report(bad_year, 1, conn)
+                assert False, f"expected HTTPException for year={bad_year}"
+            except HTTPException as e:
+                assert e.status_code == 400
+        report = monthly_report(2026, 1, conn)
+        assert report["year"] == 2026
+        conn.close()
+
+
 def test_service_wise_report_reconciles_with_ledger():
     with tempfile.TemporaryDirectory() as tmp:
         conn = _seeded_conn(Path(tmp))
@@ -196,6 +213,7 @@ def test_profit_loss_report_reconciles_with_ledger():
 if __name__ == "__main__":
     test_monthly_report_reconciles_with_ledger()
     test_monthly_report_rejects_bad_month()
+    test_monthly_report_rejects_out_of_range_year()
     test_service_wise_report_reconciles_with_ledger()
     test_customer_wise_report_includes_later_settlement()
     test_banking_commission_report_reconciles_with_ledger()
