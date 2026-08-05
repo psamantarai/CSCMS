@@ -1432,14 +1432,16 @@
   },
   {
     "title": "9.5.3 — Add the component set",
-    "status": "pending",
-    "updated": "2026-08-05",
+    "status": "completed",
+    "updated": "2026-08-06",
+    "seq": 126,
     "details": [
       "P9.5 · One add run: button input select table card dialog alert-dialog badge alert skeleton empty field label separator sidebar sheet tabs toggle-group scroll-area breadcrumb dropdown-menu.",
       "Curated, not --all (decided with user): every added file is source this repo then owns; ~30 unimported components is dead weight, not optionality.",
-      "Not adopted, per CLAUDE.md §2 ladder: Calendar+Popover (native <input type=\"date\"> stays), Tooltip (native title= stays), Sonner (replaces nothing hand-rolled; inline mutation errors become Alert).",
-      "Then read every added file per shadcn skill step 7 — composition, imports, lucide-react icons.",
-      "Verify: tsc --noEmit clean with new files present; app builds and runs; nothing imports them yet so behavior is unchanged."
+      "Not adopted, per CLAUDE.md §2 ladder: Calendar+Popover (native <input type=\"date\"> stays), Sonner (replaces nothing hand-rolled; inline mutation errors become Alert). Tooltip and Toggle were pulled in anyway, automatically, as dependencies of Sidebar and ToggleGroup — 23 component files total plus src/hooks/use-mobile.ts.",
+      "Read every added file per shadcn skill step 7: imports all use the @/ alias correctly, icons all come from lucide-react, composition matches canonical shadcn output (project uses @base-ui/react, not Radix — dialog/select/sheet/dropdown-menu/tabs all import from @base-ui/react/* as expected, no missing deps).",
+      "Verify: tsc --noEmit clean, pnpm build succeeds, confirmed no file outside src/components/ui imports any of them yet — behavior unchanged.",
+      "Committed as 6f43347"
     ]
   },
   {
