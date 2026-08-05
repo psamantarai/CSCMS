@@ -1,9 +1,21 @@
 import { useState } from "react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { Search, Users } from "lucide-react"
 import { api } from "../lib/api"
 import { queryKeys } from "../lib/queries"
 import { fmt, formatDate, fromPaise, localDateISO, toPaise } from "../lib/format"
 import { BlockState, InlineState, TableRowState } from "../components/QueryState"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Field, FieldLabel } from "@/components/ui/field"
+import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Alert, AlertDescription } from "@/components/ui/alert"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Empty, EmptyHeader, EmptyMedia, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
+import { cn } from "@/lib/utils"
 
 type Customer = {
   id: number
@@ -35,11 +47,14 @@ type Account = { id: number; name: string; is_active: number }
 const emptyForm = { name: "", phone: "", village: "", aadhaar_masked: "", notes: "" }
 const emptySettleForm = { accountId: "", amount: "0", remarks: "" }
 
-const statusColor: Record<Transaction["status"], { bg: string; fg: string }> = {
-  completed: { bg: "#dcfce7", fg: "#16a34a" },
-  partial: { bg: "#fee2e2", fg: "#dc2626" },
-  pending: { bg: "#fef3c7", fg: "#d97706" },
+const statusClass: Record<Transaction["status"], string> = {
+  completed: "bg-success/15 text-success",
+  partial: "bg-destructive/15 text-destructive",
+  pending: "bg-warning/15 text-warning",
 }
+
+const serviceColumns = ["ID", "Date", "Service", "Total", "Status"]
+const bankingColumns = ["ID", "Date", "Type", "Principal", "Commission"]
 
 function CustomerHistory({ id }: { id: number }) {
   const { data, isLoading, error } = useQuery({
@@ -51,72 +66,67 @@ function CustomerHistory({ id }: { id: number }) {
   const loaded = !isLoading && !error
 
   return (
-    <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, overflow: "hidden" }}>
-      <div style={{ padding: "14px 18px", borderBottom: "1px solid #eef1f7" }}>
-        <h3 style={{ margin: 0, fontSize: 14, fontFamily: "'Roboto Slab', serif" }}>Service History</h3>
-      </div>
-      {!loaded && <BlockState isLoading={isLoading} error={error} />}
-      {loaded && (txns.length > 0 ? (
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr style={{ background: "#f8fafc" }}>
-                {["ID", "Date", "Service", "Total", "Status"].map(h => (
-                  <th key={h} style={{ padding: "8px 14px", textAlign: "left", fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em", borderBottom: "1px solid #eef1f7" }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {txns.map((t, i) => (
-                <tr key={t.id} style={{ background: i % 2 === 0 ? "#fff" : "#fafbfd", borderBottom: "1px solid #f1f5f9" }}>
-                  <td style={{ padding: "9px 14px", fontFamily: "monospace", fontSize: 12, color: "#3b6cb7" }}>{t.id}</td>
-                  <td style={{ padding: "9px 14px", fontSize: 12, color: "#64748b" }}>{formatDate(t.business_date)}</td>
-                  <td style={{ padding: "9px 14px", fontSize: 13 }}>{t.service_name}</td>
-                  <td style={{ padding: "9px 14px", fontFamily: "monospace", fontSize: 12, fontWeight: 600 }}>{fmt(fromPaise(t.total_paise))}</td>
-                  <td style={{ padding: "9px 14px" }}>
-                    <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20, background: statusColor[t.status].bg, color: statusColor[t.status].fg }}>{t.status}</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div style={{ padding: 24, color: "#94a3b8", fontSize: 13 }}>No transactions yet.</div>
-      ))}
-
+    <Card className="py-0">
+      {!loaded && <div className="p-2"><BlockState isLoading={isLoading} error={error} /></div>}
       {loaded && (
-      <div style={{ padding: "14px 18px", borderTop: "1px solid #eef1f7", borderBottom: "1px solid #eef1f7" }}>
-        <h3 style={{ margin: 0, fontSize: 14, fontFamily: "'Roboto Slab', serif" }}>Banking History</h3>
-      </div>
-      )}
-      {loaded && (banking.length > 0 ? (
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr style={{ background: "#f8fafc" }}>
-                {["ID", "Date", "Type", "Principal", "Commission"].map(h => (
-                  <th key={h} style={{ padding: "8px 14px", textAlign: "left", fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em", borderBottom: "1px solid #eef1f7" }}>{h}</th>
+        <Tabs defaultValue="service" className="p-4">
+          <TabsList>
+            <TabsTrigger value="service">Service History</TabsTrigger>
+            <TabsTrigger value="banking">Banking History</TabsTrigger>
+          </TabsList>
+          <TabsContent value="service">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  {serviceColumns.map(h => <TableHead key={h}>{h}</TableHead>)}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {txns.map(t => (
+                  <TableRow key={t.id}>
+                    <TableCell className="font-mono text-ring">{t.id}</TableCell>
+                    <TableCell className="text-muted-foreground">{formatDate(t.business_date)}</TableCell>
+                    <TableCell>{t.service_name}</TableCell>
+                    <TableCell className="font-mono font-semibold tabular-nums">{fmt(fromPaise(t.total_paise))}</TableCell>
+                    <TableCell><Badge className={cn("capitalize", statusClass[t.status])}>{t.status}</Badge></TableCell>
+                  </TableRow>
                 ))}
-              </tr>
-            </thead>
-            <tbody>
-              {banking.map((b, i) => (
-                <tr key={b.id} style={{ background: i % 2 === 0 ? "#fff" : "#fafbfd", borderBottom: "1px solid #f1f5f9" }}>
-                  <td style={{ padding: "9px 14px", fontFamily: "monospace", fontSize: 12, color: "#3b6cb7" }}>{b.id}</td>
-                  <td style={{ padding: "9px 14px", fontSize: 12, color: "#64748b" }}>{formatDate(b.business_date)}</td>
-                  <td style={{ padding: "9px 14px", fontSize: 13, textTransform: "capitalize" }}>{b.txn_type.replace("_", " ")}</td>
-                  <td style={{ padding: "9px 14px", fontFamily: "monospace", fontSize: 12 }}>{fmt(fromPaise(b.principal_paise))}</td>
-                  <td style={{ padding: "9px 14px", fontFamily: "monospace", fontSize: 12, color: "#16a34a" }}>{fmt(fromPaise(b.commission_paise))}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : (
-        <div style={{ padding: 24, color: "#94a3b8", fontSize: 13 }}>No banking transactions yet.</div>
-      ))}
-    </div>
+                {txns.length === 0 && (
+                  <TableRow className="hover:bg-transparent">
+                    <TableCell colSpan={serviceColumns.length} className="py-6 text-center text-muted-foreground">No transactions yet.</TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TabsContent>
+          <TabsContent value="banking">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  {bankingColumns.map(h => <TableHead key={h}>{h}</TableHead>)}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {banking.map(b => (
+                  <TableRow key={b.id}>
+                    <TableCell className="font-mono text-ring">{b.id}</TableCell>
+                    <TableCell className="text-muted-foreground">{formatDate(b.business_date)}</TableCell>
+                    <TableCell className="capitalize">{b.txn_type.replace("_", " ")}</TableCell>
+                    <TableCell className="font-mono tabular-nums">{fmt(fromPaise(b.principal_paise))}</TableCell>
+                    <TableCell className="font-mono tabular-nums text-success">{fmt(fromPaise(b.commission_paise))}</TableCell>
+                  </TableRow>
+                ))}
+                {banking.length === 0 && (
+                  <TableRow className="hover:bg-transparent">
+                    <TableCell colSpan={bankingColumns.length} className="py-6 text-center text-muted-foreground">No banking transactions yet.</TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </TabsContent>
+        </Tabs>
+      )}
+    </Card>
   )
 }
 
@@ -250,151 +260,172 @@ export default function Customers() {
   }
 
   return (
-    <div className="rs-flex-split" style={{ display: "flex", height: "100%", overflow: "hidden" }}>
+    <div className="rs-flex-split flex h-full overflow-hidden">
       {/* List panel */}
-      <div className="rs-flex-side" style={{ width: 320, borderRight: "1px solid #d1d9e6", display: "flex", flexDirection: "column", flexShrink: 0 }}>
-        <div style={{ padding: "20px 16px 12px", borderBottom: "1px solid #eef1f7" }}>
-          <h2 style={{ margin: "0 0 12px", fontSize: 16, fontFamily: "'Roboto Slab', serif" }}>Customers</h2>
-          <div style={{ position: "relative" }}>
-            <input
+      <div className="rs-flex-side flex w-80 shrink-0 flex-col border-r">
+        <div className="border-b px-4 pt-5 pb-3">
+          <h2 className="m-0 mb-3 text-base">Customers</h2>
+          <div className="relative">
+            <Search className="absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
               value={search}
               onChange={e => setSearch(e.target.value)}
               placeholder="Search name, phone, village…"
-              style={{ width: "100%", padding: "8px 12px 8px 32px", border: "1px solid #d1d9e6", borderRadius: 7, fontSize: 13, background: "#f8fafc", outline: "none", boxSizing: "border-box" }}
+              className="pl-8"
             />
-            <svg style={{ position: "absolute", left: 9, top: 9, color: "#94a3b8" }} width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
           </div>
         </div>
-        <div style={{ overflowY: "auto", flex: 1 }}>
+        <div className="flex-1 overflow-y-auto">
           <BlockState isLoading={customersLoading} error={customersError} />
           {!customersLoading && !customersError && customers.map(c => (
             <div
               key={c.id}
               onClick={() => { setSelected(c.id); setFormMode("view"); setShowSettle(false) }}
-              style={{
-                padding: "12px 16px",
-                borderBottom: "1px solid #f1f5f9",
-                cursor: "pointer",
-                background: selected === c.id ? "#eff6ff" : "transparent",
-                borderLeft: selected === c.id ? "3px solid #1e3a5f" : "3px solid transparent",
-                transition: "background 0.1s",
-              }}
+              className={cn(
+                "cursor-pointer border-b border-l-[3px] px-4 py-3 transition-colors",
+                selected === c.id ? "border-l-primary bg-primary/5" : "border-l-transparent hover:bg-muted/50"
+              )}
             >
-              <div style={{ fontWeight: 600, fontSize: 13 }}>{c.name}</div>
-              <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{c.phone || "—"} · {c.village || "—"}</div>
+              <div className="text-[13px] font-semibold">{c.name}</div>
+              <div className="mt-0.5 text-xs text-muted-foreground">{c.phone || "—"} · {c.village || "—"}</div>
             </div>
           ))}
           {!customersLoading && !customersError && customers.length === 0 && (
-            <div style={{ padding: 24, textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No customers found</div>
+            <div className="py-6 text-center text-[13px] text-muted-foreground">No customers found</div>
           )}
         </div>
-        <div style={{ padding: "10px 16px", borderTop: "1px solid #eef1f7" }}>
-          <button onClick={openCreate} style={{ width: "100%", background: "#1e3a5f", color: "#fff", border: "none", borderRadius: 7, padding: "9px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-            + Add New Customer
-          </button>
+        <div className="border-t p-3">
+          <Button className="w-full" onClick={openCreate}>+ Add New Customer</Button>
         </div>
       </div>
 
       {/* Detail panel */}
-      <div style={{ flex: 1, overflowY: "auto", padding: "28px 32px" }}>
+      <div className="flex-1 overflow-y-auto px-8 py-7">
         {formMode === "create" || formMode === "edit" ? (
-          <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, padding: "20px 24px", maxWidth: 520 }}>
-            <h3 style={{ margin: "0 0 16px", fontSize: 15 }}>{formMode === "edit" ? "Edit Customer" : "New Customer"}</h3>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              <div>
-                <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>Name</label>
-                <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+          <Card className="max-w-xl">
+            <CardHeader>
+              <CardTitle>{formMode === "edit" ? "Edit Customer" : "New Customer"}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="rs-grid grid grid-cols-2 gap-2.5">
+                <Field>
+                  <FieldLabel htmlFor="customer-name">Name</FieldLabel>
+                  <Input id="customer-name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="customer-phone">Phone</FieldLabel>
+                  <Input id="customer-phone" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="customer-village">Village</FieldLabel>
+                  <Input id="customer-village" value={form.village} onChange={e => setForm({ ...form, village: e.target.value })} />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="customer-aadhaar">Aadhaar (masked)</FieldLabel>
+                  <Input id="customer-aadhaar" value={form.aadhaar_masked} onChange={e => setForm({ ...form, aadhaar_masked: e.target.value })} />
+                </Field>
+                <Field className="col-span-2">
+                  <FieldLabel htmlFor="customer-notes">Notes</FieldLabel>
+                  <Input id="customer-notes" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} />
+                </Field>
               </div>
-              <div>
-                <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>Phone</label>
-                <input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+              <div className="mt-3.5 flex gap-2.5">
+                <Button onClick={submitForm}>{formMode === "edit" ? "Save Changes" : "Create Customer"}</Button>
+                <Button variant="outline" onClick={() => setFormMode("view")}>Cancel</Button>
               </div>
-              <div>
-                <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>Village</label>
-                <input value={form.village} onChange={e => setForm({ ...form, village: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
-              </div>
-              <div>
-                <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>Aadhaar (masked)</label>
-                <input value={form.aadhaar_masked} onChange={e => setForm({ ...form, aadhaar_masked: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
-              </div>
-              <div style={{ gridColumn: "1 / -1" }}>
-                <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>Notes</label>
-                <input value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
-              </div>
-            </div>
-            <div style={{ marginTop: 14, display: "flex", gap: 10 }}>
-              <button onClick={submitForm} style={{ background: "#1e3a5f", color: "#fff", border: "none", borderRadius: 7, padding: "9px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-                {formMode === "edit" ? "Save Changes" : "Create Customer"}
-              </button>
-              <button onClick={() => setFormMode("view")} style={{ background: "#f1f5f9", border: "1px solid #d1d9e6", borderRadius: 7, padding: "9px 20px", fontSize: 13, cursor: "pointer" }}>Cancel</button>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         ) : customer ? (
           <>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24 }}>
+            <div className="mb-6 flex items-start justify-between">
               <div>
-                <h2 style={{ margin: 0, fontSize: 20 }}>{customer.name}</h2>
-                <div style={{ color: "#64748b", fontSize: 13, marginTop: 4 }}>{customer.phone || "—"} · {customer.village || "—"}</div>
+                <h2 className="m-0 text-xl">{customer.name}</h2>
+                <div className="mt-1 text-[13px] text-muted-foreground">{customer.phone || "—"} · {customer.village || "—"}</div>
               </div>
-              <div style={{ display: "flex", gap: 10 }}>
-                <button onClick={showSettle ? () => setShowSettle(false) : openSettle} style={{ padding: "7px 14px", border: "1px solid #d1d9e6", borderRadius: 7, background: "#fff", fontSize: 13, cursor: "pointer" }}>
+              <div className="flex gap-2.5">
+                <Button variant="outline" onClick={showSettle ? () => setShowSettle(false) : openSettle}>
                   {showSettle ? "Cancel" : "Settle Payment"}
-                </button>
-                <button onClick={openEdit} style={{ padding: "7px 14px", border: "1px solid #d1d9e6", borderRadius: 7, background: "#fff", fontSize: 13, cursor: "pointer" }}>Edit</button>
+                </Button>
+                <Button variant="outline" onClick={openEdit}>Edit</Button>
               </div>
             </div>
 
             {/* Settle payment form (H.19) */}
             {showSettle && (
-              <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, padding: "20px 24px", marginBottom: 24 }}>
-                <h3 style={{ margin: "0 0 16px", fontSize: 15 }}>Settle Payment</h3>
-                <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 14 }}>
-                  <div>
-                    <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4, fontWeight: 500 }}>Amount (₹)</label>
-                    <input type="number" value={settleForm.amount} onChange={e => setSettleForm({ ...settleForm, amount: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+              <Card className="mb-6">
+                <CardHeader>
+                  <CardTitle>Settle Payment</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <div className="rs-grid grid grid-cols-3 gap-3.5">
+                    <Field>
+                      <FieldLabel htmlFor="settle-amount">Amount (₹)</FieldLabel>
+                      <Input id="settle-amount" type="number" value={settleForm.amount} onChange={e => setSettleForm({ ...settleForm, amount: e.target.value })} />
+                    </Field>
+                    <Field>
+                      <FieldLabel htmlFor="settle-account">Account (received into)</FieldLabel>
+                      <Select
+                        items={Object.fromEntries(activeAccounts.map(a => [String(a.id), a.name]))}
+                        value={settleForm.accountId || undefined}
+                        onValueChange={v => setSettleForm({ ...settleForm, accountId: v as string })}
+                      >
+                        <SelectTrigger id="settle-account" className="w-full">
+                          <SelectValue placeholder="Select account…" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {activeAccounts.map(a => <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>)}
+                        </SelectContent>
+                      </Select>
+                    </Field>
+                    <Field>
+                      <FieldLabel htmlFor="settle-remarks">Remarks</FieldLabel>
+                      <Input id="settle-remarks" value={settleForm.remarks} onChange={e => setSettleForm({ ...settleForm, remarks: e.target.value })} />
+                    </Field>
                   </div>
-                  <div>
-                    <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4, fontWeight: 500 }}>Account (received into)</label>
-                    <select value={settleForm.accountId} onChange={e => setSettleForm({ ...settleForm, accountId: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, background: "#fff", outline: "none" }}>
-                      <option value="">Select account…</option>
-                      {activeAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                    </select>
+                  <div className="mt-3.5 flex flex-col gap-2.5">
+                    {settleError && (
+                      <Alert variant="destructive">
+                        <AlertDescription>{settleError}</AlertDescription>
+                      </Alert>
+                    )}
+                    <div>
+                      <Button onClick={submitSettle} disabled={settleMutation.isPending}>
+                        {settleMutation.isPending ? "Saving…" : "Settle"}
+                      </Button>
+                    </div>
                   </div>
-                  <div>
-                    <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4, fontWeight: 500 }}>Remarks</label>
-                    <input value={settleForm.remarks} onChange={e => setSettleForm({ ...settleForm, remarks: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
-                  </div>
-                </div>
-                <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                  <button onClick={submitSettle} disabled={settleMutation.isPending} style={{ background: "#1e3a5f", color: "#fff", border: "none", borderRadius: 7, padding: "9px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-                    {settleMutation.isPending ? "Saving…" : "Settle"}
-                  </button>
-                  {settleError && <span style={{ color: "#dc2626", fontSize: 12 }}>{settleError}</span>}
-                </div>
-              </div>
+                </CardContent>
+              </Card>
             )}
 
             {/* Profile cards */}
-            <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 24 }}>
+            <div className="rs-grid mb-6 grid grid-cols-3 gap-3.5">
               {[
                 { label: "Aadhaar", value: customer.aadhaar_masked || "—" },
                 { label: "Outstanding Balance", value: <CustomerOutstanding id={customer.id} /> },
                 { label: "Notes", value: customer.notes || "—" },
               ].map(f => (
-                <div key={f.label} style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 8, padding: "14px 16px" }}>
-                  <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>{f.label}</div>
-                  <div style={{ fontFamily: "monospace", fontSize: 15, fontWeight: 600, color: "#1a2332" }}>{f.value}</div>
-                </div>
+                <Card key={f.label}>
+                  <CardContent>
+                    <div className="mb-1.5 text-[11px] tracking-wide text-muted-foreground uppercase">{f.label}</div>
+                    <div className="font-mono text-[15px] font-semibold">{f.value}</div>
+                  </CardContent>
+                </Card>
               ))}
             </div>
 
             <CustomerHistory id={customer.id} />
           </>
         ) : (
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", height: "100%", color: "#94a3b8" }}>
-            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-            <p style={{ marginTop: 12, fontSize: 14 }}>Select a customer to view details</p>
-          </div>
+          <Empty className="h-full">
+            <EmptyHeader>
+              <EmptyMedia variant="icon">
+                <Users />
+              </EmptyMedia>
+              <EmptyTitle>No customer selected</EmptyTitle>
+              <EmptyDescription>Select a customer to view details</EmptyDescription>
+            </EmptyHeader>
+          </Empty>
         )}
       </div>
     </div>

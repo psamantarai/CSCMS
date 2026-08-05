@@ -1509,11 +1509,17 @@
   },
   {
     "title": "9.5.9 — Customers + Services",
-    "status": "pending",
-    "updated": "2026-08-05",
+    "status": "completed",
+    "updated": "2026-08-06",
+    "seq": 132,
     "details": [
-      "P9.5 · Same pattern as 9.5.8; Customers' history view uses Tabs.",
-      "Verify: customer search, the history drill-down, and service create/edit all behave identically."
+      "Rebuilt src/pages/Customers.tsx on shadcn/ui: two-panel layout kept (rs-flex-split/rs-flex-side survive), list search Input with lucide Search icon, list items as styled divs (selected = border-l-primary + bg-primary/5)",
+      "Create/Edit customer form → Card + Field/FieldLabel/Input in a 2-col grid; Settle Payment (H.19) → Card + Field grid + Select + Alert for errors, unchanged mutation logic",
+      "Profile cards (Aadhaar/Outstanding/Notes) → plain Card+CardContent; empty-selection state → Empty/EmptyMedia(icon)/EmptyTitle/EmptyDescription with lucide Users icon",
+      "CustomerHistory rebuilt on Tabs (Service History / Banking History) per the plan, each tab holding a Table with its own empty-row fallback",
+      "Rebuilt src/pages/Services.tsx on the 9.5.8 Transactions table pattern: Card form, Table/TableHeader/TableBody, Badge for Active/Inactive, Empty for no rows",
+      "Verified: tsc --noEmit clean, vite build clean; live in-browser pass — customer search (partial phone), select, Edit prefill, Settle Payment form, Service/Banking History tab switching, Service create, edit-prefill and deactivate/activate all behaved identically to before",
+      "Scope check: no query/mutation/validation logic touched, only presentation (per Phase 9.5's stated boundary)"
     ]
   },
   {

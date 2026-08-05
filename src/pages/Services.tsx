@@ -4,6 +4,14 @@ import { api } from "../lib/api"
 import { queryKeys } from "../lib/queries"
 import { fmt, fromPaise, toPaise } from "../lib/format"
 import { TableRowState } from "../components/QueryState"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Field, FieldLabel } from "@/components/ui/field"
+import { Input } from "@/components/ui/input"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
+import { cn } from "@/lib/utils"
 
 type Service = {
   id: number
@@ -15,6 +23,8 @@ type Service = {
 }
 
 const emptyForm = { name: "", category: "", default_fee: "0", default_charge: "0" }
+
+const columns = ["Name", "Category", "Default Fee", "Default Charge", "Status", ""]
 
 export default function Services() {
   const [formOpen, setFormOpen] = useState(false)
@@ -87,90 +97,99 @@ export default function Services() {
   }
 
   return (
-    <div style={{ padding: "28px 32px", overflowY: "auto", height: "100%" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 22 }}>
+    <div className="h-full overflow-y-auto px-8 py-7">
+      <div className="mb-5 flex items-start justify-between">
         <div>
-          <h1 style={{ fontSize: 22, margin: 0 }}>Services</h1>
-          <p style={{ margin: "4px 0 0", color: "#64748b", fontSize: 13 }}>
+          <h1 className="m-0 text-[22px]">Services</h1>
+          <p className="mt-1 mb-0 text-[13px] text-muted-foreground">
             {servicesLoading ? "Loading…" : servicesError ? "Could not load services" : `${services.length} service${services.length === 1 ? "" : "s"}`}
           </p>
         </div>
-        <button onClick={() => (formOpen ? closeForm() : openCreate())} style={{ background: "#1e3a5f", color: "#fff", border: "none", borderRadius: 7, padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-          {formOpen ? "Cancel" : "+ Add Service"}
-        </button>
+        <Button onClick={() => (formOpen ? closeForm() : openCreate())}>{formOpen ? "Cancel" : "+ Add Service"}</Button>
       </div>
 
       {formOpen && (
-        <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, padding: "20px 24px", marginBottom: 22 }}>
-          <h3 style={{ margin: "0 0 16px", fontSize: 15 }}>{editingId ? "Edit Service" : "New Service"}</h3>
-          <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 10 }}>
-            <div>
-              <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>Name</label>
-              <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+        <Card className="mb-5">
+          <CardHeader>
+            <CardTitle>{editingId ? "Edit Service" : "New Service"}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="rs-grid grid grid-cols-4 gap-3">
+              <Field>
+                <FieldLabel htmlFor="service-name">Name</FieldLabel>
+                <Input id="service-name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="service-category">Category</FieldLabel>
+                <Input id="service-category" value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="service-fee">Default Fee (₹)</FieldLabel>
+                <Input id="service-fee" type="number" value={form.default_fee} onChange={e => setForm({ ...form, default_fee: e.target.value })} />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="service-charge">Default Charge (₹)</FieldLabel>
+                <Input id="service-charge" type="number" value={form.default_charge} onChange={e => setForm({ ...form, default_charge: e.target.value })} />
+              </Field>
             </div>
-            <div>
-              <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>Category</label>
-              <input value={form.category} onChange={e => setForm({ ...form, category: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+            <div className="mt-3.5 flex gap-2.5">
+              <Button onClick={submitForm}>{editingId ? "Save Changes" : "Create Service"}</Button>
+              <Button variant="outline" onClick={closeForm}>Cancel</Button>
             </div>
-            <div>
-              <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>Default Fee (₹)</label>
-              <input type="number" value={form.default_fee} onChange={e => setForm({ ...form, default_fee: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
-            </div>
-            <div>
-              <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>Default Charge (₹)</label>
-              <input type="number" value={form.default_charge} onChange={e => setForm({ ...form, default_charge: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
-            </div>
-          </div>
-          <div style={{ marginTop: 14, display: "flex", gap: 10 }}>
-            <button onClick={submitForm} style={{ background: "#1e3a5f", color: "#fff", border: "none", borderRadius: 7, padding: "9px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-              {editingId ? "Save Changes" : "Create Service"}
-            </button>
-            <button onClick={closeForm} style={{ background: "#f1f5f9", border: "1px solid #d1d9e6", borderRadius: 7, padding: "9px 20px", fontSize: 13, cursor: "pointer" }}>Cancel</button>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       )}
 
-      <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, overflow: "hidden" }}>
-        <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr style={{ background: "#f8fafc" }}>
-                {["Name", "Category", "Default Fee", "Default Charge", "Status", ""].map(h => (
-                  <th key={h} style={{ padding: "9px 14px", textAlign: "left", fontSize: 11, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em", borderBottom: "1px solid #eef1f7" }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              <TableRowState isLoading={servicesLoading} error={servicesError} colSpan={6} />
-              {!servicesLoading && !servicesError && services.map((s, i) => (
-                <tr key={s.id} style={{ background: i % 2 === 0 ? "#fff" : "#fafbfd", borderBottom: "1px solid #f1f5f9", opacity: s.is_active ? 1 : 0.6 }}>
-                  <td style={{ padding: "9px 14px", fontSize: 13, fontWeight: 600 }}>{s.name}</td>
-                  <td style={{ padding: "9px 14px", fontSize: 13, color: "#475569" }}>{s.category}</td>
-                  <td style={{ padding: "9px 14px", fontFamily: "monospace", fontSize: 12 }}>{fmt(fromPaise(s.default_fee_paise))}</td>
-                  <td style={{ padding: "9px 14px", fontFamily: "monospace", fontSize: 12 }}>{fmt(fromPaise(s.default_charge_paise))}</td>
-                  <td style={{ padding: "9px 14px" }}>
-                    <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20, background: s.is_active ? "#dcfce7" : "#fee2e2", color: s.is_active ? "#16a34a" : "#dc2626" }}>
-                      {s.is_active ? "Active" : "Inactive"}
-                    </span>
-                  </td>
-                  <td style={{ padding: "9px 14px", display: "flex", gap: 8 }}>
-                    <button onClick={() => openEdit(s)} style={{ border: "1px solid #d1d9e6", background: "#fff", borderRadius: 6, padding: "5px 12px", fontSize: 12, cursor: "pointer", color: "#475569" }}>Edit</button>
-                    <button
+      <Card className="py-0">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              {columns.map(h => <TableHead key={h}>{h}</TableHead>)}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRowState isLoading={servicesLoading} error={servicesError} colSpan={columns.length} />
+            {!servicesLoading && !servicesError && services.map(s => (
+              <TableRow key={s.id} className={cn(!s.is_active && "opacity-60")}>
+                <TableCell className="font-semibold">{s.name}</TableCell>
+                <TableCell className="text-muted-foreground">{s.category}</TableCell>
+                <TableCell className="font-mono tabular-nums">{fmt(fromPaise(s.default_fee_paise))}</TableCell>
+                <TableCell className="font-mono tabular-nums">{fmt(fromPaise(s.default_charge_paise))}</TableCell>
+                <TableCell>
+                  <Badge className={s.is_active ? "bg-success/15 text-success" : "bg-destructive/15 text-destructive"}>
+                    {s.is_active ? "Active" : "Inactive"}
+                  </Badge>
+                </TableCell>
+                <TableCell>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => openEdit(s)}>Edit</Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className={s.is_active ? "text-destructive" : "text-success"}
                       onClick={() => deactivateMutation.mutate({ id: s.id, is_active: !s.is_active })}
-                      style={{ border: "1px solid #d1d9e6", background: "#fff", borderRadius: 6, padding: "5px 12px", fontSize: 12, cursor: "pointer", color: s.is_active ? "#dc2626" : "#16a34a" }}
                     >
                       {s.is_active ? "Deactivate" : "Activate"}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-              {!servicesLoading && !servicesError && services.length === 0 && (
-                <tr><td colSpan={6} style={{ padding: "18px 14px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No services yet.</td></tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
+                    </Button>
+                  </div>
+                </TableCell>
+              </TableRow>
+            ))}
+            {!servicesLoading && !servicesError && services.length === 0 && (
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={columns.length}>
+                  <Empty>
+                    <EmptyHeader>
+                      <EmptyTitle>No services</EmptyTitle>
+                      <EmptyDescription>No services have been added yet.</EmptyDescription>
+                    </EmptyHeader>
+                  </Empty>
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </Card>
     </div>
   )
 }
