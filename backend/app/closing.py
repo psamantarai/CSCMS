@@ -8,13 +8,15 @@ so it can never drift from what actually happened."""
 import sqlite3
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.accounts import _system_user_id
 from app.db import begin_write, get_db
 from app.ledger import closing_balance, ensure_business_day_open, insert_entry, opening_balance, validate_business_date
 
 router = APIRouter(prefix="/api/day", tags=["closing"])
+
+_INT64_MAX = 2**63 - 1
 
 # Every entry_type bucketed into exactly one column, so opening + received -
 # paid + transfer_in - transfer_out + adjustment always reconciles to
@@ -102,7 +104,11 @@ def _primary_cash_account_id(conn: sqlite3.Connection) -> int | None:
 
 
 class CloseDayRequest(BaseModel):
-    physical_cash_paise: int | None = None
+    # H.32: a drawer can't physically hold negative cash, and an unbounded
+    # value let variance = physical_cash_paise - system_cash overflow int64
+    # on insert (500). Same ge=0/le=_INT64_MAX bound every other money field
+    # in the codebase already uses.
+    physical_cash_paise: int | None = Field(None, ge=0, le=_INT64_MAX)
     remarks: str | None = None
 
 

@@ -255,7 +255,11 @@ export default function Reports() {
             {/* Daily summary */}
             <div style={cardStyle}>
               <h3 style={{ margin: "0 0 16px", fontSize: 14, fontFamily: "'Roboto Slab', serif" }}>Cash Summary — {dailyDate}</h3>
-              {dayLoading || dayError ? <BlockState isLoading={dayLoading} error={dayError} /> : !cashRow ? (
+              {/* H.33: react-query has a third state — data undefined,
+                  isLoading false, error null — while backing off a failed
+                  fetch. Neither dayLoading nor dayError covers it, so it's
+                  checked explicitly here too, not just !cashRow. */}
+              {dayLoading || dayError || !dayReport ? <BlockState isLoading={dayLoading || !dayError} error={dayError} /> : !cashRow ? (
                 <div style={{ color: "#94a3b8", fontSize: 13 }}>No cash account found.</div>
               ) : (
                 [
@@ -275,9 +279,12 @@ export default function Reports() {
             {/* Account balances */}
             <div style={cardStyle}>
               <h3 style={{ margin: "0 0 16px", fontSize: 14, fontFamily: "'Roboto Slab', serif" }}>Account Balances</h3>
-              {dayLoading || dayError ? <BlockState isLoading={dayLoading} error={dayError} /> : (
-                dayReport!.accounts.map((a, i) => (
-                  <div key={a.account_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderBottom: i < dayReport!.accounts.length - 1 ? "1px dashed #e8edf5" : "none" }}>
+              {/* H.33: dayReport!.accounts crashed the whole app (white
+                  screen, no error boundary) during that same third state —
+                  !dayReport closes the gap, same fix as Cash Summary above. */}
+              {dayLoading || dayError || !dayReport ? <BlockState isLoading={dayLoading || !dayError} error={dayError} /> : (
+                dayReport.accounts.map((a, i) => (
+                  <div key={a.account_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderBottom: i < dayReport.accounts.length - 1 ? "1px dashed #e8edf5" : "none" }}>
                     <span style={{ fontSize: 13, color: "#475569" }}>{a.account_name}</span>
                     <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: "#1e3a5f" }}>{fmt(fromPaise(a.closing_paise))}</span>
                   </div>
@@ -328,12 +335,13 @@ export default function Reports() {
       {activeReport === "monthly" && (
         <div style={cardStyle}>
           <h3 style={{ margin: "0 0 20px", fontSize: 15, fontFamily: "'Roboto Slab', serif" }}>{monthNames[month - 1]} {year}</h3>
-          {monthlyLoading || monthlyError ? <BlockState isLoading={monthlyLoading} error={monthlyError} /> : (
+          {/* H.33: same react-query third-state gap as the Daily tab. */}
+          {monthlyLoading || monthlyError || !monthly ? <BlockState isLoading={monthlyLoading || !monthlyError} error={monthlyError} /> : (
             <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
               {[
-                { label: "Income", value: fmt(fromPaise(monthly!.income_paise)), color: "#1e3a5f", bg: "#eff6ff" },
-                { label: "Expenses", value: fmt(fromPaise(monthly!.expenses_paise)), color: "#dc2626", bg: "#fef2f2" },
-                { label: "Profit", value: fmt(fromPaise(monthly!.profit_paise)), color: "#16a34a", bg: "#f0fdf4" },
+                { label: "Income", value: fmt(fromPaise(monthly.income_paise)), color: "#1e3a5f", bg: "#eff6ff" },
+                { label: "Expenses", value: fmt(fromPaise(monthly.expenses_paise)), color: "#dc2626", bg: "#fef2f2" },
+                { label: "Profit", value: fmt(fromPaise(monthly.profit_paise)), color: "#16a34a", bg: "#f0fdf4" },
               ].map(s => (
                 <div key={s.label} style={{ background: s.bg, border: "1px solid #d1d9e6", borderRadius: 9, padding: "16px 18px" }}>
                   <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>{s.label}</div>
@@ -380,13 +388,14 @@ export default function Reports() {
 
       {activeReport === "pl" && (
         <>
-          {plLoading || plError ? <div style={cardStyle}><BlockState isLoading={plLoading} error={plError} /></div> : (
+          {/* H.33: same react-query third-state gap as the Daily tab. */}
+          {plLoading || plError || !pl ? <div style={cardStyle}><BlockState isLoading={plLoading || !plError} error={plError} /></div> : (
             <>
               <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 20 }}>
                 {[
-                  { label: "Total Income", value: fmt(fromPaise(pl!.total_income_paise)), color: "#1e3a5f", bg: "#eff6ff" },
-                  { label: "Total Expenses", value: fmt(fromPaise(pl!.total_expenses_paise)), color: "#dc2626", bg: "#fef2f2" },
-                  { label: "Net Profit", value: fmt(fromPaise(pl!.profit_paise)), color: "#16a34a", bg: "#f0fdf4" },
+                  { label: "Total Income", value: fmt(fromPaise(pl.total_income_paise)), color: "#1e3a5f", bg: "#eff6ff" },
+                  { label: "Total Expenses", value: fmt(fromPaise(pl.total_expenses_paise)), color: "#dc2626", bg: "#fef2f2" },
+                  { label: "Net Profit", value: fmt(fromPaise(pl.profit_paise)), color: "#16a34a", bg: "#f0fdf4" },
                 ].map(s => (
                   <div key={s.label} style={{ background: s.bg, border: "1px solid #d1d9e6", borderRadius: 9, padding: "16px 18px" }}>
                     <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>{s.label}</div>
@@ -398,8 +407,8 @@ export default function Reports() {
                 <div style={cardStyle}>
                   <h3 style={{ margin: "0 0 14px", fontSize: 14, fontFamily: "'Roboto Slab', serif" }}>Income Sources</h3>
                   {[
-                    { label: "Service Income", value: pl!.service_income_paise },
-                    { label: "Banking Commission", value: pl!.commission_paise },
+                    { label: "Service Income", value: pl.service_income_paise },
+                    { label: "Banking Commission", value: pl.commission_paise },
                   ].map((r, i) => (
                     <div key={r.label} style={{ display: "flex", justifyContent: "space-between", padding: "9px 0", borderBottom: i < 1 ? "1px dashed #e8edf5" : "none" }}>
                       <span style={{ fontSize: 13, color: "#475569" }}>{r.label}</span>
@@ -409,10 +418,10 @@ export default function Reports() {
                 </div>
                 <div style={cardStyle}>
                   <h3 style={{ margin: "0 0 14px", fontSize: 14, fontFamily: "'Roboto Slab', serif" }}>Expenses by Category</h3>
-                  {pl!.expenses_by_category.length === 0 ? (
+                  {pl.expenses_by_category.length === 0 ? (
                     <div style={{ color: "#94a3b8", fontSize: 13 }}>No expenses in this period.</div>
-                  ) : pl!.expenses_by_category.map((r, i) => (
-                    <div key={r.category} style={{ display: "flex", justifyContent: "space-between", padding: "9px 0", borderBottom: i < pl!.expenses_by_category.length - 1 ? "1px dashed #e8edf5" : "none" }}>
+                  ) : pl.expenses_by_category.map((r, i) => (
+                    <div key={r.category} style={{ display: "flex", justifyContent: "space-between", padding: "9px 0", borderBottom: i < pl.expenses_by_category.length - 1 ? "1px dashed #e8edf5" : "none" }}>
                       <span style={{ fontSize: 13, color: "#475569" }}>{r.category}</span>
                       <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: "#dc2626" }}>{fmt(fromPaise(r.amount_paise))}</span>
                     </div>
@@ -430,7 +439,8 @@ export default function Reports() {
             <div style={{ background: "#f0fdf4", border: "1px solid #d1d9e6", borderRadius: 9, padding: "16px 18px", width: "fit-content" }}>
               <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Total Commission</div>
               <div style={{ fontFamily: "monospace", fontSize: 22, fontWeight: 700, color: "#16a34a" }}>
-                {commissionLoading || commissionError ? "—" : fmt(fromPaise(commission!.total_commission_paise))}
+                {/* H.33: same react-query third-state gap as the Daily tab. */}
+                {commissionLoading || commissionError || !commission ? "—" : fmt(fromPaise(commission.total_commission_paise))}
               </div>
             </div>
           </div>

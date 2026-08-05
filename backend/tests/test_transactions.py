@@ -2,6 +2,8 @@
 directly against a temp DB. Run: python tests/test_transactions.py"""
 import sys
 import tempfile
+import threading
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -9,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from fastapi import HTTPException
 
 from app.accounts import AccountCreate, AccountUpdate, create_account, update_account
+from app.closing import CloseDayRequest, close_day
 from app.db import get_connection, run_migrations
 from app.ledger import account_balance
 from app.seed import run_seed
@@ -393,6 +396,94 @@ def test_deactivated_service_rejected_at_create():
         conn.close()
 
 
+def test_concurrent_close_never_lets_an_unpaid_create_slip_through():
+    # H.31: ensure_business_day_open ran once, early, with no begin_write
+    # around it — for amount_paid_paise=0, insert_entry (the only place a
+    # second, re-verified check would run) is skipped entirely, so the
+    # closed-day check and the INSERT were an unlocked TOCTOU: a close could
+    # land between them. A background poller (same technique the audit
+    # used) watches business_days.status from its own connection; if any
+    # unpaid create still returns 201 after the poller already observed the
+    # date as closed, the race won. Each thread opens its own connection,
+    # like a real concurrent request would.
+    for _trial in range(3):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "test.db"
+            setup = get_connection(db_path)
+            run_migrations(setup, MIGRATIONS_DIR)
+            run_seed(setup)
+            cash_id, service_id = _cash_and_service(setup)
+            setup.close()
+
+            business_date = "2026-08-05"
+            stop = threading.Event()
+            closed_seen = threading.Event()
+
+            def poll_status():
+                conn = get_connection(db_path)
+                while not stop.is_set():
+                    row = conn.execute(
+                        "SELECT status FROM business_days WHERE business_date = ?", (business_date,)
+                    ).fetchone()
+                    if row is not None and row["status"] == "closed":
+                        closed_seen.set()
+                        break
+                    time.sleep(0.0005)
+                conn.close()
+
+            violations = []
+            barrier = threading.Barrier(13)  # 1 closer + 12 creators
+
+            def close():
+                barrier.wait()
+                conn = get_connection(db_path)
+                try:
+                    close_day(business_date, CloseDayRequest(), conn)
+                except Exception:  # noqa: BLE001 — only one closer here, failure isn't expected
+                    pass
+                finally:
+                    conn.close()
+
+            def create():
+                barrier.wait()
+                conn = get_connection(db_path)
+                try:
+                    create_transaction(
+                        TransactionCreate(business_date=business_date, service_id=service_id,
+                                           fee_paise=100, account_id=cash_id),
+                        conn,
+                    )
+                    # violation: this creator's INSERT committed after the
+                    # poller had already observed the date as closed.
+                    if closed_seen.is_set():
+                        violations.append(True)
+                except HTTPException:
+                    pass
+                finally:
+                    conn.close()
+
+            poller = threading.Thread(target=poll_status)
+            poller.start()
+
+            threads = [threading.Thread(target=close)] + [threading.Thread(target=create) for _ in range(12)]
+            for t in threads:
+                t.start()
+            for t in threads:
+                t.join()
+            stop.set()
+            poller.join()
+
+            assert not violations, \
+                f"{len(violations)} unpaid transaction(s) committed after the day was already seen as closed"
+
+            check = get_connection(db_path)
+            status = check.execute(
+                "SELECT status FROM business_days WHERE business_date = ?", (business_date,)
+            ).fetchone()["status"]
+            check.close()
+            assert status == "closed"
+
+
 if __name__ == "__main__":
     test_total_computed_from_fee_charge_discount()
     test_client_supplied_total_is_never_trusted()
@@ -412,4 +503,5 @@ if __name__ == "__main__":
     test_total_overflow_rejected_with_400_not_500()
     test_deactivated_account_rejected_at_create()
     test_deactivated_service_rejected_at_create()
+    test_concurrent_close_never_lets_an_unpaid_create_slip_through()
     print("OK")

@@ -73,6 +73,7 @@ A Vite development server is **already running** on `$PORT` (default 8443). You 
 
 - Preview URL: The user can access the running app through the preview panel
 - Hot reload: Changes to source files are reflected immediately
+- Before running any start/dev/serve command (frontend or backend), check whether it's already running (e.g. `netstat -ano | findstr LISTEN` or hit the expected port) and continue against that instance instead of launching a duplicate.
 
 ## Project Structure
 

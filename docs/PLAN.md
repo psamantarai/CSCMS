@@ -1,10 +1,12 @@
 # CSCMS — Implementation Plan
 
-14 phases, 94 steps. Phases run in order; each depends on the one before.
+15 phases, 109 steps. Phases run in order; each depends on the one before.
 (Phase 2.5 was inserted after an edge-case audit of the shipped Phase 0–2
 code — see that phase for what it found and why it blocks Phase 3. Phase 3.5
 came from the same pass repeated over the shipped Phase 3 code. Phase 4.5
-repeated it again over the shipped Phase 4 code.)
+repeated it again over the shipped Phase 4 code. Phase 7.9 repeated it once
+more over the shipped Phase 5, 6 and 7 code — three phases shipped back to
+back with no hardening pass in between.)
 
 **A step is the unit of work.** Each is one sitting, independently verifiable,
 and leaves the app in a working state. Per `CLAUDE.md`, work stops after each
@@ -761,6 +763,328 @@ than assumed.
 
 ---
 
+## Phase 7.9 — Hardening banking, daily closing, dashboard & reports
+
+Inserted after an edge-case audit of the shipped Phase 5, 6 and 7 code
+(backend run against a scratch DB on port 8123, ~490 probes across
+`/api/banking*`, `/api/day/{date}*`, `/api/dashboard`, `/api/reports/*` and
+the Phase-6-touched paths in `/api/transactions`, via an Opus subagent per
+the audit's money/concurrency reasoning requirement, plus ~45 browser
+interactions driving the Banking, DailyClosing, Dashboard and Reports pages).
+Every item below is a **reproduced** failure, not a review opinion. Banking's
+own concurrency guards (H.11/H.23-style `begin_write` placement) held under
+load — 12 parallel creates against a funded account, 12 parallel deletes and
+12 parallel corrections of one entry, and 12 parallel closes of one date all
+serialised cleanly. What didn't hold is the closed-day guard PLAN 6.3 promised
+"implemented once": it turns out to be conditional per call site, the same
+shape as H.13 and H.21/H.23 before it, and Phase 8's audit log and backup
+both assume a closed day's numbers are actually final.
+
+H.29–H.31 are the ones that matter most: they mean a day that has been
+formally closed, reported, and printed can still change under it, silently.
+
+Ordered by severity. H.29–H.32 damage money or corrupt a sealed record.
+
+**H.29 `correct_transaction` skips the closed-day guard unless the
+computed replacement amount actually differs** — `ensure_business_day_open`
+is only called `if date_changed` (`backend/app/transactions.py:302-315`);
+the only other route to a check is `insert_entry`'s own internal guard,
+reached only through the `if live_entry is not None:` branch at :322-336 —
+which a **pending** transaction never enters (no live ledger row exists to
+find) and which a **partially-paid** transaction skips whenever the
+recomputed amount happens to equal the existing live entry's amount. Two
+reproductions on a date closed via `POST /day/{date}/close`:
+- Pending transaction, `fee_paise` 10000 → 77700: `PATCH /transactions/{id}`
+  returned **200**; `total_paise` moved 10000 → 72700 with `service_id` and
+  `discount_paise` also changed by two more 200s, all on a date whose
+  `business_days.status = 'closed'`.
+- Partially-paid customer transaction, `fee_paise` 20000 → 30000 (live entry
+  amount unchanged): returned **200**; `total_paise` moved 20000 → 30000.
+A control `POST /transactions` against the same closed date correctly
+returned 409 — only the correction path is unguarded. Observed downstream:
+`GET /reports/service-wise` for a range spanning the closed date reported the
+corrected `Aadhaar · ₹727.00` figure for a day whose printed closing report
+had already sealed `PAN · ₹100.00`.
+*Verify:* create a pending transaction on date D, close D, `PATCH` its
+`fee_paise` — returns 409, `total_paise` unchanged; the same for a
+partially-paid transaction whose live-entry amount would be unchanged by the
+correction.
+
+**H.30 A correction or deletion can post a new ledger row onto an
+already-closed date — the sealed report changes after close** —
+`reverse_entry`'s offsetting row is deliberately exempt from the closed-day
+guard (`backend/app/ledger.py:73-87`, comment: "the guard would otherwise
+make even a pure deletion of anything dated on a closed day permanently
+impossible"), and every correction path checks only the **new** date, never
+the resource's *original* one: `transactions.py:314` guards `new_business_date`
+only; `banking.py:252` (`update_banking`) the same; `banking.py:285-301`
+(`delete_banking`) calls `ensure_business_day_open` **nowhere at all**. So a
+reversal — and, via `delete_banking`'s missing check entirely, a fresh
+replacement too — lands on a closed date with no guard ever firing.
+Reproduced on `2026-08-03` after closing with a snapshot taken:
+```
+PATCH /transactions/2 {business_date:"2026-08-04"}  → 200  (reversal posted dated 2026-08-03)
+DELETE /api/banking/2                                → 204  (3 reversals posted dated 2026-08-03)
+DELETE /api/expenses/1                               → 204  (reversal posted dated 2026-08-03)
+```
+`daily_account_balance` snapshot vs. live `GET /api/day/2026-08-03/report`
+afterwards: account 1 closing **₹7,140.00 → ₹5,050.00**, account 2
+**−₹7,000.00 → −₹5,000.00** — off by exactly the moved amounts. Reproduced
+again in isolation on `2027-01-05` (₹5,080.00 and ₹5,000.00 off) and
+`2027-04-01` (cash closing ₹21,008.10 → ₹20,920.10 after moving a transaction
+*off* the closed date). This directly contradicts `closing.py`'s own module
+docstring ("nothing can write new entries onto a closed date") and
+ARCHITECTURE.md §5's "keeps every closed day's printed report permanently
+true." Shares its fix with H.29: check `ensure_business_day_open` against the
+resource's *current* `business_date` unconditionally at the top of every
+correction/deletion handler — transactions, banking, and (spot-check) any
+future resource with the same reversal-based correction shape — not only
+when the computed new state happens to trigger the existing branches.
+*Verify:* on a closed date with a live entry, `DELETE /api/banking/{id}` and
+`PATCH /transactions/{id}` moving money *off* that date both return 409;
+`daily_account_balance` for a closed date matches `GET /api/day/{date}/report`
+exactly after any later correction/deletion attempt targeting a row dated
+that day.
+
+**H.31 `create_transaction`'s closed-day check is an unlocked TOCTOU for
+unpaid transactions** — `ensure_business_day_open` runs once, early
+(`backend/app/transactions.py:207-208`), with no `begin_write` around it; for
+`amount_paid_paise = 0` the entire `insert_entry` call — the only place a
+second, re-verified check would run — is skipped (:233), and `INSERT INTO
+transactions` plus `conn.commit()` follow unprotected (:221-229, :258). An
+independent reader polling `(business_days.status, COUNT(transactions))`
+every 0.5ms while one thread closed a date and 12 threads fired unpaid
+`POST /transactions` against it, staggered across the close window, 8 trials
+at a realistic 3-account close: **every trial showed transaction rows
+committed after `business_days.status` had already flipped to `'closed'`** —
+3 to 11 rows per trial (e.g. 12×201/1×409 with 11 post-close rows; 4×201/9×409
+with 3 post-close rows). Paid transactions and every banking write are not
+affected — both already re-check inside `insert_entry` or hold `begin_write`
+across the window. Fix: wrap the day-open check and the transaction insert in
+`begin_write`, the same serialisation `create_banking` already uses for
+exactly this reason.
+*Verify:* the same concurrent-close-vs-unpaid-create test yields zero
+transaction rows whose `created_at` (or DB-commit-order, per the polling
+method above) falls after `business_days.status` reads `'closed'` for that
+date, across at least 8 trials.
+
+**H.32 `physical_cash_paise` has no bound** — every other money field in the
+codebase is `Field(ge=0/ge=_INT64_MIN, le=_INT64_MAX)`;
+`backend/app/closing.py:105` is bare `int | None`. Two reproductions:
+- `POST /day/{date}/close {physical_cash_paise: -100000, remarks: "neg"}` →
+  **201**, and wrote a real `entry_type='adjustment'` ledger row of
+  **−₹6,340.01** — a drawer cannot physically hold negative cash, and the day
+  is now sealed with no reopen path (Phase 8.7 doesn't exist yet).
+- `POST /day/{date}/close {physical_cash_paise: 10**19, remarks: "huge"}` →
+  **500 Internal Server Error** (the resulting `variance` overflows int64 on
+  insert; the close's own rollback is clean, so a follow-up close of the same
+  date succeeded).
+*Verify:* `physical_cash_paise: -100000` returns 422, not 201; `10**19`
+returns 422, not 500; a genuine non-negative count still closes normally.
+
+Ordered by severity. H.33–H.35 block use.
+
+**H.33 Reports page throws an uncaught `TypeError` and white-screens the
+whole app** — `src/pages/Reports.tsx:279-280` (and the CSV builder at
+:121-124) do `dayReport!.accounts.map(...)`, guarded only by
+`dayLoading || dayError`. react-query has a third state — `data === undefined`
+with `isLoading === false` and `error === null`, which a query sits in while
+backing off after a failed fetch — that neither guard covers. Reproduced:
+open `/reports` (Daily tab), stop the backend — the page goes blank, the
+sidebar disappears, and the console shows
+`TypeError: Cannot read properties of undefined (reading 'accounts')` at
+`Reports.tsx:626`, with no error boundary anywhere in the tree to catch it.
+Network log confirms the underlying fetch returned 502. Same gap, not a new
+one, as H.8's "silence and zero must be visually distinct" — here it's worse,
+silence crashes the page instead of showing a wrong number.
+*Verify:* stop the backend and open `/reports` — the Daily tab renders an
+explicit error/empty state, never a blank page; no uncaught exception in the
+console.
+
+**H.34 An id past SQLite's 64-bit range 500s on every Phase-5/6-reachable
+write path** — `accounts._get_or_404` and `customers._get_or_404` lack the
+`OverflowError` catch `banking._get_or_404` already has
+(`backend/app/banking.py:75-84`). Reproduced across six call sites, all
+**500**: `POST /banking {settlement_account_id: 10**19}`,
+`POST /transactions {account_id: 10**19}`,
+`POST /transactions {customer_id: 10**19}`,
+`POST /expenses {account_id: 10**19}`,
+`POST /transfers {from_account_id: 10**19}`, and
+`GET /banking/commission-summary?account_id=10**19`. `GET /banking/10**19`
+itself correctly 404s — the fix pattern already exists in the repo, it's
+just not shared to `accounts.py`/`customers.py`. This is app-wide, not new to
+this phase, but is now reachable through every Phase 5/6 endpoint that
+resolves an account or customer id.
+*Verify:* each of the six calls above returns 404, not 500.
+
+**H.35 Closing an untouched future date locks it permanently, with no
+confirmation** — `close_day` auto-opens any date with no prior row
+(`ensure_business_day_open`) and closes it in the same call, with no bound on
+how far in the future `business_date` can be. Reproduced:
+`GET /day/2030-06-15` → `{"status":"open","opened_at":null}`;
+`POST /day/2030-06-15/close` → **201**, writing 6 `daily_account_balance`
+rows for accounts that had never posted a single entry on that date; a
+follow-up `POST /transactions {business_date:"2030-06-15"}` → **409, forever**
+— there is no reopen path until Phase 8.7. One fat-fingered year in the close
+dialog bricks that date.
+*Verify:* `POST /day/{date}/close` for a `business_date` after the server's
+current date returns 400; closing today's date or an already-open past date
+still succeeds.
+
+Ordered by severity. H.36–H.41 show the operator a wrong number.
+
+**H.36 `/api/banking/commission-summary` double-counts reversed commission**
+— it filters `l.entry_type = 'commission'` only (`backend/app/banking.py:141`);
+PLAN 7.8's `with_reversals_sql` fix was applied to `reports.py`'s
+`banking-commission` endpoint but never to this one, so the two disagree.
+Reproduced in the browser: created an AEPS entry (₹5,000 principal / ₹50
+commission) via the form, then corrected its commission to ₹80. Banking
+page's "Total Commission" tile read **₹130.00** (5000-scale confusion aside,
+the raw commission figures: 50 + 80); the row itself, `/reports/banking-commission`,
+`/reports/profit-loss` and `/api/dashboard` all agreed on the correct net,
+**₹80.00 / 8000 paise**. A second case (correction 5000→8000 paise plus a
+deleted 2000-paise-commission entry) showed `commission-summary` at
+**16000** against a true net of **9000** — a 78% overstatement that a delete
+afterward left unchanged while the report correctly moved to 1000.
+*Verify:* correct then delete banking commission entries on one account;
+`GET /banking/commission-summary` and `GET /reports/banking-commission` for
+the same account/period return identical totals, both matching the direct
+ledger net.
+
+**H.37 Daily Closing's "Total Income" / "Net Profit" tiles are
+`received_paise`, which bundles in opening balances and customer
+settlements** — `src/pages/DailyClosing.tsx:57-58` label
+`report.totals.received_paise` as "Total Income" and `received − paid` as
+"Net Profit"; `backend/app/closing.py:25` buckets `opening_balance` *and*
+`customer_payment` into `received_paise`, both of which
+`ledger.income_expenses` (the definition every other income figure in the
+app uses) deliberately excludes. Reproduced on the 5 Aug 2026 closing report:
+tiles read **"Total Income ₹15,30,129.99" / "Net Profit ₹15,30,129.99"**
+against a true `income_expenses` figure for that date of **₹80.00** — the
+difference is ₹15,29,999.99 of same-day account opening balances. The PRD
+§6 reconciliation arithmetic itself is correct (opening + received − paid +
+transfer_in − transfer_out + adjustment = closing, verified exactly); only
+the *label* on `received_paise` is wrong.
+*Verify:* on a date with an account opened (an `opening_balance` entry) or a
+customer settlement, the closing report's income/profit tiles either use
+`ledger.income_expenses`'s figure (matching the dashboard) or are relabeled
+to reflect what `received_paise` actually is — pick one and confirm the tile
+no longer reads as unbilled income.
+
+**H.38 `cash_variance_paise` folds unrelated reversal rows into the
+physical-count variance** — `_BREAKDOWN_SQL`'s `adjustment_paise` bucket is
+`entry_type IN ('adjustment','reversal')` (`backend/app/closing.py:29`), and
+`cash_variance_paise` is read straight from it (:90), even though the
+variance-entry insert already tags itself distinctly
+(`source_type="closing"`, :127-131). Reproduced: physical count of ₹10,000
+against a system balance of ₹10,241.00 (a genuine −₹241.00 shortfall);
+after locking, the closing report and the sealed `daily_account_balance` row
+both read **Cash Variance −₹5,291.00** — composed of the real −₹24100 plus
+−₹500000 and −₹5000 from an unrelated banking correction's reversal rows
+posted the same day. A ₹5,050.00 phantom till discrepancy gets sealed into
+the permanent record.
+*Verify:* on a date with both a genuine physical-count variance and an
+unrelated correction/deletion (which posts `entry_type='reversal'` rows),
+`cash_variance_paise` equals only the counted variance.
+
+**H.39 Dashboard "Cash in Hand" sums the entire ledger with no date bound,
+disagreeing with Daily Closing and Reports for the same account** —
+`backend/app/dashboard.py:25-31` has no `business_date` filter at all, unlike
+`ledger.closing_balance` (`business_date <= D`) which Daily Closing and
+Reports both use. Reproduced: Dashboard read "Cash in Hand ₹25,858.10" while
+DailyClosing/Reports read "Closing Cash Balance ₹10,000.00" for the same
+account, same moment. Cause is reachable through the public API with no
+bound check — `POST /transactions {business_date: "9999-12-31", ...}`
+returned **201** and moved `cash_in_hand_paise` on the *2027-03-01* dashboard
+from ₹20,931.10 to **₹37,931.10** (+₹17,000.00); `business_date: "0001-01-01"`
+was accepted too.
+*Verify:* dashboard's `cash_in_hand_paise`/`total_bank_balance_paise` for
+date D match `ledger.closing_balance` summed over cash/non-cash accounts as
+of D; a ledger entry dated after D no longer moves D's dashboard figures.
+
+**H.40 Reports "Daily Report" Cash Summary (and its CSV export) don't add
+up** — `src/pages/Reports.tsx:262-265` and the CSV builder at :121-124 render
+only opening/received/paid/closing, dropping `transfer_in`, `transfer_out`
+and `adjustment` from the same `cashRow` object that already carries them.
+Reproduced: **"Opening ₹5,161.00 + Received ₹130.00 − Paid ₹0.00 ="** shown
+next to **"Closing ₹10,000.00"** — 5,161 + 130 = 5,291, not 10,000; the
+missing ₹4,709 was a transfer that never appears on the card. PLAN 7.7's
+*Verify* ("exported CSV totals match the on-screen totals") technically
+passes — both surfaces are wrong the same way.
+*Verify:* on a date with a transfer or adjustment entry, the Cash Summary
+card's displayed rows sum to its own displayed closing figure, on screen and
+in the exported CSV.
+
+**H.41 Dashboard panels show "no data" instead of an error state when the
+API is offline — the H.8 gap recurring on the new panels** — the eight stat
+tiles are correctly gated behind `statsReady` and vanish, but "Today's
+Transactions" and "Service Breakdown" fall through to their empty-result
+copy regardless of *why* the query has no data. Reproduced: backend stopped,
+`/dashboard` open — the two panels persistently read **"No transactions yet
+today."** and **"No services rendered today."** (network log:
+`GET /transactions?... → 502`) while the header correctly shows "API
+Offline" — an operator glancing at just the panel sees a quiet day, not a
+broken one.
+*Verify:* stop the backend and load `/dashboard` — both panels show an
+explicit error/offline state, never their empty-result copy.
+
+Ordered by severity. H.42 is a rejected-input gap.
+
+**H.42 `/api/reports/monthly` accepts nonsense years** — `year` has no
+bound while `month` does (`backend/app/reports.py:21-25`). Reproduced, all
+**200**: `year=0` → `start_date: "0000-02-01"`; `year=-5` →
+`"-005-02-01"`; `year=99999` → `"99999-02-01"`; `year=10**19` →
+`"10000000000000000000-02-01"` — none are valid ISO dates, and all four flow
+straight into the CSV export.
+*Verify:* `year=0`, `year=-5`, `year=99999` and `year=10**19` each return
+400; `year=2026` still returns 200.
+
+**H.43 Regression tests for the above** — extend
+`backend/tests/test_edge_cases.py` in the existing plain-`assert` style
+(`ARCHITECTURE.md` §8) to cover H.29–H.32, H.34, H.35, H.36, H.39 and H.42,
+reusing the file's threadpool helper for H.31's race. H.33, H.37, H.38 and
+H.40–H.41 are frontend-only and cannot be covered there: H.37/H.38 are a
+label/bucket-math fix best asserted against `closing.py`'s own
+`_day_breakdown` output in a backend test where possible, falling back to a
+browser walk for the rest — walk each of H.33, H.40 and H.41's *Verify*
+lines in the browser once their fixes land.
+*Verify:* the file fails against today's code on every one of H.29–H.32,
+H.34–H.36, H.39 and H.42, and passes after they land.
+
+**Not scheduled, recorded deliberately.** Several behaviours were observed
+but are policy calls or too marginal to schedule:
+- Non-money `PATCH` fields (`remarks`, `customer_id`, `service_id`, `note`)
+  on banking/transaction/expense rows still return 200 after their date is
+  closed, while money-changing fields correctly 409. Whether audit-trail
+  metadata should also freeze on a closed day is a call for Phase 8.3's audit
+  log design, not this pass.
+- Pydantic's default lax coercion accepts numeric strings and booleans for
+  every `*_paise` field app-wide (`"1000"` → `1000`, `true` → `1`), not just
+  in this phase's endpoints. Harmless while the frontend only ever sends
+  numbers; revisit with `strict=True` if an API consumer outside the frontend
+  is ever added.
+- `_primary_cash_account_id` (`backend/app/closing.py:94-101`) returns `None`
+  silently when no `account_type='cash'` account exists, and `close_day`
+  then skips the physical-variance step entirely with no error. Never
+  exercised — the seed data always has one cash account.
+- `list_banking`/`list_ledger`-style endpoints clamp an out-of-range `limit`
+  up to the 500 cap rather than down to the 50 default (so `limit=-1`
+  returns 500 rows) — this is H.6's existing, deliberate behavior recurring
+  in the new endpoints, not a new decision.
+- A deactivated account ("Dead Wallet", `is_active=0`) was observed still
+  listed in the closing report's per-account breakdown; didn't confirm
+  whether its `DELETE` had actually failed or the report's account filter is
+  deliberately `deleted_at`-only. Flagged for a follow-up look, not a finding.
+- Profit & Loss renders a "₹0.00" row for a fully-reversed expense category
+  rather than omitting it — cosmetic, unconfirmed as intentional.
+- Banking's delete confirmation is a native `window.confirm`
+  (`src/pages/Banking.tsx:213`), which blocks Chrome DevTools Protocol and
+  therefore any future Playwright/E2E coverage of that path. Not a product
+  defect; worth swapping to the app's own dialog component if one exists by
+  the time E2E tooling is added (ARCHITECTURE.md §8).
+
+---
+
 ## Phase 8 — Auth, audit & backup
 
 **8.1 Auth API** — `users`, bcrypt hashing, login/logout, session token.
@@ -890,3 +1214,17 @@ catalogued. There is no lint or test that catches "this new endpoint needs
 `begin_write`" short of a parallel probe in its *Verify* line — the same
 conclusion H.11's risk note already reached, restated because it recurred
 on the very next phase.
+
+**A guard checked "when X changed" is not the same as a guard (H.29–H.31).**
+`ensure_business_day_open` exists as one shared function precisely so the
+closed-day rule only has to be right once, but every call site still decides
+*whether* to call it from derived state — `if date_changed`, `if live_entry
+is not None`, whether `insert_entry` happens to run at all for this request.
+A pending transaction has no live entry, a delete path forgot the call
+entirely, and an unpaid create's one check runs unlocked before an
+unconditional commit. Three different call sites, three different reasons
+the same shared guard didn't fire — the lesson from `begin_write` above
+applies just as much to `ensure_business_day_open`: a helper that exists
+doesn't help unless every write path that can reach the ledger calls it
+unconditionally, not just the paths exercised by that phase's own sequential
+tests.

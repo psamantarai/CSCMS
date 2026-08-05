@@ -161,6 +161,39 @@ def test_opening_balance_for_the_next_day_equals_this_days_closing():
         conn.close()
 
 
+def test_negative_physical_cash_rejected_at_pydantic_boundary():
+    # H.32: physical_cash_paise used to be bare int | None — a negative count
+    # (a drawer can't physically hold negative cash) returned 201 and posted
+    # a real negative adjustment entry onto a now-sealed day.
+    try:
+        CloseDayRequest(physical_cash_paise=-100000, remarks="neg")
+        assert False, "a negative physical_cash_paise must be rejected"
+    except Exception as e:
+        assert "ValidationError" in type(e).__name__
+
+
+def test_overflowing_physical_cash_rejected_at_pydantic_boundary():
+    # H.32: an out-of-int64-range count used to reach the variance
+    # computation and 500 on insert instead of being rejected up front.
+    try:
+        CloseDayRequest(physical_cash_paise=10**19, remarks="huge")
+        assert False, "an overflowing physical_cash_paise must be rejected"
+    except Exception as e:
+        assert "ValidationError" in type(e).__name__
+
+
+def test_genuine_non_negative_count_still_closes_normally():
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id = conn.execute("SELECT id FROM accounts WHERE name = 'Cash Drawer'").fetchone()[0]
+        _fund_cash(conn, cash_id, 300000, "2026-10-17")
+
+        result = close_day("2026-10-17", CloseDayRequest(physical_cash_paise=300000), conn)
+        assert result["status"] == "closed"
+        assert result["cash_variance_paise"] == 0
+        conn.close()
+
+
 if __name__ == "__main__":
     test_untouched_date_reads_as_open()
     test_close_with_no_variance_needs_no_remarks()
@@ -169,4 +202,7 @@ if __name__ == "__main__":
     test_snapshot_matches_derived_balances_exactly()
     test_report_reconciles_with_the_ledger_before_and_after_close()
     test_opening_balance_for_the_next_day_equals_this_days_closing()
+    test_negative_physical_cash_rejected_at_pydantic_boundary()
+    test_overflowing_physical_cash_rejected_at_pydantic_boundary()
+    test_genuine_non_negative_count_still_closes_normally()
     print("OK")

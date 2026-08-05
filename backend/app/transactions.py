@@ -199,13 +199,7 @@ def list_transactions(
 
 @router.post("", status_code=201)
 def create_transaction(body: TransactionCreate, conn: sqlite3.Connection = Depends(get_db)):
-    # H.13: this row is written before insert_entry ever runs, and
-    # insert_entry is skipped entirely for an unpaid bill — so business_date
-    # has to be checked here too, not only inside the ledger. PLAN 6.1/6.3:
-    # same reasoning for open/closed — an unpaid transaction never reaches
-    # insert_entry's own guard.
     validate_business_date(body.business_date)
-    ensure_business_day_open(conn, body.business_date)
     _get_service_or_404(conn, body.service_id)
     _get_account_or_404(conn, body.account_id)
     if body.customer_id is not None:
@@ -216,22 +210,37 @@ def create_transaction(body: TransactionCreate, conn: sqlite3.Connection = Depen
     # why the server must too, since that's the side that can be bypassed.
     if body.amount_paid_paise > total_paise:
         raise HTTPException(status_code=400, detail="amount paid exceeds the transaction total")
-    user_id = _system_user_id(conn)
 
-    cur = conn.execute(
-        "INSERT INTO transactions "
-        "(business_date, customer_id, service_id, fee_paise, charge_paise, discount_paise, "
-        "total_paise, account_id, operator_id, status, remarks) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)",
-        (body.business_date, body.customer_id, body.service_id, body.fee_paise, body.charge_paise,
-         body.discount_paise, total_paise, body.account_id, user_id, body.remarks),
-    )
-    transaction_id = cur.lastrowid
+    # H.31: begin_write must wrap the closed-day check *and* the INSERT
+    # below, not just precede it — an unpaid transaction (amount_paid_paise
+    # == 0) never reaches insert_entry's own re-verified guard (skipped at
+    # :~250), so without this lock a concurrent close could land between the
+    # check and the write, same TOCTOU create_banking already guards against.
+    # ensure_business_day_open does its own write (auto-open) and so must
+    # run after begin_write too — sqlite3 auto-BEGINs on that write, and a
+    # later begin_write() in an already-open transaction raises.
+    begin_write(conn)
+    try:
+        # H.13: this row is written before insert_entry ever runs, and
+        # insert_entry is skipped entirely for an unpaid bill — so
+        # business_date has to be checked here too, not only inside the
+        # ledger. PLAN 6.1/6.3: same reasoning for open/closed.
+        ensure_business_day_open(conn, body.business_date)
+        user_id = _system_user_id(conn)
 
-    # ARCHITECTURE.md §3: post only the amount actually paid, never the
-    # billed total — the unpaid remainder isn't a ledger row at all.
-    if body.amount_paid_paise > 0:
-        try:
+        cur = conn.execute(
+            "INSERT INTO transactions "
+            "(business_date, customer_id, service_id, fee_paise, charge_paise, discount_paise, "
+            "total_paise, account_id, operator_id, status, remarks) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)",
+            (body.business_date, body.customer_id, body.service_id, body.fee_paise, body.charge_paise,
+             body.discount_paise, total_paise, body.account_id, user_id, body.remarks),
+        )
+        transaction_id = cur.lastrowid
+
+        # ARCHITECTURE.md §3: post only the amount actually paid, never the
+        # billed total — the unpaid remainder isn't a ledger row at all.
+        if body.amount_paid_paise > 0:
             insert_entry(
                 conn, business_date=body.business_date, account_id=body.account_id,
                 amount_paise=body.amount_paid_paise, entry_type="service_income",
@@ -248,12 +257,12 @@ def create_transaction(body: TransactionCreate, conn: sqlite3.Connection = Depen
                      transaction_id, body.remarks),
                 )
             recompute_status(conn, transaction_id)
-        except Exception:
-            # roll back the transaction row inserted above too — same
-            # uncommitted DB transaction, matching insert_transfer_pair's
-            # all-or-nothing pattern in ledger.py.
-            conn.rollback()
-            raise
+    except Exception:
+        # roll back the transaction row inserted above too — same
+        # uncommitted DB transaction, matching insert_transfer_pair's
+        # all-or-nothing pattern in ledger.py.
+        conn.rollback()
+        raise
 
     conn.commit()
     row = conn.execute("SELECT * FROM transactions WHERE id = ?", (transaction_id,)).fetchone()
@@ -304,13 +313,18 @@ def correct_transaction(transaction_id: int, body: TransactionCorrection, conn: 
             # below, so N concurrent corrections of the same transaction
             # can't all find and reverse the same live entry.
             begin_write(conn)
-            # PLAN 6.3: a fully-pending (unpaid) transaction has no live
-            # entry, so insert_entry's own guard below would never fire for
-            # a pure date move — same gap H.13 names for format validation.
-            # Must run after begin_write: ensure_business_day_open does its
-            # own write (auto-open), and sqlite3 auto-BEGINs on that, so a
-            # begin_write() afterwards would hit "transaction within a
-            # transaction".
+            # H.29: gating this on date_changed let any correction that left
+            # the date alone (a pending transaction, whose amount never
+            # reaches insert_entry's own guard below since no live entry
+            # exists to find; or a partially-paid one whose recomputed
+            # amount happens to match the live entry) skip the closed-day
+            # check entirely. The resource's *current* business_date must be
+            # checked unconditionally here, not only when the correction
+            # happens to move it. Must run after begin_write:
+            # ensure_business_day_open does its own write (auto-open), and
+            # sqlite3 auto-BEGINs on that, so a begin_write() afterwards
+            # would hit "transaction within a transaction".
+            ensure_business_day_open(conn, txn["business_date"])
             if date_changed:
                 ensure_business_day_open(conn, new_business_date)
             live_entry = conn.execute(

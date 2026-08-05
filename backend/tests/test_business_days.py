@@ -252,12 +252,14 @@ def test_money_correction_of_a_transaction_on_a_closed_date_is_rejected():
         conn.close()
 
 
-def test_banking_money_correction_on_a_closed_date_is_rejected_but_deletion_still_works():
-    """Same reasoning as the transaction tests above: a money-changing
-    correction needs a fresh replacement entry on the closed date, so it's
-    rejected. Deletion, by contrast, only reverses the existing live entries
-    (entry_type='reversal', exempt from the guard — see ensure_business_day_
-    open's docstring) and posts no replacement, so it still works."""
+def test_banking_correction_and_deletion_on_a_closed_date_are_both_rejected():
+    """A money-changing correction needs a fresh replacement entry on the
+    closed date, so it's rejected. H.30: deletion used to be let through —
+    it only reverses the existing live entries (entry_type='reversal',
+    exempt from the guard — see ensure_business_day_open's docstring) and
+    posts no replacement, so nothing caught it — but that silently changed a
+    sealed day's numbers after close, so delete_banking now checks the
+    resource's own business_date explicitly too."""
     with tempfile.TemporaryDirectory() as tmp:
         conn = _seeded_conn(Path(tmp))
         cash_id, sbi_id = _accounts(conn)
@@ -274,9 +276,13 @@ def test_banking_money_correction_on_a_closed_date_is_rejected_but_deletion_stil
         except Exception as e:
             assert "409" in str(e)
 
-        delete_banking(row["id"], conn)
+        try:
+            delete_banking(row["id"], conn)
+            assert False, "deleting a closed-date banking entry must be rejected"
+        except Exception as e:
+            assert "409" in str(e)
         deleted = conn.execute("SELECT deleted_at FROM banking_transactions WHERE id = ?", (row["id"],)).fetchone()
-        assert deleted["deleted_at"] is not None
+        assert deleted["deleted_at"] is None
         conn.close()
 
 
@@ -289,5 +295,5 @@ if __name__ == "__main__":
     test_moving_a_transaction_onto_a_closed_date_is_rejected()
     test_non_money_correction_of_a_transaction_on_a_closed_date_still_works()
     test_money_correction_of_a_transaction_on_a_closed_date_is_rejected()
-    test_banking_money_correction_on_a_closed_date_is_rejected_but_deletion_still_works()
+    test_banking_correction_and_deletion_on_a_closed_date_are_both_rejected()
     print("OK")

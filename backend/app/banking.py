@@ -249,6 +249,12 @@ def update_banking(banking_id: int, body: BankingUpdate, conn: sqlite3.Connectio
             # its own write (auto-open) and so must run after begin_write
             # too — see create_banking's comment.
             begin_write(conn)
+            # H.30: checking only the new date let a correction move money
+            # *off* an already-closed date — the reversal below is exempt
+            # from ensure_business_day_open (ledger.py), so nothing else
+            # would catch it. Check the resource's *current* business_date
+            # too, same fix as correct_transaction (H.29).
+            ensure_business_day_open(conn, txn["business_date"])
             ensure_business_day_open(conn, new_business_date)  # PLAN 6.3: same balance_enquiry-with-no-commission gap as create
             user_id = _system_user_id(conn)
             for entry in _live_ledger_entries(conn, banking_id):
@@ -289,7 +295,11 @@ def delete_banking(banking_id: int, conn: sqlite3.Connection = Depends(get_db)):
     # same entry twice.
     begin_write(conn)
     try:
-        _get_or_404(conn, banking_id)
+        txn = _get_or_404(conn, banking_id)
+        # H.30: delete_banking called ensure_business_day_open nowhere at
+        # all — a delete on a closed date posted its reversal straight onto
+        # the sealed day. Must run after begin_write, same as update_banking.
+        ensure_business_day_open(conn, txn["business_date"])
         user_id = _system_user_id(conn)
         for entry in _live_ledger_entries(conn, banking_id):
             reverse_entry(conn, entry_id=entry["id"], created_by=user_id,

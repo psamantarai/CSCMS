@@ -14,7 +14,7 @@ from pydantic import BaseModel, Field, field_validator
 from app.accounts import _get_active_or_404 as _get_account_or_404
 from app.accounts import _system_user_id
 from app.db import begin_write, get_db
-from app.ledger import account_balance, insert_entry, reverse_entry, validate_business_date
+from app.ledger import account_balance, ensure_business_day_open, insert_entry, reverse_entry, validate_business_date
 
 router = APIRouter(prefix="/api/expenses", tags=["expenses"])
 
@@ -234,6 +234,13 @@ def update_expense(expense_id: int, body: ExpenseUpdate, conn: sqlite3.Connectio
             # and the balance guard below, same reasoning as
             # correct_transaction.
             begin_write(conn)
+            # H.30: update_expense called ensure_business_day_open nowhere
+            # at all — reverse_entry's offsetting row is exempt from the
+            # guard, so a correction could move money off an already-closed
+            # date with nothing else to catch it. Check the resource's
+            # *current* business_date; the new date is still covered by
+            # insert_entry's own guard below whenever a live entry exists.
+            ensure_business_day_open(conn, expense["business_date"])
             live_entry = _live_ledger_entry(conn, expense_id)
             if live_entry is not None:
                 # the old amount returns to its account first, so the
@@ -278,7 +285,11 @@ def delete_expense(expense_id: int, conn: sqlite3.Connection = Depends(get_db)):
     # cleanly 404ing.
     begin_write(conn)
     try:
-        _get_or_404(conn, expense_id)
+        expense = _get_or_404(conn, expense_id)
+        # H.30: delete_expense called ensure_business_day_open nowhere at
+        # all — a delete on a closed date posted its reversal straight onto
+        # the sealed day. Must run after begin_write, same as update_expense.
+        ensure_business_day_open(conn, expense["business_date"])
         live_entry = _live_ledger_entry(conn, expense_id)
         if live_entry is not None:
             reverse_entry(conn, entry_id=live_entry["id"], created_by=_system_user_id(conn),

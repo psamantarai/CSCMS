@@ -7,11 +7,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from fastapi import HTTPException
+
 from app.accounts import AccountCreate, AccountUpdate, create_account, update_account
 from app.banking import (
     BankingCreate, BankingUpdate, _live_ledger_entries, commission_summary,
     create_banking, delete_banking, list_banking, update_banking,
 )
+from app.closing import CloseDayRequest, close_day
 from app.db import get_connection, run_migrations
 from app.ledger import account_balance
 from app.seed import run_seed
@@ -187,6 +190,61 @@ def test_delete_reverses_all_live_entries():
         conn.close()
 
 
+def test_correction_moving_money_off_a_closed_date_rejected():
+    # H.30: update_banking checked only the *new* business_date, so a
+    # correction that changed principal/commission while leaving the date
+    # alone on an already-closed day sailed through — reverse_entry's
+    # offsetting row is itself exempt from the closed-day guard.
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id, sbi_id = _accounts(conn)
+
+        row = create_banking(
+            BankingCreate(business_date="2026-08-05", txn_type="withdrawal", principal_paise=500000,
+                           commission_paise=5000, settlement_account_id=sbi_id, cash_account_id=cash_id),
+            conn,
+        )
+        close_day("2026-08-05", CloseDayRequest(), conn)  # no physical_cash_paise -> variance check skipped
+
+        try:
+            update_banking(row["id"], BankingUpdate(principal_paise=200000), conn)
+            assert False, "correcting a banking transaction on a closed day must be rejected"
+        except HTTPException as e:
+            assert e.status_code == 409
+
+        unchanged = conn.execute(
+            "SELECT principal_paise FROM banking_transactions WHERE id = ?", (row["id"],)
+        ).fetchone()
+        assert unchanged["principal_paise"] == 500000
+
+        conn.close()
+
+
+def test_delete_on_a_closed_date_rejected():
+    # H.30: delete_banking called ensure_business_day_open nowhere at all.
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id, sbi_id = _accounts(conn)
+
+        row = create_banking(
+            BankingCreate(business_date="2026-08-05", txn_type="deposit", principal_paise=300000,
+                           commission_paise=3000, settlement_account_id=sbi_id, cash_account_id=cash_id),
+            conn,
+        )
+        close_day("2026-08-05", CloseDayRequest(), conn)  # no physical_cash_paise -> variance check skipped
+
+        try:
+            delete_banking(row["id"], conn)
+            assert False, "deleting a banking transaction on a closed day must be rejected"
+        except HTTPException as e:
+            assert e.status_code == 409
+
+        live = _live_ledger_entries(conn, row["id"])
+        assert len(live) == 3, "the original entries must remain live, untouched"
+
+        conn.close()
+
+
 def test_list_filters_by_business_date_and_txn_type():
     with tempfile.TemporaryDirectory() as tmp:
         conn = _seeded_conn(Path(tmp))
@@ -246,6 +304,8 @@ if __name__ == "__main__":
     test_withdrawal_from_deactivated_settlement_account_rejected()
     test_correction_reverses_old_entries_and_posts_new_ones()
     test_delete_reverses_all_live_entries()
+    test_correction_moving_money_off_a_closed_date_rejected()
+    test_delete_on_a_closed_date_rejected()
     test_list_filters_by_business_date_and_txn_type()
     test_commission_summary_matches_direct_ledger_query()
     print("OK")

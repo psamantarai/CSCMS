@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from fastapi import HTTPException
 
 from app.accounts import AccountCreate, AccountUpdate, create_account, update_account
+from app.closing import CloseDayRequest, close_day
 from app.db import get_connection, run_migrations
 from app.expenses import (
     CategoryCreate,
@@ -301,6 +302,54 @@ def test_delete_reverses_ledger_entry_and_soft_deletes():
         conn.close()
 
 
+def test_amount_correction_on_a_closed_date_rejected():
+    # H.30: update_expense called ensure_business_day_open nowhere at all —
+    # reverse_entry's offsetting row is itself exempt from the closed-day
+    # guard, so a money-changing correction on a closed date sailed through.
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id = _funded_cash(conn)
+        expense = create_expense(
+            ExpenseCreate(business_date="2026-08-04", category="Paper", amount_paise=1000, account_id=cash_id), conn
+        )
+        close_day("2026-08-04", CloseDayRequest(), conn)  # no physical_cash_paise -> variance check skipped
+
+        try:
+            update_expense(expense["id"], ExpenseUpdate(amount_paise=2000), conn)
+            assert False, "correcting an expense on a closed day must be rejected"
+        except HTTPException as e:
+            assert e.status_code == 409
+
+        unchanged = conn.execute("SELECT amount_paise FROM expenses WHERE id = ?", (expense["id"],)).fetchone()
+        assert unchanged["amount_paise"] == 1000
+
+        conn.close()
+
+
+def test_delete_on_a_closed_date_rejected():
+    # H.30: delete_expense called ensure_business_day_open nowhere at all.
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id = _funded_cash(conn)
+        expense = create_expense(
+            ExpenseCreate(business_date="2026-08-04", category="Paper", amount_paise=1000, account_id=cash_id), conn
+        )
+        close_day("2026-08-04", CloseDayRequest(), conn)
+
+        try:
+            delete_expense(expense["id"], conn)
+            assert False, "deleting an expense on a closed day must be rejected"
+        except HTTPException as e:
+            assert e.status_code == 409
+
+        rows = conn.execute(
+            "SELECT * FROM ledger WHERE source_type = 'expense' AND source_id = ?", (expense["id"],)
+        ).fetchall()
+        assert len(rows) == 1, "the original entry must remain live, untouched"
+
+        conn.close()
+
+
 def test_unknown_expense_rejected():
     with tempfile.TemporaryDirectory() as tmp:
         conn = _seeded_conn(Path(tmp))
@@ -566,6 +615,8 @@ if __name__ == "__main__":
     test_account_correction_moves_the_ledger_between_accounts()
     test_amount_only_patch_onto_deactivated_account_rejected()
     test_delete_reverses_ledger_entry_and_soft_deletes()
+    test_amount_correction_on_a_closed_date_rejected()
+    test_delete_on_a_closed_date_rejected()
     test_unknown_expense_rejected()
     test_out_of_range_expense_id_returns_404_not_500()
     test_explicit_null_on_not_null_field_rejected()

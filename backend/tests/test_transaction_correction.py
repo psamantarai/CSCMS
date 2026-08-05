@@ -10,6 +10,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from fastapi import HTTPException
 
 from app.accounts import AccountCreate, AccountUpdate, create_account, update_account
+from app.closing import CloseDayRequest, close_day
 from app.customers import CustomerCreate, create_customer
 from app.db import get_connection, run_migrations
 from app.ledger import account_balance
@@ -320,6 +321,95 @@ def test_correction_onto_deactivated_account_rejected():
         conn.close()
 
 
+def test_correction_of_pending_transaction_on_closed_day_rejected():
+    # H.29: ensure_business_day_open used to run only `if date_changed`, so a
+    # pure amount correction of a pending (unpaid) transaction — which never
+    # reaches insert_entry's own guard, since no live ledger entry exists to
+    # find — skipped the closed-day check entirely.
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id, service_id = _cash_and_service(conn)
+
+        txn = create_transaction(
+            TransactionCreate(business_date="2026-08-04", service_id=service_id,
+                               fee_paise=100, account_id=cash_id),
+            conn,
+        )
+        close_day("2026-08-04", CloseDayRequest(physical_cash_paise=0), conn)
+
+        try:
+            correct_transaction(txn["id"], TransactionCorrection(fee_paise=777), conn)
+            assert False, "correcting a transaction on a closed day must be rejected"
+        except HTTPException as e:
+            assert e.status_code == 409
+
+        unchanged = conn.execute("SELECT total_paise FROM transactions WHERE id = ?", (txn["id"],)).fetchone()
+        assert unchanged["total_paise"] == 100
+
+        conn.close()
+
+
+def test_correction_of_partially_paid_transaction_on_closed_day_rejected():
+    # H.29: a customer transaction's live entry only tracks the amount paid
+    # at creation (see test_customer_bill_correction_does_not_touch_ledger),
+    # so a fee correction that leaves that live amount unchanged never enters
+    # the `if live_entry is not None:` branch either — the only other route
+    # to a guard. Both gaps close the same way: check the closed-day guard
+    # unconditionally, not only when one of those branches happens to fire.
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id, service_id = _cash_and_service(conn)
+        customer = create_customer(CustomerCreate(name="Ramesh"), conn)
+
+        txn = create_transaction(
+            TransactionCreate(business_date="2026-08-04", customer_id=customer["id"], service_id=service_id,
+                               fee_paise=200, account_id=cash_id, amount_paid_paise=150),
+            conn,
+        )
+        close_day("2026-08-04", CloseDayRequest(physical_cash_paise=150), conn)
+
+        try:
+            correct_transaction(txn["id"], TransactionCorrection(fee_paise=300), conn)
+            assert False, "correcting a transaction on a closed day must be rejected"
+        except HTTPException as e:
+            assert e.status_code == 409
+
+        unchanged = conn.execute("SELECT total_paise FROM transactions WHERE id = ?", (txn["id"],)).fetchone()
+        assert unchanged["total_paise"] == 200
+
+        conn.close()
+
+
+def test_correction_moving_a_transaction_off_a_closed_date_rejected():
+    # H.30: date_changed corrections checked only the *new* business_date,
+    # never the transaction's original one — moving a paid transaction off
+    # an already-closed date posted a reversal straight onto that sealed
+    # day, since reverse_entry's offsetting row is itself guard-exempt.
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id, service_id = _cash_and_service(conn)
+
+        txn = create_transaction(
+            TransactionCreate(business_date="2026-08-04", service_id=service_id,
+                               fee_paise=150, account_id=cash_id, amount_paid_paise=150),
+            conn,
+        )
+        close_day("2026-08-04", CloseDayRequest(), conn)  # no physical_cash_paise -> variance check skipped
+
+        try:
+            correct_transaction(txn["id"], TransactionCorrection(business_date="2026-08-05"), conn)
+            assert False, "moving a transaction off a closed day must be rejected"
+        except HTTPException as e:
+            assert e.status_code == 409
+
+        rows = conn.execute(
+            "SELECT * FROM ledger WHERE source_type = 'transaction' AND source_id = ?", (txn["id"],)
+        ).fetchall()
+        assert len(rows) == 1, "the original entry must remain live, untouched"
+
+        conn.close()
+
+
 def test_concurrent_account_corrections_never_double_reverse_the_same_entry():
     # H.11/H.9: without begin_write, N concurrent corrections of the same
     # transaction all read the same live entry and each reverses it — 8
@@ -390,5 +480,8 @@ if __name__ == "__main__":
     test_unknown_transaction_rejected()
     test_explicit_null_on_not_null_field_rejected()
     test_correction_onto_deactivated_account_rejected()
+    test_correction_of_pending_transaction_on_closed_day_rejected()
+    test_correction_of_partially_paid_transaction_on_closed_day_rejected()
+    test_correction_moving_a_transaction_off_a_closed_date_rejected()
     test_concurrent_account_corrections_never_double_reverse_the_same_entry()
     print("OK")
