@@ -5,6 +5,14 @@ import { queryKeys } from "../lib/queries"
 import { fmt, formatDate, fromPaise } from "../lib/format"
 import { TableRowState } from "../components/QueryState"
 import ExpenseForm from "../components/forms/ExpenseForm"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Field, FieldLabel } from "@/components/ui/field"
+import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 
 type Account = { id: number; name: string; is_active: number }
 
@@ -17,11 +25,7 @@ type Expense = {
   note: string | null
 }
 
-const catColors: Record<string, string> = {
-  Internet: "#2563eb", Electricity: "#d97706", Paper: "#0891b2",
-  Ink: "#7c3aed", Rent: "#dc2626", Repairs: "#64748b", Miscellaneous: "#475569"
-}
-const fallbackColor = "#475569"
+const columns = ["#", "Category", "Amount", "Date", "Account", "Note", ""]
 
 const PAGE_SIZE = 50
 
@@ -96,105 +100,123 @@ export default function Expenses() {
   }
 
   return (
-    <div style={{ padding: "28px 32px", overflowY: "auto", height: "100%" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
+    <div className="h-full overflow-y-auto px-8 py-7">
+      <div className="mb-5 flex items-start justify-between">
         <div>
-          <h1 style={{ fontSize: 22, margin: 0 }}>Expenses</h1>
-          <p style={{ margin: "4px 0 0", color: "#64748b", fontSize: 13 }}>{showFigures ? `${total} entries` : "—"}</p>
+          <h1 className="m-0 text-[22px]">Expenses</h1>
+          <p className="mt-1 mb-0 text-[13px] text-muted-foreground">{showFigures ? `${total} entries` : "—"}</p>
         </div>
-        <button onClick={() => (formOpen ? closeForm() : openCreate())} style={{ background: "#1e3a5f", color: "#fff", border: "none", borderRadius: 7, padding: "9px 18px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-          {formOpen ? "Cancel" : "+ Record Expense"}
-        </button>
+        <Button onClick={() => (formOpen ? closeForm() : openCreate())}>{formOpen ? "Cancel" : "+ Record Expense"}</Button>
       </div>
 
-      {/* Create / edit form */}
       {formOpen && (
-        <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, padding: "20px 24px", marginBottom: 20 }}>
-          <h3 style={{ margin: "0 0 14px", fontSize: 15 }}>{editingExpense ? "Edit Expense" : "Record Expense"}</h3>
-          <ExpenseForm
-            key={editingExpense?.id ?? "create"}
-            editing={editingExpense ?? undefined}
-            onSuccess={closeForm}
-            onCancel={closeForm}
-          />
-        </div>
+        <Card className="mb-5">
+          <CardHeader>
+            <CardTitle>{editingExpense ? "Edit Expense" : "Record Expense"}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <ExpenseForm
+              key={editingExpense?.id ?? "create"}
+              editing={editingExpense ?? undefined}
+              onSuccess={closeForm}
+              onCancel={closeForm}
+            />
+          </CardContent>
+        </Card>
       )}
 
       {/* Filters */}
-      <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "160px 1fr auto", gap: 10, marginBottom: 18, alignItems: "end" }}>
-        <div>
-          <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>Date</label>
-          <input type="date" value={businessDate} onChange={e => { setBusinessDate(e.target.value); resetPage() }} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
-        </div>
-        <div>
-          <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>Category</label>
-          <select value={category} onChange={e => { setCategory(e.target.value); resetPage() }} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, background: "#fff", outline: "none" }}>
-            <option value="">All categories</option>
-            {categories.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-        </div>
-        <button
-          onClick={() => { setBusinessDate(""); setCategory(""); resetPage() }}
-          style={{ border: "1px solid #d1d9e6", background: "#fff", borderRadius: 7, padding: "8px 16px", fontSize: 13, cursor: "pointer", color: "#475569" }}
-        >
-          Clear filters
-        </button>
-      </div>
+      <Card className="mb-4">
+        <CardContent>
+          <div className="rs-grid grid grid-cols-[160px_1fr_auto] items-end gap-2.5">
+            <Field>
+              <FieldLabel htmlFor="expense-filter-date">Date</FieldLabel>
+              <Input id="expense-filter-date" type="date" value={businessDate} onChange={e => { setBusinessDate(e.target.value); resetPage() }} />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="expense-filter-category">Category</FieldLabel>
+              <Select
+                items={{ all: "All categories", ...Object.fromEntries(categories.map(c => [c, c])) }}
+                value={category || "all"}
+                onValueChange={v => { setCategory(v === "all" ? "" : (v as string)); resetPage() }}
+              >
+                <SelectTrigger id="expense-filter-category" className="w-full">
+                  <SelectValue placeholder="All categories" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All categories</SelectItem>
+                  {categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Button variant="outline" onClick={() => { setBusinessDate(""); setCategory(""); resetPage() }}>
+              Clear filters
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
 
-      {/* Expense list */}
-      <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, overflow: "hidden" }}>
-        <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr style={{ background: "#f8fafc" }}>
-              {["#", "Category", "Amount", "Date", "Account", "Note", ""].map(h => (
-                <th key={h} style={{ padding: "9px 14px", textAlign: "left", fontSize: 11, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em", borderBottom: "1px solid #eef1f7" }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            <TableRowState isLoading={isLoading} error={error} colSpan={7} />
-            {showFigures && items.map((e, i) => (
-              <tr key={e.id} style={{ background: i % 2 === 0 ? "#fff" : "#fafbfd", borderBottom: "1px solid #f1f5f9" }}>
-                <td style={{ padding: "10px 14px", fontSize: 12, color: "#94a3b8", fontFamily: "monospace" }}>{e.id}</td>
-                <td style={{ padding: "10px 14px" }}>
-                  <span style={{ fontSize: 12, fontWeight: 600, padding: "2px 9px", borderRadius: 20, background: "#f8fafc", color: catColors[e.category] || fallbackColor, border: `1px solid ${catColors[e.category] || "#d1d9e6"}20` }}>
-                    {e.category}
-                  </span>
-                </td>
-                <td style={{ padding: "10px 14px", fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: "#dc2626" }}>{fmt(fromPaise(e.amount_paise))}</td>
-                <td style={{ padding: "10px 14px", fontSize: 12, color: "#64748b" }}>{formatDate(e.business_date)}</td>
-                <td style={{ padding: "10px 14px", fontSize: 13, color: "#475569" }}>{accountName(e.account_id)}</td>
-                <td style={{ padding: "10px 14px", fontSize: 13, color: "#475569" }}>{e.note}</td>
-                <td style={{ padding: "10px 14px", whiteSpace: "nowrap" }}>
-                  <button onClick={() => openEdit(e)} style={{ background: "none", border: "1px solid #d1d9e6", borderRadius: 5, padding: "3px 9px", fontSize: 11, cursor: "pointer", color: "#64748b", marginRight: 6 }}>Edit</button>
-                  <button onClick={() => submitDelete(e.id)} style={{ background: "none", border: "1px solid #d1d9e6", borderRadius: 5, padding: "3px 9px", fontSize: 11, cursor: "pointer", color: "#dc2626" }}>Delete</button>
-                </td>
-              </tr>
+      {/* Table */}
+      <Card className="py-0">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              {columns.map(h => <TableHead key={h}>{h}</TableHead>)}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRowState isLoading={isLoading} error={error} colSpan={columns.length} />
+            {showFigures && items.map(e => (
+              <TableRow key={e.id}>
+                <TableCell className="font-mono text-muted-foreground">{e.id}</TableCell>
+                <TableCell>
+                  <Badge variant="outline">{e.category}</Badge>
+                </TableCell>
+                <TableCell className="font-mono font-bold tabular-nums text-destructive">{fmt(fromPaise(e.amount_paise))}</TableCell>
+                <TableCell className="text-muted-foreground">{formatDate(e.business_date)}</TableCell>
+                <TableCell className="text-muted-foreground">{accountName(e.account_id)}</TableCell>
+                <TableCell className="text-muted-foreground">{e.note}</TableCell>
+                <TableCell className="whitespace-nowrap">
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => openEdit(e)}>Edit</Button>
+                    <Button variant="outline" size="sm" className="text-destructive" onClick={() => submitDelete(e.id)}>Delete</Button>
+                  </div>
+                </TableCell>
+              </TableRow>
             ))}
             {showFigures && items.length === 0 && (
-              <tr><td colSpan={7} style={{ padding: "24px 14px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No expenses match these filters.</td></tr>
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={columns.length}>
+                  <Empty>
+                    <EmptyHeader>
+                      <EmptyTitle>No expenses</EmptyTitle>
+                      <EmptyDescription>No expenses match these filters.</EmptyDescription>
+                    </EmptyHeader>
+                  </Empty>
+                </TableCell>
+              </TableRow>
             )}
-          </tbody>
-          <tfoot>
-            <tr style={{ background: "#f8fafc", borderTop: "2px solid #d1d9e6" }}>
-              <td colSpan={2} style={{ padding: "11px 14px", fontSize: 13, fontWeight: 700 }}>Total (this page)</td>
-              <td style={{ padding: "11px 14px", fontFamily: "monospace", fontSize: 14, fontWeight: 700, color: "#dc2626" }}>{showFigures ? fmt(fromPaise(pageTotal)) : "—"}</td>
-              <td colSpan={4} />
-            </tr>
-          </tfoot>
-        </table>
-        </div>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", borderTop: "1px solid #eef1f7" }}>
-          <span style={{ fontSize: 12, color: "#64748b" }}>
+          </TableBody>
+          {showFigures && items.length > 0 && (
+            <TableFooter>
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={2} className="font-bold">Total (this page)</TableCell>
+                <TableCell className="font-mono font-bold tabular-nums text-destructive">{fmt(fromPaise(pageTotal))}</TableCell>
+                <TableCell colSpan={4} />
+              </TableRow>
+            </TableFooter>
+          )}
+        </Table>
+        <div className="flex items-center justify-between border-t px-3.5 py-2.5">
+          <span className="text-xs text-muted-foreground">
             {!showFigures ? "—" : total === 0 ? "0 entries" : `${offset + 1}–${Math.min(offset + PAGE_SIZE, total)} of ${total}`}
           </span>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))} style={{ border: "1px solid #d1d9e6", background: "#fff", borderRadius: 6, padding: "5px 12px", fontSize: 12, cursor: offset === 0 ? "default" : "pointer", opacity: offset === 0 ? 0.5 : 1 }}>Prev</button>
-            <button disabled={offset + PAGE_SIZE >= total} onClick={() => setOffset(offset + PAGE_SIZE)} style={{ border: "1px solid #d1d9e6", background: "#fff", borderRadius: 6, padding: "5px 12px", fontSize: 12, cursor: offset + PAGE_SIZE >= total ? "default" : "pointer", opacity: offset + PAGE_SIZE >= total ? 0.5 : 1 }}>Next</button>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>Prev</Button>
+            <Button variant="outline" size="sm" disabled={offset + PAGE_SIZE >= total} onClick={() => setOffset(offset + PAGE_SIZE)}>Next</Button>
           </div>
         </div>
-      </div>
+      </Card>
     </div>
   )
 }

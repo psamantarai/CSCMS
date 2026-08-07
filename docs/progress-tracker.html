@@ -1524,11 +1524,16 @@
   },
   {
     "title": "9.5.10 — Banking + Expenses",
-    "status": "pending",
-    "updated": "2026-08-05",
+    "status": "completed",
+    "updated": "2026-08-06",
+    "seq": 133,
     "details": [
-      "P9.5 · Same pattern as 9.5.8.",
-      "Verify: both pages' create and edit flows still work, including the category select on Expenses."
+      "Rebuilt src/pages/Banking.tsx and src/pages/Expenses.tsx on shadcn/ui, following the 9.5.8 Transactions pattern",
+      "Banking: Card form wrapper, 4-tile summary row and 5 quick-launch service-type cards on shadcn Card (hover:shadow-md), Table/Badge for the transaction list, Empty for no rows",
+      "Expenses: Card filter bar, Table with category Badge (outline variant), TableFooter for the page-total row, Empty for no rows",
+      "BankingEntryForm and ExpenseForm were already shadcn from 9.5.7 — untouched, only their page-level wrappers changed",
+      "Verified: tsc --noEmit clean, vite build clean; live in-browser pass against the real backend — Banking page shows correct ₹5,000/₹50 commission summary, Edit opens prefilled (AEPS Withdrawal, SBI Bank, Cash Drawer) and Save Changes round-trips; Expenses page shows correct badges and page-total (₹224.00), Record Expense form opens with category/account selects wired to live data",
+      "Scope check: no query/mutation/validation logic touched, only presentation"
     ]
   },
   {
