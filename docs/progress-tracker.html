@@ -1563,11 +1563,14 @@
   },
   {
     "title": "9.5.13 — Dashboard",
-    "status": "pending",
-    "updated": "2026-08-05",
+    "status": "completed",
+    "updated": "2026-08-07",
+    "seq": 136,
     "details": [
-      "P9.5 · Stat grid on 9.5.4 Cards, quick actions as Buttons opening the 9.5.4 Dialogs, recent-transactions on the 9.5.8 table pattern.",
-      "Verify: stat figures unchanged against the same data; all four quick actions behave as Phase 9.5 left them (three modals, Close Business Day still navigates)."
+      "Dashboard.tsx rebuilt on shadcn/ui: stat grid unchanged (StatCard already sat on 9.5.4 Card), recent-transactions panel moved onto the 9.5.8 Table/TableRow/TableCell/Badge/Empty pattern with a local statusClass matching Transactions.tsx's mapping",
+      "Service Breakdown panel rebuilt on Card with plain row list (not a table, per plan scope); Quick Actions panel rebuilt on Card + Button (array-driven, same modal/navigate logic), dark bg-primary panel keeps its accent with ghost buttons on bg-white/10 and the Close Business Day button on bg-warning",
+      "Verified: tsc --noEmit clean, vite build clean; live in-browser pass logged in as admin — all 8 stat cards render correct figures against the scratch DB, empty-state Table renders via Empty component, New Transaction quick action opens the correctly-styled Dialog with TransactionForm, Close Business Day navigates to /closing",
+      "Scope check: no query/mutation logic touched, only presentation"
     ]
   },
   {

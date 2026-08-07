@@ -10,6 +10,12 @@ import ExpenseForm from "../components/forms/ExpenseForm"
 import { api } from "../lib/api"
 import { queryKeys } from "../lib/queries"
 import { fmt, fromPaise, localDateISO } from "../lib/format"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
+import { cn } from "@/lib/utils"
 
 // PLAN 9.5: the three quick actions that are single forms open inline here
 // instead of navigating away; "Close Business Day" stays a navigation link
@@ -40,6 +46,14 @@ type Transaction = {
 }
 
 type Account = { account_type: string; is_active: number }
+
+const statusClass: Record<Transaction["status"], string> = {
+  completed: "bg-success/15 text-success",
+  partial: "bg-destructive/15 text-destructive",
+  pending: "bg-warning/15 text-warning",
+}
+
+const txnColumns = ["S.No", "Customer", "Service", "Fees", "Charge", "Payment", "Status"]
 
 export default function Dashboard() {
   const today = localDateISO()
@@ -78,7 +92,7 @@ export default function Dashboard() {
   })
   const bankAccountCount = accounts.filter(a => a.account_type !== "cash" && a.is_active).length
 
-  // Service breakdown off today's own transaction list, not a new endpoint —
+  // Service breakdown off today's own transaction list, not a new endpoint --
   // it's the same data the register table below already fetched.
   const serviceBreakdown = Object.values(
     todaysTxns.reduce<Record<string, { name: string; count: number; income: number }>>((acc, t) => {
@@ -92,21 +106,21 @@ export default function Dashboard() {
   const statsReady = !dashLoading && !dashError && dash
 
   return (
-    <div style={{ padding: "28px 32px", overflowY: "auto", height: "100%" }}>
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ fontSize: 22, margin: 0, color: "#1a2332" }}>Dashboard</h1>
-        <p style={{ margin: "4px 0 0", color: "#64748b", fontSize: 13 }}>
+    <div className="h-full overflow-y-auto px-8 py-7">
+      <div className="mb-5">
+        <h1 className="m-0 text-[22px]">Dashboard</h1>
+        <p className="mt-1 mb-0 text-[13px] text-muted-foreground">
           {new Date(`${today}T00:00:00`).toLocaleDateString("en-IN", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
           {" · "}Business Day {statsReady ? (dash.closing_status === "closed" ? "Closed" : "Open") : "…"}
         </p>
       </div>
 
       {!statsReady ? (
-        <div style={{ marginBottom: 24 }}><BlockState isLoading={dashLoading} error={dashError} /></div>
+        <div className="mb-5"><BlockState isLoading={dashLoading} error={dashError} /></div>
       ) : (
         <>
           {/* Stats grid */}
-          <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 24 }}>
+          <div className="rs-grid mb-5 grid grid-cols-4 gap-3.5">
             <StatCard label="Today's Income" value={fmt(fromPaise(dash.today_income_paise))} sub={`${txnData?.total ?? 0} transactions`} color="green"
               icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="23 6 13.5 15.5 8.5 10.5 1 18"/><polyline points="17 6 23 6 23 12"/></svg>} />
             <StatCard label="Today's Expenses" value={fmt(fromPaise(dash.today_expenses_paise))} sub={`${expenseData?.total ?? 0} entries today`} color="red"
@@ -117,7 +131,7 @@ export default function Dashboard() {
               icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>} />
           </div>
 
-          <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginBottom: 28 }}>
+          <div className="rs-grid mb-7 grid grid-cols-4 gap-3.5">
             <StatCard label="Cash in Hand" value={fmt(fromPaise(dash.cash_in_hand_paise))} sub="All cash accounts" color="default"
               icon={<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>} />
             <StatCard label="Total Bank Balance" value={fmt(fromPaise(dash.total_bank_balance_paise))} sub={`${bankAccountCount} accounts`} color="default"
@@ -131,93 +145,98 @@ export default function Dashboard() {
       )}
 
       {/* Bottom two-col layout */}
-      <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "1fr 360px", gap: 20 }}>
+      <div className="rs-grid grid grid-cols-[1fr_360px] gap-5">
         {/* Recent transactions */}
-        <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, overflow: "hidden" }}>
-          <div style={{ padding: "16px 20px", borderBottom: "1px solid #eef1f7", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <h3 style={{ margin: 0, fontSize: 15, fontFamily: "'Roboto Slab', serif" }}>Today's Transactions</h3>
-            <span style={{ fontSize: 12, color: "#3b6cb7", cursor: "pointer", fontWeight: 500 }}>View All →</span>
-          </div>
-          <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr style={{ background: "#f8fafc" }}>
-                {["S.No", "Customer", "Service", "Fees", "Charge", "Payment", "Status"].map(h => (
-                  <th key={h} style={{ padding: "8px 12px", textAlign: "left", fontSize: 11, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em", borderBottom: "1px solid #eef1f7" }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              <TableRowState isLoading={txnLoading} error={txnUnavailable} colSpan={7} />
+        <Card className="py-0">
+          <CardHeader className="flex-row items-center justify-between border-b py-3.5">
+            <CardTitle>Today's Transactions</CardTitle>
+            <span className="text-xs font-medium text-ring">View All →</span>
+          </CardHeader>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                {txnColumns.map(h => <TableHead key={h}>{h}</TableHead>)}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <TableRowState isLoading={txnLoading} error={txnUnavailable} colSpan={txnColumns.length} />
               {!txnLoading && !txnUnavailable && recentTxns.length === 0 && (
-                <tr><td colSpan={7} style={{ padding: "24px 14px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No transactions yet today.</td></tr>
+                <TableRow className="hover:bg-transparent">
+                  <TableCell colSpan={txnColumns.length}>
+                    <Empty>
+                      <EmptyHeader>
+                        <EmptyTitle>No transactions</EmptyTitle>
+                        <EmptyDescription>No transactions yet today.</EmptyDescription>
+                      </EmptyHeader>
+                    </Empty>
+                  </TableCell>
+                </TableRow>
               )}
               {recentTxns.map((t, i) => (
-                <tr key={t.id} style={{ background: i % 2 === 0 ? "#fff" : "#fafbfd", borderBottom: "1px solid #f1f5f9" }}>
-                  <td style={{ padding: "9px 12px", fontFamily: "monospace", fontSize: 12, color: "#3b6cb7", fontWeight: 600 }}>{i + 1}</td>
-                  <td style={{ padding: "9px 12px", fontSize: 13 }}>{t.customer_name ?? "Walk-in"}</td>
-                  <td style={{ padding: "9px 12px", fontSize: 13, color: "#475569" }}>{t.service_name}</td>
-                  <td style={{ padding: "9px 12px", fontFamily: "monospace", fontSize: 12 }}>{fmt(fromPaise(t.fee_paise))}</td>
-                  <td style={{ padding: "9px 12px", fontFamily: "monospace", fontSize: 12, color: "#16a34a" }}>+{fmt(fromPaise(t.charge_paise))}</td>
-                  <td style={{ padding: "9px 12px", fontFamily: "monospace", fontSize: 12, fontWeight: 600 }}>{fmt(fromPaise(t.paid_paise))}</td>
-                  <td style={{ padding: "9px 12px" }}>
-                    <span style={{
-                      fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20,
-                      background: t.status === "completed" ? "#dcfce7" : t.status === "pending" ? "#fef3c7" : "#fee2e2",
-                      color: t.status === "completed" ? "#16a34a" : t.status === "pending" ? "#d97706" : "#dc2626",
-                    }}>{t.status}</span>
-                  </td>
-                </tr>
+                <TableRow key={t.id}>
+                  <TableCell className="font-mono font-semibold text-ring">{i + 1}</TableCell>
+                  <TableCell>{t.customer_name ?? "Walk-in"}</TableCell>
+                  <TableCell className="text-muted-foreground">{t.service_name}</TableCell>
+                  <TableCell className="font-mono tabular-nums">{fmt(fromPaise(t.fee_paise))}</TableCell>
+                  <TableCell className="font-mono tabular-nums text-success">+{fmt(fromPaise(t.charge_paise))}</TableCell>
+                  <TableCell className="font-mono font-bold tabular-nums">{fmt(fromPaise(t.paid_paise))}</TableCell>
+                  <TableCell><Badge className={cn("capitalize", statusClass[t.status])}>{t.status}</Badge></TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
-          </div>
-        </div>
+            </TableBody>
+          </Table>
+        </Card>
 
-        {/* Service breakdown */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-          <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, overflow: "hidden" }}>
-            <div style={{ padding: "14px 18px", borderBottom: "1px solid #eef1f7" }}>
-              <h3 style={{ margin: 0, fontSize: 14, fontFamily: "'Roboto Slab', serif" }}>Service Breakdown</h3>
-            </div>
-            <div style={{ padding: "6px 0" }}>
+        {/* Service breakdown + quick actions */}
+        <div className="flex flex-col gap-3.5">
+          <Card className="py-0">
+            <CardHeader className="border-b py-3.5">
+              <CardTitle className="text-sm">Service Breakdown</CardTitle>
+            </CardHeader>
+            <CardContent className="px-0 py-1.5">
               {txnLoading || txnUnavailable ? (
                 <BlockState isLoading={txnLoading} error={txnUnavailable} />
               ) : serviceBreakdown.length === 0 ? (
-                <div style={{ padding: "20px 18px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No services rendered today.</div>
+                <div className="px-4.5 py-5 text-center text-[13px] text-muted-foreground">No services rendered today.</div>
               ) : (
                 serviceBreakdown.map(s => (
-                  <div key={s.name} style={{ padding: "10px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid #f8fafc" }}>
+                  <div key={s.name} className="flex items-center justify-between border-b px-4.5 py-2.5 last:border-b-0">
                     <div>
-                      <div style={{ fontSize: 13, fontWeight: 500 }}>{s.name}</div>
-                      <div style={{ fontSize: 11, color: "#64748b" }}>{s.count} jobs</div>
+                      <div className="text-[13px] font-medium">{s.name}</div>
+                      <div className="text-[11px] text-muted-foreground">{s.count} jobs</div>
                     </div>
-                    <span style={{ fontFamily: "monospace", fontWeight: 600, fontSize: 13, color: "#16a34a" }}>{fmt(fromPaise(s.income))}</span>
+                    <span className="font-mono text-[13px] font-semibold text-success">{fmt(fromPaise(s.income))}</span>
                   </div>
                 ))
               )}
-            </div>
-          </div>
+            </CardContent>
+          </Card>
 
-          <div style={{ background: "#1e3a5f", borderRadius: 10, padding: "18px 20px", color: "#fff" }}>
-            <div style={{ fontSize: 12, color: "#93b4d4", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>Quick Actions</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+          <Card className="bg-primary text-primary-foreground">
+            <CardHeader>
+              <CardTitle className="text-xs tracking-wide text-primary-foreground/70 uppercase">Quick Actions</CardTitle>
+            </CardHeader>
+            <CardContent className="flex flex-col gap-2">
               {[
                 { label: "New Transaction", modal: "transaction" as QuickModal, path: null as string | null },
                 { label: "New Banking Entry", modal: "banking" as QuickModal, path: null as string | null },
                 { label: "Record Expense", modal: "expense" as QuickModal, path: null as string | null },
                 { label: "Close Business Day", modal: null as QuickModal, path: "/closing" as string | null },
               ].map((a, i) => (
-                <button key={a.label} onClick={() => (a.modal ? setOpenModal(a.modal) : navigate(a.path!))} style={{
-                  background: i === 3 ? "#f59e0b" : "rgba(255,255,255,0.08)",
-                  border: "1px solid " + (i === 3 ? "#f59e0b" : "rgba(255,255,255,0.12)"),
-                  borderRadius: 7, padding: "9px 14px", color: i === 3 ? "#1a1000" : "#e2ebf5",
-                  fontSize: 13, fontWeight: 500, cursor: "pointer", textAlign: "left",
-                  transition: "background 0.15s",
-                }}>{a.label}</button>
+                <Button
+                  key={a.label}
+                  variant={i === 3 ? "default" : "ghost"}
+                  className={cn(
+                    "justify-start",
+                    i === 3 ? "bg-warning text-warning-foreground hover:bg-warning/90" : "bg-white/10 text-primary-foreground hover:bg-white/15"
+                  )}
+                  onClick={() => (a.modal ? setOpenModal(a.modal) : navigate(a.path!))}
+                >
+                  {a.label}
+                </Button>
               ))}
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         </div>
       </div>
 
