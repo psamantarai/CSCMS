@@ -5,6 +5,16 @@ import { queryKeys } from "../lib/queries"
 import { fmt, fromPaise, localDateISO } from "../lib/format"
 import { downloadCsv } from "../lib/csv"
 import { BlockState, TableRowState } from "../components/QueryState"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Field, FieldLabel } from "@/components/ui/field"
+import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
+import { cn } from "@/lib/utils"
 
 const reportTypes = [
   { id: "daily", label: "Daily Report" },
@@ -19,6 +29,7 @@ const monthNames = [
   "January", "February", "March", "April", "May", "June",
   "July", "August", "September", "October", "November", "December",
 ]
+const monthItems = Object.fromEntries(monthNames.map((m, i) => [String(i + 1), m]))
 
 type Account = { id: number; account_type: string }
 type DayReportAccount = { account_id: number; account_name: string; opening_paise: number; received_paise: number; paid_paise: number; transfer_in_paise: number; transfer_out_paise: number; adjustment_paise: number; closing_paise: number }
@@ -32,9 +43,11 @@ type ProfitLoss = {
 }
 type CommissionReport = { items: { account_id: number; account_name: string; total_commission_paise: number }[]; total_commission_paise: number }
 
-const labelStyle = { display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 } as const
-const inputStyle = { padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box" as const }
-const cardStyle = { background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, padding: "20px 24px" }
+const statusClass: Record<Transaction["status"], string> = {
+  completed: "bg-success/15 text-success",
+  partial: "bg-destructive/15 text-destructive",
+  pending: "bg-warning/15 text-warning",
+}
 
 function firstOfMonthISO(): string {
   return localDateISO().slice(0, 8) + "01"
@@ -183,259 +196,287 @@ export default function Reports() {
   const activeCsv = csvBuilders[activeReport]
 
   return (
-    <div className="print-report" style={{ padding: "28px 32px", overflowY: "auto", height: "100%" }}>
-      <div className="no-print" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 20 }}>
+    <div className="print-report h-full overflow-y-auto px-8 py-7">
+      <div className="no-print mb-5 flex items-start justify-between">
         <div>
-          <h1 style={{ fontSize: 22, margin: 0 }}>Reports</h1>
-          <p style={{ margin: "4px 0 0", color: "#64748b", fontSize: 13 }}>Daily, monthly, and service-wise financial summaries</p>
+          <h1 className="m-0 text-[22px]">Reports</h1>
+          <p className="mt-1 mb-0 text-[13px] text-muted-foreground">Daily, monthly, and service-wise financial summaries</p>
         </div>
-        <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={() => window.print()} style={{ background: "#fff", color: "#1e3a5f", border: "1px solid #d1d9e6", borderRadius: 7, padding: "9px 18px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-            🖨 Print
-          </button>
-          <button
-            disabled={!activeCsv.ready}
-            onClick={() => downloadCsv(activeCsv.filename, activeCsv.rows())}
-            style={{
-              background: activeCsv.ready ? "#1e3a5f" : "#94a3b8", color: "#fff", border: "none", borderRadius: 7,
-              padding: "9px 18px", fontSize: 13, fontWeight: 600, cursor: activeCsv.ready ? "pointer" : "not-allowed",
-            }}
-          >
-            ⬇ Export CSV
-          </button>
+        <div className="flex gap-2.5">
+          <Button variant="outline" onClick={() => window.print()}>🖨 Print</Button>
+          <Button disabled={!activeCsv.ready} onClick={() => downloadCsv(activeCsv.filename, activeCsv.rows())}>⬇ Export CSV</Button>
         </div>
       </div>
 
       {/* Report type tabs */}
-      <div className="no-print" style={{ display: "flex", gap: 4, marginBottom: 20, background: "#f0f4f8", borderRadius: 9, padding: 4, width: "fit-content" }}>
-        {reportTypes.map(r => (
-          <button key={r.id} onClick={() => setActiveReport(r.id)} style={{
-            padding: "7px 16px", borderRadius: 6, fontSize: 13, fontWeight: 500, cursor: "pointer", border: "none",
-            background: activeReport === r.id ? "#1e3a5f" : "transparent",
-            color: activeReport === r.id ? "#fff" : "#64748b",
-            transition: "all 0.15s",
-          }}>{r.label}</button>
-        ))}
-      </div>
+      <ToggleGroup
+        variant="outline"
+        value={[activeReport]}
+        onValueChange={v => { if (v.length > 0) setActiveReport(v[0] as ReportType) }}
+        className="no-print mb-5"
+      >
+        {reportTypes.map(r => <ToggleGroupItem key={r.id} value={r.id}>{r.label}</ToggleGroupItem>)}
+      </ToggleGroup>
 
       {/* Period controls */}
       {activeReport === "daily" && (
-        <div className="no-print" style={{ marginBottom: 20 }}>
-          <label style={labelStyle}>Date</label>
-          <input type="date" value={dailyDate} onChange={e => setDailyDate(e.target.value)} style={{ ...inputStyle, width: 180 }} />
+        <div className="no-print mb-5">
+          <Field className="w-[180px]">
+            <FieldLabel htmlFor="report-daily-date">Date</FieldLabel>
+            <Input id="report-daily-date" type="date" value={dailyDate} onChange={e => setDailyDate(e.target.value)} />
+          </Field>
         </div>
       )}
       {activeReport === "monthly" && (
-        <div className="no-print" style={{ display: "flex", gap: 10, marginBottom: 20 }}>
-          <div>
-            <label style={labelStyle}>Month</label>
-            <select value={month} onChange={e => setMonth(Number(e.target.value))} style={{ ...inputStyle, background: "#fff" }}>
-              {monthNames.map((m, i) => <option key={m} value={i + 1}>{m}</option>)}
-            </select>
-          </div>
-          <div>
-            <label style={labelStyle}>Year</label>
-            <input type="number" value={year} onChange={e => setYear(Number(e.target.value) || now.getFullYear())} style={{ ...inputStyle, width: 100 }} />
-          </div>
+        <div className="no-print mb-5 flex gap-2.5">
+          <Field>
+            <FieldLabel htmlFor="report-month">Month</FieldLabel>
+            <Select items={monthItems} value={String(month)} onValueChange={v => setMonth(Number(v))}>
+              <SelectTrigger id="report-month">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {monthNames.map((m, i) => <SelectItem key={m} value={String(i + 1)}>{m}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </Field>
+          <Field className="w-[100px]">
+            <FieldLabel htmlFor="report-year">Year</FieldLabel>
+            <Input id="report-year" type="number" value={year} onChange={e => setYear(Number(e.target.value) || now.getFullYear())} />
+          </Field>
         </div>
       )}
       {(activeReport === "service" || activeReport === "pl" || activeReport === "commission") && (
-        <div className="no-print" style={{ display: "flex", gap: 10, marginBottom: 20 }}>
-          <div>
-            <label style={labelStyle}>From</label>
-            <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)} style={{ ...inputStyle, width: 160 }} />
-          </div>
-          <div>
-            <label style={labelStyle}>To</label>
-            <input type="date" value={endDate} onChange={e => setEndDate(e.target.value)} style={{ ...inputStyle, width: 160 }} />
-          </div>
+        <div className="no-print mb-5 flex gap-2.5">
+          <Field className="w-[160px]">
+            <FieldLabel htmlFor="report-from">From</FieldLabel>
+            <Input id="report-from" type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
+          </Field>
+          <Field className="w-[160px]">
+            <FieldLabel htmlFor="report-to">To</FieldLabel>
+            <Input id="report-to" type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
+          </Field>
         </div>
       )}
 
       {activeReport === "daily" && (
         <>
-          <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 24 }}>
+          <div className="rs-grid mb-6 grid grid-cols-2 gap-5">
             {/* Daily summary */}
-            <div style={cardStyle}>
-              <h3 style={{ margin: "0 0 16px", fontSize: 14, fontFamily: "'Roboto Slab', serif" }}>Cash Summary — {dailyDate}</h3>
-              {/* H.33: react-query has a third state — data undefined,
-                  isLoading false, error null — while backing off a failed
-                  fetch. Neither dayLoading nor dayError covers it, so it's
-                  checked explicitly here too, not just !cashRow. */}
-              {dayLoading || dayError || !dayReport ? <BlockState isLoading={dayLoading || !dayError} error={dayError} /> : !cashRow ? (
-                <div style={{ color: "#94a3b8", fontSize: 13 }}>No cash account found.</div>
-              ) : (
-                (() => {
-                  const rows = [
-                    { label: "Opening Cash Balance", value: fmt(fromPaise(cashRow.opening_paise)), color: "#64748b" },
-                    { label: "Received", value: "+ " + fmt(fromPaise(cashRow.received_paise)), color: "#16a34a" },
-                    { label: "Paid Out", value: "− " + fmt(fromPaise(cashRow.paid_paise)), color: "#dc2626" },
-                    { label: "Transfer In", value: "+ " + fmt(fromPaise(cashRow.transfer_in_paise)), color: "#16a34a" },
-                    { label: "Transfer Out", value: "− " + fmt(fromPaise(cashRow.transfer_out_paise)), color: "#dc2626" },
-                    { label: "Adjustment", value: fmt(fromPaise(cashRow.adjustment_paise)), color: "#64748b" },
-                    { label: "Closing Cash Balance", value: fmt(fromPaise(cashRow.closing_paise)), color: "#1e3a5f" },
-                  ]
-                  return rows.map((r, i) => (
-                    <div key={r.label} style={{ display: "flex", justifyContent: "space-between", padding: "9px 0", borderBottom: i < rows.length - 1 ? "1px dashed #e8edf5" : "2px solid #d1d9e6" }}>
-                      <span style={{ fontSize: 13, color: "#475569" }}>{r.label}</span>
-                      <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: r.color }}>{r.value}</span>
-                    </div>
-                  ))
-                })()
-              )}
-            </div>
+            <Card>
+              <CardHeader>
+                <CardTitle>Cash Summary — {dailyDate}</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {/* H.33: react-query has a third state — data undefined,
+                    isLoading false, error null — while backing off a failed
+                    fetch. Neither dayLoading nor dayError covers it, so it's
+                    checked explicitly here too, not just !cashRow. */}
+                {dayLoading || dayError || !dayReport ? <BlockState isLoading={dayLoading || !dayError} error={dayError} /> : !cashRow ? (
+                  <div className="text-[13px] text-muted-foreground">No cash account found.</div>
+                ) : (
+                  (() => {
+                    const rows = [
+                      { label: "Opening Cash Balance", value: fmt(fromPaise(cashRow.opening_paise)), className: "text-muted-foreground" },
+                      { label: "Received", value: "+ " + fmt(fromPaise(cashRow.received_paise)), className: "text-success" },
+                      { label: "Paid Out", value: "− " + fmt(fromPaise(cashRow.paid_paise)), className: "text-destructive" },
+                      { label: "Transfer In", value: "+ " + fmt(fromPaise(cashRow.transfer_in_paise)), className: "text-success" },
+                      { label: "Transfer Out", value: "− " + fmt(fromPaise(cashRow.transfer_out_paise)), className: "text-destructive" },
+                      { label: "Adjustment", value: fmt(fromPaise(cashRow.adjustment_paise)), className: "text-muted-foreground" },
+                      { label: "Closing Cash Balance", value: fmt(fromPaise(cashRow.closing_paise)), className: "text-primary" },
+                    ]
+                    return rows.map((r, i) => (
+                      <div key={r.label} className={cn("flex justify-between py-2.25", i < rows.length - 1 ? "border-b border-dashed" : "border-b-2")}>
+                        <span className="text-[13px] text-muted-foreground">{r.label}</span>
+                        <span className={cn("font-mono text-[13px] font-bold tabular-nums", r.className)}>{r.value}</span>
+                      </div>
+                    ))
+                  })()
+                )}
+              </CardContent>
+            </Card>
 
             {/* Account balances */}
-            <div style={cardStyle}>
-              <h3 style={{ margin: "0 0 16px", fontSize: 14, fontFamily: "'Roboto Slab', serif" }}>Account Balances</h3>
-              {/* H.33: dayReport!.accounts crashed the whole app (white
-                  screen, no error boundary) during that same third state —
-                  !dayReport closes the gap, same fix as Cash Summary above. */}
-              {dayLoading || dayError || !dayReport ? <BlockState isLoading={dayLoading || !dayError} error={dayError} /> : (
-                dayReport.accounts.map((a, i) => (
-                  <div key={a.account_id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "9px 0", borderBottom: i < dayReport.accounts.length - 1 ? "1px dashed #e8edf5" : "none" }}>
-                    <span style={{ fontSize: 13, color: "#475569" }}>{a.account_name}</span>
-                    <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: "#1e3a5f" }}>{fmt(fromPaise(a.closing_paise))}</span>
-                  </div>
-                ))
-              )}
-            </div>
+            <Card>
+              <CardHeader>
+                <CardTitle>Account Balances</CardTitle>
+              </CardHeader>
+              <CardContent>
+                {/* H.33: dayReport!.accounts crashed the whole app (white
+                    screen, no error boundary) during that same third state —
+                    !dayReport closes the gap, same fix as Cash Summary above. */}
+                {dayLoading || dayError || !dayReport ? <BlockState isLoading={dayLoading || !dayError} error={dayError} /> : (
+                  dayReport.accounts.map((a, i) => (
+                    <div key={a.account_id} className={cn("flex items-center justify-between py-2.25", i < dayReport.accounts.length - 1 && "border-b border-dashed")}>
+                      <span className="text-[13px] text-muted-foreground">{a.account_name}</span>
+                      <span className="font-mono text-[13px] font-bold tabular-nums text-primary">{fmt(fromPaise(a.closing_paise))}</span>
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
           </div>
 
           {/* Transaction register */}
-          <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, overflow: "hidden" }}>
-            <div style={{ padding: "14px 18px", borderBottom: "1px solid #eef1f7" }}>
-              <h3 style={{ margin: 0, fontSize: 14, fontFamily: "'Roboto Slab', serif" }}>Transaction Register</h3>
-            </div>
-            <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead>
-                <tr style={{ background: "#f8fafc" }}>
-                  {["TXN", "Customer", "Service", "Fees", "Charge", "Payment", "Status"].map(h => (
-                    <th key={h} style={{ padding: "8px 14px", textAlign: "left", fontSize: 11, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em", borderBottom: "1px solid #eef1f7" }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
+          <Card className="py-0">
+            <CardHeader className="border-b py-3.5">
+              <CardTitle>Transaction Register</CardTitle>
+            </CardHeader>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  {["TXN", "Customer", "Service", "Fees", "Charge", "Payment", "Status"].map(h => <TableHead key={h}>{h}</TableHead>)}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 <TableRowState isLoading={txnLoading} error={txnError} colSpan={7} />
                 {!txnLoading && !txnError && dailyTxns.length === 0 && (
-                  <tr><td colSpan={7} style={{ padding: "24px 14px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No transactions on this date.</td></tr>
+                  <TableRow className="hover:bg-transparent">
+                    <TableCell colSpan={7}>
+                      <Empty>
+                        <EmptyHeader>
+                          <EmptyTitle>No transactions</EmptyTitle>
+                          <EmptyDescription>No transactions on this date.</EmptyDescription>
+                        </EmptyHeader>
+                      </Empty>
+                    </TableCell>
+                  </TableRow>
                 )}
-                {dailyTxns.map((t, i) => (
-                  <tr key={t.id} style={{ background: i % 2 === 0 ? "#fff" : "#fafbfd", borderBottom: "1px solid #f1f5f9" }}>
-                    <td style={{ padding: "8px 14px", fontFamily: "monospace", fontSize: 12, color: "#3b6cb7" }}>#{t.id}</td>
-                    <td style={{ padding: "8px 14px", fontSize: 13 }}>{t.customer_name ?? "Walk-in"}</td>
-                    <td style={{ padding: "8px 14px", fontSize: 13, color: "#475569" }}>{t.service_name}</td>
-                    <td style={{ padding: "8px 14px", fontFamily: "monospace", fontSize: 12 }}>{fmt(fromPaise(t.fee_paise))}</td>
-                    <td style={{ padding: "8px 14px", fontFamily: "monospace", fontSize: 12, color: "#16a34a" }}>+{fmt(fromPaise(t.charge_paise))}</td>
-                    <td style={{ padding: "8px 14px", fontFamily: "monospace", fontSize: 12, fontWeight: 700 }}>{fmt(fromPaise(t.paid_paise))}</td>
-                    <td style={{ padding: "8px 14px" }}>
-                      <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 7px", borderRadius: 20, background: t.status === "completed" ? "#dcfce7" : t.status === "pending" ? "#fef3c7" : "#fee2e2", color: t.status === "completed" ? "#16a34a" : t.status === "pending" ? "#d97706" : "#dc2626" }}>{t.status}</span>
-                    </td>
-                  </tr>
+                {dailyTxns.map(t => (
+                  <TableRow key={t.id}>
+                    <TableCell className="font-mono text-xs text-ring">#{t.id}</TableCell>
+                    <TableCell>{t.customer_name ?? "Walk-in"}</TableCell>
+                    <TableCell className="text-muted-foreground">{t.service_name}</TableCell>
+                    <TableCell className="font-mono text-xs tabular-nums">{fmt(fromPaise(t.fee_paise))}</TableCell>
+                    <TableCell className="font-mono text-xs tabular-nums text-success">+{fmt(fromPaise(t.charge_paise))}</TableCell>
+                    <TableCell className="font-mono text-xs font-bold tabular-nums">{fmt(fromPaise(t.paid_paise))}</TableCell>
+                    <TableCell>
+                      <Badge className={cn("capitalize", statusClass[t.status])}>{t.status}</Badge>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-            </div>
-          </div>
+              </TableBody>
+            </Table>
+          </Card>
         </>
       )}
 
       {activeReport === "monthly" && (
-        <div style={cardStyle}>
-          <h3 style={{ margin: "0 0 20px", fontSize: 15, fontFamily: "'Roboto Slab', serif" }}>{monthNames[month - 1]} {year}</h3>
-          {/* H.33: same react-query third-state gap as the Daily tab. */}
-          {monthlyLoading || monthlyError || !monthly ? <BlockState isLoading={monthlyLoading || !monthlyError} error={monthlyError} /> : (
-            <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14 }}>
-              {[
-                { label: "Income", value: fmt(fromPaise(monthly.income_paise)), color: "#1e3a5f", bg: "#eff6ff" },
-                { label: "Expenses", value: fmt(fromPaise(monthly.expenses_paise)), color: "#dc2626", bg: "#fef2f2" },
-                { label: "Profit", value: fmt(fromPaise(monthly.profit_paise)), color: "#16a34a", bg: "#f0fdf4" },
-              ].map(s => (
-                <div key={s.label} style={{ background: s.bg, border: "1px solid #d1d9e6", borderRadius: 9, padding: "16px 18px" }}>
-                  <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>{s.label}</div>
-                  <div style={{ fontFamily: "monospace", fontSize: 22, fontWeight: 700, color: s.color }}>{s.value}</div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>{monthNames[month - 1]} {year}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {/* H.33: same react-query third-state gap as the Daily tab. */}
+            {monthlyLoading || monthlyError || !monthly ? <BlockState isLoading={monthlyLoading || !monthlyError} error={monthlyError} /> : (
+              <div className="rs-grid grid grid-cols-3 gap-3.5">
+                {[
+                  { label: "Income", value: fmt(fromPaise(monthly.income_paise)), className: "text-primary", bg: "bg-primary/5" },
+                  { label: "Expenses", value: fmt(fromPaise(monthly.expenses_paise)), className: "text-destructive", bg: "bg-destructive/5" },
+                  { label: "Profit", value: fmt(fromPaise(monthly.profit_paise)), className: "text-success", bg: "bg-success/5" },
+                ].map(s => (
+                  <Card key={s.label} size="sm" className={s.bg}>
+                    <CardContent>
+                      <div className="mb-1.5 text-[11px] tracking-wide text-muted-foreground uppercase">{s.label}</div>
+                      <div className={cn("font-mono text-xl font-bold tabular-nums", s.className)}>{s.value}</div>
+                    </CardContent>
+                  </Card>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       )}
 
       {activeReport === "service" && (
-        <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, overflow: "hidden" }}>
-          <div style={{ padding: "14px 18px", borderBottom: "1px solid #eef1f7" }}>
-            <h3 style={{ margin: 0, fontSize: 14, fontFamily: "'Roboto Slab', serif" }}>Service-wise Breakdown</h3>
-          </div>
-          <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
-            <thead>
-              <tr style={{ background: "#f8fafc" }}>
-                {["Service", "Transactions", "Billed", "Income Collected"].map(h => (
-                  <th key={h} style={{ padding: "9px 14px", textAlign: "left", fontSize: 11, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em", borderBottom: "1px solid #eef1f7" }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
+        <Card className="py-0">
+          <CardHeader className="border-b py-3.5">
+            <CardTitle>Service-wise Breakdown</CardTitle>
+          </CardHeader>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                {["Service", "Transactions", "Billed", "Income Collected"].map(h => <TableHead key={h}>{h}</TableHead>)}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               <TableRowState isLoading={serviceLoading} error={serviceError} colSpan={4} />
               {!serviceLoading && !serviceError && (serviceRows ?? []).length === 0 && (
-                <tr><td colSpan={4} style={{ padding: "24px 14px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No services found.</td></tr>
+                <TableRow className="hover:bg-transparent">
+                  <TableCell colSpan={4}>
+                    <Empty>
+                      <EmptyHeader>
+                        <EmptyTitle>No services</EmptyTitle>
+                        <EmptyDescription>No services found.</EmptyDescription>
+                      </EmptyHeader>
+                    </Empty>
+                  </TableCell>
+                </TableRow>
               )}
-              {(serviceRows ?? []).map((s, i) => (
-                <tr key={s.service_id} style={{ background: i % 2 === 0 ? "#fff" : "#fafbfd", borderBottom: "1px solid #f1f5f9" }}>
-                  <td style={{ padding: "9px 14px", fontSize: 13 }}>{s.service_name}</td>
-                  <td style={{ padding: "9px 14px", fontFamily: "monospace", fontSize: 12 }}>{s.transaction_count}</td>
-                  <td style={{ padding: "9px 14px", fontFamily: "monospace", fontSize: 12 }}>{fmt(fromPaise(s.billed_paise))}</td>
-                  <td style={{ padding: "9px 14px", fontFamily: "monospace", fontSize: 12, fontWeight: 700, color: "#16a34a" }}>{fmt(fromPaise(s.income_paise))}</td>
-                </tr>
+              {(serviceRows ?? []).map(s => (
+                <TableRow key={s.service_id}>
+                  <TableCell>{s.service_name}</TableCell>
+                  <TableCell className="font-mono text-xs tabular-nums">{s.transaction_count}</TableCell>
+                  <TableCell className="font-mono text-xs tabular-nums">{fmt(fromPaise(s.billed_paise))}</TableCell>
+                  <TableCell className="font-mono text-xs font-bold tabular-nums text-success">{fmt(fromPaise(s.income_paise))}</TableCell>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
-          </div>
-        </div>
+            </TableBody>
+          </Table>
+        </Card>
       )}
 
       {activeReport === "pl" && (
         <>
           {/* H.33: same react-query third-state gap as the Daily tab. */}
-          {plLoading || plError || !pl ? <div style={cardStyle}><BlockState isLoading={plLoading || !plError} error={plError} /></div> : (
+          {plLoading || plError || !pl ? <Card><CardContent><BlockState isLoading={plLoading || !plError} error={plError} /></CardContent></Card> : (
             <>
-              <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 20 }}>
+              <div className="rs-grid mb-5 grid grid-cols-3 gap-3.5">
                 {[
-                  { label: "Total Income", value: fmt(fromPaise(pl.total_income_paise)), color: "#1e3a5f", bg: "#eff6ff" },
-                  { label: "Total Expenses", value: fmt(fromPaise(pl.total_expenses_paise)), color: "#dc2626", bg: "#fef2f2" },
-                  { label: "Net Profit", value: fmt(fromPaise(pl.profit_paise)), color: "#16a34a", bg: "#f0fdf4" },
+                  { label: "Total Income", value: fmt(fromPaise(pl.total_income_paise)), className: "text-primary", bg: "bg-primary/5" },
+                  { label: "Total Expenses", value: fmt(fromPaise(pl.total_expenses_paise)), className: "text-destructive", bg: "bg-destructive/5" },
+                  { label: "Net Profit", value: fmt(fromPaise(pl.profit_paise)), className: "text-success", bg: "bg-success/5" },
                 ].map(s => (
-                  <div key={s.label} style={{ background: s.bg, border: "1px solid #d1d9e6", borderRadius: 9, padding: "16px 18px" }}>
-                    <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>{s.label}</div>
-                    <div style={{ fontFamily: "monospace", fontSize: 22, fontWeight: 700, color: s.color }}>{s.value}</div>
-                  </div>
+                  <Card key={s.label} size="sm" className={s.bg}>
+                    <CardContent>
+                      <div className="mb-1.5 text-[11px] tracking-wide text-muted-foreground uppercase">{s.label}</div>
+                      <div className={cn("font-mono text-xl font-bold tabular-nums", s.className)}>{s.value}</div>
+                    </CardContent>
+                  </Card>
                 ))}
               </div>
-              <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-                <div style={cardStyle}>
-                  <h3 style={{ margin: "0 0 14px", fontSize: 14, fontFamily: "'Roboto Slab', serif" }}>Income Sources</h3>
-                  {[
-                    { label: "Service Income", value: pl.service_income_paise },
-                    { label: "Banking Commission", value: pl.commission_paise },
-                  ].map((r, i) => (
-                    <div key={r.label} style={{ display: "flex", justifyContent: "space-between", padding: "9px 0", borderBottom: i < 1 ? "1px dashed #e8edf5" : "none" }}>
-                      <span style={{ fontSize: 13, color: "#475569" }}>{r.label}</span>
-                      <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: "#16a34a" }}>{fmt(fromPaise(r.value))}</span>
-                    </div>
-                  ))}
-                </div>
-                <div style={cardStyle}>
-                  <h3 style={{ margin: "0 0 14px", fontSize: 14, fontFamily: "'Roboto Slab', serif" }}>Expenses by Category</h3>
-                  {pl.expenses_by_category.length === 0 ? (
-                    <div style={{ color: "#94a3b8", fontSize: 13 }}>No expenses in this period.</div>
-                  ) : pl.expenses_by_category.map((r, i) => (
-                    <div key={r.category} style={{ display: "flex", justifyContent: "space-between", padding: "9px 0", borderBottom: i < pl.expenses_by_category.length - 1 ? "1px dashed #e8edf5" : "none" }}>
-                      <span style={{ fontSize: 13, color: "#475569" }}>{r.category}</span>
-                      <span style={{ fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: "#dc2626" }}>{fmt(fromPaise(r.amount_paise))}</span>
-                    </div>
-                  ))}
-                </div>
+              <div className="rs-grid grid grid-cols-2 gap-5">
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Income Sources</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {[
+                      { label: "Service Income", value: pl.service_income_paise },
+                      { label: "Banking Commission", value: pl.commission_paise },
+                    ].map((r, i) => (
+                      <div key={r.label} className={cn("flex justify-between py-2.25", i < 1 && "border-b border-dashed")}>
+                        <span className="text-[13px] text-muted-foreground">{r.label}</span>
+                        <span className="font-mono text-[13px] font-bold tabular-nums text-success">{fmt(fromPaise(r.value))}</span>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardHeader>
+                    <CardTitle>Expenses by Category</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    {pl.expenses_by_category.length === 0 ? (
+                      <div className="text-[13px] text-muted-foreground">No expenses in this period.</div>
+                    ) : pl.expenses_by_category.map((r, i) => (
+                      <div key={r.category} className={cn("flex justify-between py-2.25", i < pl.expenses_by_category.length - 1 && "border-b border-dashed")}>
+                        <span className="text-[13px] text-muted-foreground">{r.category}</span>
+                        <span className="font-mono text-[13px] font-bold tabular-nums text-destructive">{fmt(fromPaise(r.amount_paise))}</span>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
               </div>
             </>
           )}
@@ -444,43 +485,50 @@ export default function Reports() {
 
       {activeReport === "commission" && (
         <>
-          <div style={{ marginBottom: 20 }}>
-            <div style={{ background: "#f0fdf4", border: "1px solid #d1d9e6", borderRadius: 9, padding: "16px 18px", width: "fit-content" }}>
-              <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 }}>Total Commission</div>
-              <div style={{ fontFamily: "monospace", fontSize: 22, fontWeight: 700, color: "#16a34a" }}>
-                {/* H.33: same react-query third-state gap as the Daily tab. */}
-                {commissionLoading || commissionError || !commission ? "—" : fmt(fromPaise(commission.total_commission_paise))}
-              </div>
-            </div>
+          <div className="mb-5">
+            <Card size="sm" className="w-fit bg-success/5">
+              <CardContent>
+                <div className="mb-1.5 text-[11px] tracking-wide text-muted-foreground uppercase">Total Commission</div>
+                <div className="font-mono text-xl font-bold tabular-nums text-success">
+                  {/* H.33: same react-query third-state gap as the Daily tab. */}
+                  {commissionLoading || commissionError || !commission ? "—" : fmt(fromPaise(commission.total_commission_paise))}
+                </div>
+              </CardContent>
+            </Card>
           </div>
-          <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, overflow: "hidden" }}>
-            <div style={{ padding: "14px 18px", borderBottom: "1px solid #eef1f7" }}>
-              <h3 style={{ margin: 0, fontSize: 14, fontFamily: "'Roboto Slab', serif" }}>Commission by Account</h3>
-            </div>
-            <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
-              <thead>
-                <tr style={{ background: "#f8fafc" }}>
-                  {["Account", "Commission"].map(h => (
-                    <th key={h} style={{ padding: "9px 14px", textAlign: "left", fontSize: 11, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em", borderBottom: "1px solid #eef1f7" }}>{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
+          <Card className="py-0">
+            <CardHeader className="border-b py-3.5">
+              <CardTitle>Commission by Account</CardTitle>
+            </CardHeader>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  {["Account", "Commission"].map(h => <TableHead key={h}>{h}</TableHead>)}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 <TableRowState isLoading={commissionLoading} error={commissionError} colSpan={2} />
                 {!commissionLoading && !commissionError && (commission?.items ?? []).length === 0 && (
-                  <tr><td colSpan={2} style={{ padding: "24px 14px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No commission in this period.</td></tr>
+                  <TableRow className="hover:bg-transparent">
+                    <TableCell colSpan={2}>
+                      <Empty>
+                        <EmptyHeader>
+                          <EmptyTitle>No commission</EmptyTitle>
+                          <EmptyDescription>No commission in this period.</EmptyDescription>
+                        </EmptyHeader>
+                      </Empty>
+                    </TableCell>
+                  </TableRow>
                 )}
-                {(commission?.items ?? []).map((r, i) => (
-                  <tr key={r.account_id} style={{ background: i % 2 === 0 ? "#fff" : "#fafbfd", borderBottom: "1px solid #f1f5f9" }}>
-                    <td style={{ padding: "9px 14px", fontSize: 13 }}>{r.account_name}</td>
-                    <td style={{ padding: "9px 14px", fontFamily: "monospace", fontSize: 12, fontWeight: 700, color: "#16a34a" }}>{fmt(fromPaise(r.total_commission_paise))}</td>
-                  </tr>
+                {(commission?.items ?? []).map(r => (
+                  <TableRow key={r.account_id}>
+                    <TableCell>{r.account_name}</TableCell>
+                    <TableCell className="font-mono text-xs font-bold tabular-nums text-success">{fmt(fromPaise(r.total_commission_paise))}</TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-            </div>
-          </div>
+              </TableBody>
+            </Table>
+          </Card>
         </>
       )}
     </div>

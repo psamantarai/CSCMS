@@ -1551,11 +1551,14 @@
   },
   {
     "title": "9.5.12 — AuditLog + Reports",
-    "status": "pending",
-    "updated": "2026-08-05",
+    "status": "completed",
+    "updated": "2026-08-07",
+    "seq": 135,
     "details": [
-      "P9.5 · Reports' five-way report-type selector → ToggleGroup; its three tables use the 9.5.8 pattern; CSV export stays a Button.",
-      "Verify: each of the five reports renders, and a CSV export downloads with the same contents as before."
+      "Reports.tsx: five-way report-type selector rebuilt as ToggleGroup (single-select, guarded against empty selection); its three tables (Transaction Register, Service-wise, Commission by Account) rebuilt on Table/TableRow/TableCell/Badge/Empty following the 9.5.8 pattern; Cash Summary, Account Balances, Monthly and P&L cards rebuilt on Card; Print/Export CSV rebuilt as Button",
+      "AuditLog.tsx: filters rebuilt on Card/Field/Select/Input/Button; table rebuilt on Table/Badge/Empty, keeping the existing Fragment-based expand-to-JSON-diff row; pagination footer matches the 9.5.8 pattern",
+      "Verified: tsc --noEmit clean, vite build clean, zero inline style={{ left in either file; live in-browser pass logged in as admin/admin123 (dev seed) — all five Reports tabs render with live data, CSV export fires without error, AuditLog's row-expand JSON diff panel works",
+      "Scope check: no query/mutation/validation logic touched, only presentation"
     ]
   },
   {
