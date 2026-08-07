@@ -4,6 +4,15 @@ import { api } from "../lib/api"
 import { queryKeys } from "../lib/queries"
 import { fmt, formatDate, formatTime, fromPaise, localDateISO, toPaise } from "../lib/format"
 import { BlockState, InlineState, TableRowState } from "../components/QueryState"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Field, FieldLabel } from "@/components/ui/field"
+import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
+import { cn } from "@/lib/utils"
 
 type AccountType = "cash" | "savings" | "current" | "wallet" | "settlement"
 
@@ -26,12 +35,12 @@ const typeIcon: Record<AccountType, string> = {
   settlement: "🔄",
 }
 
-const typeColor: Record<AccountType, string> = {
-  cash: "#f59e0b",
-  savings: "#1e3a5f",
-  current: "#7c3aed",
-  wallet: "#0891b2",
-  settlement: "#059669",
+const typeAccent: Record<AccountType, string> = {
+  cash: "bg-warning",
+  savings: "bg-primary",
+  current: "bg-purple-600",
+  wallet: "bg-cyan-600",
+  settlement: "bg-success",
 }
 
 const typeLabel: Record<AccountType, string> = {
@@ -61,6 +70,8 @@ const emptyForm = {
   ifsc: "",
   opening_balance: "0",
 }
+
+const transferColumns = ["ID", "From", "To", "Amount", "Date", "Time"]
 
 function AccountBalance({ id }: { id: number }) {
   const { data, isLoading, error } = useQuery({
@@ -203,174 +214,210 @@ export default function Accounts() {
   }
 
   return (
-    <div style={{ padding: "28px 32px", overflowY: "auto", height: "100%" }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 22 }}>
+    <div className="h-full overflow-y-auto px-8 py-7">
+      <div className="mb-5 flex items-start justify-between">
         <div>
-          <h1 style={{ fontSize: 22, margin: 0 }}>Accounts & Balances</h1>
-          <p style={{ margin: "4px 0 0", color: "#64748b", fontSize: 13 }}>
+          <h1 className="m-0 text-[22px]">Accounts & Balances</h1>
+          <p className="mt-1 mb-0 text-[13px] text-muted-foreground">
             {accountsLoading ? "Loading…" : accountsError ? "Could not load accounts" : `${accounts.length} account${accounts.length === 1 ? "" : "s"}`}
           </p>
         </div>
-        <div style={{ display: "flex", gap: 10 }}>
-          <button onClick={() => setShowTransfer(!showTransfer)} style={{ border: "1px solid #1e3a5f", color: "#1e3a5f", background: "#fff", borderRadius: 7, padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-            ⇄ Internal Transfer
-          </button>
-          <button onClick={() => (formOpen ? closeForm() : openCreate())} style={{ background: "#1e3a5f", color: "#fff", border: "none", borderRadius: 7, padding: "8px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-            {formOpen ? "Cancel" : "+ Add Account"}
-          </button>
+        <div className="flex gap-2.5">
+          <Button variant="outline" onClick={() => setShowTransfer(!showTransfer)}>⇄ Internal Transfer</Button>
+          <Button onClick={() => (formOpen ? closeForm() : openCreate())}>{formOpen ? "Cancel" : "+ Add Account"}</Button>
         </div>
       </div>
 
       {/* Create / edit form */}
       {formOpen && (
-        <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, padding: "20px 24px", marginBottom: 22 }}>
-          <h3 style={{ margin: "0 0 16px", fontSize: 15 }}>{editingId ? "Edit Account" : "New Account"}</h3>
-          <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
-            <div>
-              <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>Name</label>
-              <input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
+        <Card className="mb-5">
+          <CardHeader>
+            <CardTitle>{editingId ? "Edit Account" : "New Account"}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="rs-grid grid grid-cols-3 gap-2.5">
+              <Field>
+                <FieldLabel htmlFor="acc-name">Name</FieldLabel>
+                <Input id="acc-name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="acc-type">Type</FieldLabel>
+                <Select
+                  items={typeLabel}
+                  value={form.account_type}
+                  onValueChange={v => setForm({ ...form, account_type: v as AccountType })}
+                >
+                  <SelectTrigger id="acc-type" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(typeLabel) as AccountType[]).map(t => <SelectItem key={t} value={t}>{typeLabel[t]}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </Field>
+              {!editingId && (
+                <Field>
+                  <FieldLabel htmlFor="acc-opening">Opening Balance (₹)</FieldLabel>
+                  <Input id="acc-opening" type="number" value={form.opening_balance} onChange={e => setForm({ ...form, opening_balance: e.target.value })} />
+                </Field>
+              )}
+              <Field>
+                <FieldLabel htmlFor="acc-bank">Bank Name</FieldLabel>
+                <Input id="acc-bank" value={form.bank_name} onChange={e => setForm({ ...form, bank_name: e.target.value })} />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="acc-number">Account Number</FieldLabel>
+                <Input id="acc-number" value={form.account_number_masked} onChange={e => setForm({ ...form, account_number_masked: e.target.value })} />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="acc-ifsc">IFSC</FieldLabel>
+                <Input id="acc-ifsc" value={form.ifsc} onChange={e => setForm({ ...form, ifsc: e.target.value })} />
+              </Field>
             </div>
-            <div>
-              <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>Type</label>
-              <select value={form.account_type} onChange={e => setForm({ ...form, account_type: e.target.value as AccountType })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, background: "#fff", outline: "none" }}>
-                {(Object.keys(typeLabel) as AccountType[]).map(t => <option key={t} value={t}>{typeLabel[t]}</option>)}
-              </select>
+            <div className="mt-3.5 flex gap-2.5">
+              <Button onClick={submitForm}>{editingId ? "Save Changes" : "Create Account"}</Button>
+              <Button variant="outline" onClick={closeForm}>Cancel</Button>
             </div>
-            {!editingId && (
-              <div>
-                <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>Opening Balance (₹)</label>
-                <input type="number" value={form.opening_balance} onChange={e => setForm({ ...form, opening_balance: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
-              </div>
-            )}
-            <div>
-              <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>Bank Name</label>
-              <input value={form.bank_name} onChange={e => setForm({ ...form, bank_name: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
-            </div>
-            <div>
-              <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>Account Number</label>
-              <input value={form.account_number_masked} onChange={e => setForm({ ...form, account_number_masked: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
-            </div>
-            <div>
-              <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>IFSC</label>
-              <input value={form.ifsc} onChange={e => setForm({ ...form, ifsc: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
-            </div>
-          </div>
-          <div style={{ marginTop: 14, display: "flex", gap: 10 }}>
-            <button onClick={submitForm} style={{ background: "#1e3a5f", color: "#fff", border: "none", borderRadius: 7, padding: "9px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-              {editingId ? "Save Changes" : "Create Account"}
-            </button>
-            <button onClick={closeForm} style={{ background: "#f1f5f9", border: "1px solid #d1d9e6", borderRadius: 7, padding: "9px 20px", fontSize: 13, cursor: "pointer" }}>Cancel</button>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
       )}
 
       {/* Transfer form */}
       {showTransfer && (
-        <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, padding: "20px 24px", marginBottom: 22 }}>
-          <h3 style={{ margin: "0 0 16px", fontSize: 15 }}>Internal Fund Transfer</h3>
-          <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "1fr 60px 1fr 160px", gap: 10, alignItems: "end" }}>
-            <div>
-              <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>From Account</label>
-              <select value={transferForm.from_account_id} onChange={e => setTransferForm({ ...transferForm, from_account_id: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, background: "#fff", outline: "none" }}>
-                <option value="">Select…</option>
-                {accounts.filter(a => a.is_active).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-              </select>
+        <Card className="mb-5">
+          <CardHeader>
+            <CardTitle>Internal Fund Transfer</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="rs-grid grid grid-cols-[1fr_60px_1fr_160px] items-end gap-2.5">
+              <Field>
+                <FieldLabel htmlFor="trf-from">From Account</FieldLabel>
+                <Select
+                  items={{ "": "Select…", ...Object.fromEntries(accounts.filter(a => a.is_active).map(a => [String(a.id), a.name])) }}
+                  value={transferForm.from_account_id}
+                  onValueChange={v => setTransferForm({ ...transferForm, from_account_id: v as string })}
+                >
+                  <SelectTrigger id="trf-from" className="w-full">
+                    <SelectValue placeholder="Select…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {accounts.filter(a => a.is_active).map(a => <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <div className="pb-2 text-center text-lg text-muted-foreground">→</div>
+              <Field>
+                <FieldLabel htmlFor="trf-to">To Account</FieldLabel>
+                <Select
+                  items={{ "": "Select…", ...Object.fromEntries(accounts.filter(a => a.is_active).map(a => [String(a.id), a.name])) }}
+                  value={transferForm.to_account_id}
+                  onValueChange={v => setTransferForm({ ...transferForm, to_account_id: v as string })}
+                >
+                  <SelectTrigger id="trf-to" className="w-full">
+                    <SelectValue placeholder="Select…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {accounts.filter(a => a.is_active).map(a => <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="trf-amount">Amount (₹)</FieldLabel>
+                <Input id="trf-amount" type="number" placeholder="0" value={transferForm.amount} onChange={e => setTransferForm({ ...transferForm, amount: e.target.value })} />
+              </Field>
             </div>
-            <div style={{ textAlign: "center", paddingBottom: 8, fontSize: 18, color: "#64748b" }}>→</div>
-            <div>
-              <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>To Account</label>
-              <select value={transferForm.to_account_id} onChange={e => setTransferForm({ ...transferForm, to_account_id: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, background: "#fff", outline: "none" }}>
-                <option value="">Select…</option>
-                {accounts.filter(a => a.is_active).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-              </select>
+            <div className="mt-3.5 flex items-center gap-2.5">
+              <Button onClick={submitTransfer} disabled={transferMutation.isPending}>
+                {transferMutation.isPending ? "Transferring…" : "Execute Transfer"}
+              </Button>
+              <Button variant="outline" onClick={() => { setShowTransfer(false); setTransferError("") }}>Cancel</Button>
+              {transferError && <span className="text-xs text-destructive">{transferError}</span>}
             </div>
-            <div>
-              <label style={{ display: "block", fontSize: 12, color: "#64748b", marginBottom: 4 }}>Amount (₹)</label>
-              <input type="number" placeholder="0" value={transferForm.amount} onChange={e => setTransferForm({ ...transferForm, amount: e.target.value })} style={{ width: "100%", padding: "8px 10px", border: "1px solid #d1d9e6", borderRadius: 6, fontSize: 13, outline: "none", boxSizing: "border-box" }} />
-            </div>
-          </div>
-          <div style={{ marginTop: 14, display: "flex", gap: 10, alignItems: "center" }}>
-            <button onClick={submitTransfer} disabled={transferMutation.isPending} style={{ background: "#1e3a5f", color: "#fff", border: "none", borderRadius: 7, padding: "9px 20px", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>
-              {transferMutation.isPending ? "Transferring…" : "Execute Transfer"}
-            </button>
-            <button onClick={() => { setShowTransfer(false); setTransferError("") }} style={{ background: "#f1f5f9", border: "1px solid #d1d9e6", borderRadius: 7, padding: "9px 20px", fontSize: 13, cursor: "pointer" }}>Cancel</button>
-            {transferError && <span style={{ color: "#dc2626", fontSize: 12 }}>{transferError}</span>}
-          </div>
-          <p style={{ margin: "10px 0 0", fontSize: 12, color: "#64748b" }}>Transfer creates two ledger entries — debit source, credit destination.</p>
-        </div>
+            <p className="mt-2.5 mb-0 text-xs text-muted-foreground">Transfer creates two ledger entries — debit source, credit destination.</p>
+          </CardContent>
+        </Card>
       )}
 
       {/* Account cards */}
       <BlockState isLoading={accountsLoading} error={accountsError} />
       {!accountsLoading && !accountsError && (
-      <div className="rs-grid" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 14, marginBottom: 28 }}>
-        {accounts.map(a => (
-          <div key={a.id} style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, padding: "20px 22px", position: "relative", overflow: "hidden", opacity: a.is_active ? 1 : 0.6 }}>
-            <div style={{ position: "absolute", top: 0, left: 0, width: 4, height: "100%", background: typeColor[a.account_type] }} />
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 14, paddingLeft: 4 }}>
-              <div>
-                <div style={{ fontSize: 18, marginBottom: 4 }}>{typeIcon[a.account_type]}</div>
-                <div style={{ fontWeight: 600, fontSize: 15 }}>{a.name}</div>
-                <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>{a.bank_name || "Internal"} · {typeLabel[a.account_type]}</div>
-              </div>
-              <span style={{ fontSize: 11, fontWeight: 600, padding: "2px 8px", borderRadius: 20, background: a.is_active ? "#dcfce7" : "#fee2e2", color: a.is_active ? "#16a34a" : "#dc2626" }}>
-                {a.is_active ? "Active" : "Inactive"}
-              </span>
-            </div>
-            {a.account_number_masked && (
-              <div style={{ fontSize: 12, color: "#94a3b8", fontFamily: "monospace", marginBottom: 10, paddingLeft: 4 }}>{a.account_number_masked}</div>
-            )}
-            <div style={{ paddingLeft: 4, marginBottom: 14 }}>
-              <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 4 }}>Current Balance</div>
-              <div style={{ fontFamily: "monospace", fontSize: 22, fontWeight: 700, color: "#1e3a5f" }}><AccountBalance id={a.id} /></div>
-            </div>
-            <div style={{ display: "flex", gap: 8, paddingLeft: 4 }}>
-              <button onClick={() => openEdit(a)} style={{ border: "1px solid #d1d9e6", background: "#fff", borderRadius: 6, padding: "5px 12px", fontSize: 12, cursor: "pointer", color: "#475569" }}>Edit</button>
-              <button
-                onClick={() => deactivateMutation.mutate({ id: a.id, is_active: !a.is_active })}
-                style={{ border: "1px solid #d1d9e6", background: "#fff", borderRadius: 6, padding: "5px 12px", fontSize: 12, cursor: "pointer", color: a.is_active ? "#dc2626" : "#16a34a" }}
-              >
-                {a.is_active ? "Deactivate" : "Activate"}
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
+        <div className="rs-grid mb-7 grid grid-cols-3 gap-3.5">
+          {accounts.map(a => (
+            <Card key={a.id} className={cn("relative overflow-hidden py-0", !a.is_active && "opacity-60")}>
+              <div className={cn("absolute inset-y-0 left-0 w-1", typeAccent[a.account_type])} />
+              <CardContent className="px-5.5 py-5">
+                <div className="mb-3.5 flex items-start justify-between pl-1">
+                  <div>
+                    <div className="mb-1 text-lg">{typeIcon[a.account_type]}</div>
+                    <div className="text-[15px] font-semibold">{a.name}</div>
+                    <div className="mt-0.5 text-xs text-muted-foreground">{a.bank_name || "Internal"} · {typeLabel[a.account_type]}</div>
+                  </div>
+                  <Badge className={a.is_active ? "bg-success/15 text-success" : "bg-destructive/15 text-destructive"}>
+                    {a.is_active ? "Active" : "Inactive"}
+                  </Badge>
+                </div>
+                {a.account_number_masked && (
+                  <div className="mb-2.5 pl-1 font-mono text-xs text-muted-foreground/70">{a.account_number_masked}</div>
+                )}
+                <div className="mb-3.5 pl-1">
+                  <div className="mb-1 text-[11px] tracking-wide text-muted-foreground uppercase">Current Balance</div>
+                  <div className="font-mono text-[22px] font-bold tabular-nums text-primary"><AccountBalance id={a.id} /></div>
+                </div>
+                <div className="flex gap-2 pl-1">
+                  <Button variant="outline" size="sm" onClick={() => openEdit(a)}>Edit</Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className={a.is_active ? "text-destructive" : "text-success"}
+                    onClick={() => deactivateMutation.mutate({ id: a.id, is_active: !a.is_active })}
+                  >
+                    {a.is_active ? "Deactivate" : "Activate"}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
       )}
 
       {/* Transfer history */}
-      <div style={{ background: "#fff", border: "1px solid #d1d9e6", borderRadius: 10, overflow: "hidden" }}>
-        <div style={{ padding: "14px 18px", borderBottom: "1px solid #eef1f7" }}>
-          <h3 style={{ margin: 0, fontSize: 14, fontFamily: "'Roboto Slab', serif" }}>Recent Internal Transfers</h3>
-        </div>
-        <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr style={{ background: "#f8fafc" }}>
-              {["ID", "From", "To", "Amount", "Date", "Time"].map(h => (
-                <th key={h} style={{ padding: "8px 14px", textAlign: "left", fontSize: 11, fontWeight: 600, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em", borderBottom: "1px solid #eef1f7" }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            <TableRowState isLoading={transfersLoading} error={transfersError} colSpan={6} />
-            {!transfersLoading && !transfersError && transfers.map((t, i) => (
-              <tr key={t.id} style={{ background: i % 2 === 0 ? "#fff" : "#fafbfd", borderBottom: "1px solid #f1f5f9" }}>
-                <td style={{ padding: "9px 14px", fontFamily: "monospace", fontSize: 12, color: "#3b6cb7" }}>TRF-{t.id}</td>
-                <td style={{ padding: "9px 14px", fontSize: 13 }}>{t.from_account_name}</td>
-                <td style={{ padding: "9px 14px", fontSize: 13 }}>{t.to_account_name}</td>
-                <td style={{ padding: "9px 14px", fontFamily: "monospace", fontSize: 13, fontWeight: 700, color: "#1e3a5f" }}>{fmt(fromPaise(t.amount_paise))}</td>
-                <td style={{ padding: "9px 14px", fontSize: 12, color: "#64748b" }}>{formatDate(t.business_date)}</td>
-                <td style={{ padding: "9px 14px", fontSize: 12, color: "#94a3b8" }}>{formatTime(t.created_at)}</td>
-              </tr>
+      <Card className="py-0">
+        <CardHeader className="border-b py-4">
+          <CardTitle>Recent Internal Transfers</CardTitle>
+        </CardHeader>
+        <Table>
+          <TableHeader>
+            <TableRow>
+              {transferColumns.map(h => <TableHead key={h}>{h}</TableHead>)}
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            <TableRowState isLoading={transfersLoading} error={transfersError} colSpan={transferColumns.length} />
+            {!transfersLoading && !transfersError && transfers.map(t => (
+              <TableRow key={t.id}>
+                <TableCell className="font-mono text-xs font-semibold text-ring">TRF-{t.id}</TableCell>
+                <TableCell>{t.from_account_name}</TableCell>
+                <TableCell>{t.to_account_name}</TableCell>
+                <TableCell className="font-mono font-bold tabular-nums">{fmt(fromPaise(t.amount_paise))}</TableCell>
+                <TableCell className="text-muted-foreground">{formatDate(t.business_date)}</TableCell>
+                <TableCell className="text-muted-foreground/70">{formatTime(t.created_at)}</TableCell>
+              </TableRow>
             ))}
             {!transfersLoading && !transfersError && transfers.length === 0 && (
-              <tr><td colSpan={6} style={{ padding: "18px 14px", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>No transfers yet.</td></tr>
+              <TableRow className="hover:bg-transparent">
+                <TableCell colSpan={transferColumns.length}>
+                  <Empty>
+                    <EmptyHeader>
+                      <EmptyTitle>No transfers</EmptyTitle>
+                      <EmptyDescription>No internal transfers yet.</EmptyDescription>
+                    </EmptyHeader>
+                  </Empty>
+                </TableCell>
+              </TableRow>
             )}
-          </tbody>
-        </table>
-        </div>
-      </div>
+          </TableBody>
+        </Table>
+      </Card>
     </div>
   )
 }

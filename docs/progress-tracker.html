@@ -1538,11 +1538,15 @@
   },
   {
     "title": "9.5.11 — Accounts + Ledger",
-    "status": "pending",
-    "updated": "2026-08-05",
+    "status": "completed",
+    "updated": "2026-08-07",
+    "seq": 134,
     "details": [
-      "P9.5 · Accounts' per-account balance cards use the 9.5.4 Card; Ledger keeps its running-balance column mono and aligned.",
-      "Verify: balances match the values shown before the change on the same data; Ledger's date/account filters unchanged."
+      "Rebuilt src/pages/Accounts.tsx and src/pages/Ledger.tsx on shadcn/ui, following the 9.5.8 Transactions pattern",
+      "Accounts: per-account Card grid keeps its colored left accent bar (mapped to warning/primary/purple/cyan/success by account type), Active/Inactive Badge, AccountBalance still uses InlineState; create/edit and internal-transfer forms moved to Card + Field/Select; transfer history on Table/Empty",
+      "Ledger: filter bar as Card + Field/Select, 3-tile credit/debit/net summary on Card, Table with entry-type Badge (service_income green, commission ring-blue, expense red, transfer purple), debit/credit/running-balance columns stay font-mono tabular-nums",
+      "Verified: tsc --noEmit clean, vite build clean; live in-browser pass against the real backend — Accounts shows correct per-account balances (Cash Drawer ₹12,276.00 etc.) and Edit opens prefilled (name/type, blank bank fields) for Cash Drawer; Ledger's account filter narrows correctly and its Net (this page) for Cash Drawer (+₹12,276.00) matches the Accounts card balance exactly",
+      "Scope check: no query/mutation/validation logic touched, only presentation"
     ]
   },
   {
