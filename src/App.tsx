@@ -1,8 +1,9 @@
+import { useEffect, useState } from "react"
 import { BrowserRouter, Routes, Route, Navigate, NavLink, useNavigate, useLocation } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import {
   Activity, BarChart3, BookOpen, Clock, CreditCard, FileText, IndianRupee,
-  LayoutDashboard, LogOut, MessageSquare, Tag, Users, type LucideIcon,
+  LayoutDashboard, LogOut, MessageSquare, Moon, Sun, Tag, Users, type LucideIcon,
 } from "lucide-react"
 import { api } from "./lib/api"
 import { queryKeys } from "./lib/queries"
@@ -68,14 +69,22 @@ const navGroups: { group: string; items: NavItem[] }[] = [
 const navItems = navGroups.flatMap(g => g.items)
 
 export default function App() {
+  // 9.5.15: next-themes-free — plain useState + localStorage + classList.toggle,
+  // no SSR flash to manage since this is a Vite SPA.
+  const [dark, setDark] = useState(() => localStorage.getItem("theme") === "dark")
+  useEffect(() => {
+    document.documentElement.classList.toggle("dark", dark)
+    localStorage.setItem("theme", dark ? "dark" : "light")
+  }, [dark])
+
   return (
     <BrowserRouter>
-      <AppShell />
+      <AppShell dark={dark} onToggleDark={() => setDark(d => !d)} />
     </BrowserRouter>
   )
 }
 
-function AppShell() {
+function AppShell({ dark, onToggleDark }: { dark: boolean; onToggleDark: () => void }) {
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
@@ -105,7 +114,7 @@ function AppShell() {
       className="h-svh overflow-hidden"
       style={{ "--sidebar-width": "14rem" } as React.CSSProperties}
     >
-      <AppSidebar activePath={activePath} user={user} logout={logout} />
+      <AppSidebar activePath={activePath} user={user} logout={logout} dark={dark} onToggleDark={onToggleDark} />
 
       {/* .app-topbar is load-bearing: the PLAN 6.7 print rules hide it by name. */}
       <SidebarInset className="overflow-hidden">
@@ -165,10 +174,12 @@ function AppShell() {
   )
 }
 
-function AppSidebar({ activePath, user, logout }: {
+function AppSidebar({ activePath, user, logout, dark, onToggleDark }: {
   activePath?: string
   user: { username: string; role: string }
   logout: () => void
+  dark: boolean
+  onToggleDark: () => void
 }) {
   const { setOpenMobile } = useSidebar()
 
@@ -222,6 +233,15 @@ function AppSidebar({ activePath, user, logout }: {
             <div className="truncate text-xs font-medium text-sidebar-foreground capitalize">{user.username}</div>
             <div className="truncate text-[10px] text-sidebar-foreground/50 capitalize">{user.role}</div>
           </div>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            title={dark ? "Switch to light mode" : "Switch to dark mode"}
+            onClick={onToggleDark}
+            className="text-sidebar-foreground/60 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+          >
+            {dark ? <Sun /> : <Moon />}
+          </Button>
           <Button
             variant="ghost"
             size="icon-sm"

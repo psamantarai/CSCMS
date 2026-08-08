@@ -1590,22 +1590,30 @@
   },
   {
     "title": "9.5.15 — Dark mode",
-    "status": "pending",
-    "updated": "2026-08-05",
+    "status": "completed",
+    "updated": "2026-08-08",
+    "seq": 138,
     "details": [
-      "P9.5 · A next-themes-free toggle (useState + localStorage + classList.toggle(\"dark\") on <html> — Vite SPA, no SSR flash to manage) in the sidebar footer next to the user block.",
-      "Ships here, not at 9.5.2, because only now does every screen read from tokens — a toggle any earlier would just expose 12 pages of hardcoded inline colors.",
-      "Verify: toggling switches all 12 pages, both modals and the sidebar; the choice survives a reload; nothing is unreadable in either mode — checked page by page, not just on the Dashboard."
+      "Next-themes-free toggle added to App.tsx: useState + localStorage(\"theme\") + classList.toggle(\"dark\") on document.documentElement, in the sidebar footer next to the user block (Sun/Moon icon button beside Logout). .dark CSS tokens already existed in index.css from the earlier shadcn init — no CSS changes needed.",
+      "Verified: npx tsc --noEmit clean; pnpm build (vite build) clean.",
+      "Live browser click-through (Chrome automation, logged in as admin): all 10 sidebar pages, the Login screen, and 2 Dashboard modals (New Transaction, Record Expense) render correctly in dark mode — readable text/borders throughout. Toggled back to light cleanly.",
+      "Persistence: toggled dark, did a full page reload (which also logs out per the existing in-memory-only session design — unrelated to this change), Login screen itself rendered dark, and Dashboard stayed dark after signing back in.",
+      "L4 VERIFY: independent fresh-context checker reviewed the diff against docs/PLAN.md 9.5.15's Verify line and the phase_9.5_presentation_only invariant — APPROVE. Diff confined to src/App.tsx only; no lib/api.ts/lib/queries.ts/lib/format.ts touched; localStorage key is theme-scoped, not auth-related.",
+      "Scope check: presentation only, no query/mutation logic touched"
     ]
   },
   {
     "title": "9.5.16 — Sweep",
-    "status": "pending",
-    "updated": "2026-08-05",
+    "status": "completed",
+    "updated": "2026-08-08",
+    "seq": 139,
     "details": [
-      "P9.5 · Remove what the migration orphaned: dead rules in index.css, the colorMap-era constants, the inputStyle/labelStyle/cardStyle locals left in pages (Reports.tsx:35-37 and friends), any now-unused imports. Confirm no page still hardcodes a color.",
-      "Baseline to beat: ~754 inline style={{}} objects across 19 files at the start of the phase.",
-      "Verify: grep -c \"style={{\" src/**/*.tsx returns only the deliberate survivors (print-report layout), and that count is recorded here; tsc --noEmit clean; pnpm build clean; full click-through of all 12 pages with no console errors."
+      "G0 found most of the sweep's premise (dead colorMap/inputStyle/labelStyle/cardStyle constants, dead CSS) was already resolved by the prior 9.5.10-9.5.14 shadcn-rebuild commits.",
+      "Scope narrowed to the one real leftover a tsc --noUnusedLocals sweep found: unused TableRowState import in Customers.tsx, removed.",
+      "Demo command passed: tsc --noEmit clean, vite build clean, style={{ count = 2 (App.tsx --sidebar-width, toggle-group.tsx --gap — both CSS custom properties, not hardcoded colors).",
+      "L4 VERIFY: independent fresh-context checker re-derived every G0 claim from the live repo rather than trusting it — APPROVE.",
+      "Manual live-browser click-through (Chrome automation, admin login) of all 12 pages: zero console errors on any page.",
+      "Quiz-me gate: APPROVE (3/3 correct)."
     ]
   },
   {
