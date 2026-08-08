@@ -1548,6 +1548,89 @@ pages with no console errors.
 
 ---
 
+## Phase 9.6 — Table sorting
+
+User request: click-to-sort headers on every data table. A shared helper
+wraps the existing `TableHead` — no new dependency (`@tanstack/react-table`
+isn't installed and isn't needed for client-side sort on data the page
+already fetched).
+
+**9.6.1 Sortable header helper** — a small `SortableTableHead` wrapper (or
+hook) around `src/components/ui/table.tsx`'s `TableHead`: click cycles
+ascending → descending → unsorted, with a lucide `ArrowUp`/`ArrowDown`
+indicator for the active column. `Array.sort()` on the page's already-loaded
+array; no API change.
+*Verify:* clicking a header sorts that column ascending, again descending,
+again resets to unsorted; the icon reflects the current state.
+
+**9.6.2 Apply everywhere** — Accounts, Transactions, Ledger, Banking,
+Expenses, Services, Customers, AuditLog, Reports' three tables, and
+Dashboard's recent-transactions table all use the 9.6.1 helper on their
+sortable columns (money columns stay `tabular-nums`; non-comparable columns
+like status badges are excluded).
+*Verify:* every listed table sorts correctly on at least one column; sort
+state is per-page (not persisted across navigation — out of scope).
+
+---
+
+## Phase 9.7 — Quick Actions modal rework
+
+User request: the three Dashboard quick-action Dialogs (Phase 9's New
+Transaction / New Banking Entry / Record Expense) become one modal with
+tabs, and their forms go single-column. Also fixes a real bug: `DialogContent`
+is capped at `sm:max-w-sm` (384px) with no `max-h`/`overflow-y`, so the
+existing multi-column forms (`grid-cols-3`, `grid-cols-3`, `grid-cols-5`)
+overflow and overlap the dialog chrome.
+
+**9.7.1 Unify into a tabbed modal** — the three `Dialog`s in `Dashboard.tsx`
+collapse into one, using shadcn `Tabs` for Transaction | Banking | Expense;
+`openModal: QuickModal` becomes a boolean `open` plus `activeTab`. Close
+Business Day is unchanged — still a plain nav link (Phase 9's rationale
+still holds: a 5-step wizard, not a form).
+*Verify:* opening any of the three quick actions opens the modal on the
+matching tab; switching tabs keeps each form's own state until the modal
+closes; Close Business Day still navigates to `/closing`.
+
+**9.7.2 Single-column forms + overflow fix** — `TransactionForm`,
+`BankingEntryForm`, `ExpenseForm`'s field grids become single-column stacks;
+`DialogContent` gains `max-h-[85vh] overflow-y-auto` so a form taller than
+the viewport scrolls inside the dialog instead of spilling out of it.
+*Verify:* all three forms render one field per row with no horizontal
+overflow at the dialog's width; a form taller than the viewport scrolls
+inside the dialog, not the page.
+
+---
+
+## Phase 9.8 — First-run onboarding (account creation + setup wizard)
+
+Pulled forward from 10.5 on user request, so it ships before Phase 10
+instead of inside it. Two screens, not one, because of ordering: Phase 8.2
+makes the app unusable until authenticated, but on a fresh install no
+account exists to authenticate as. First-run only — not a standing "add
+user" page; the PRD's single-operator model is otherwise unchanged.
+
+**9.8.1 Bootstrap endpoint** — `POST /api/auth/bootstrap` creates the first
+`users` row (bcrypt-hashed, `role='admin'`), but only when
+`SELECT COUNT(*) FROM users` is 0; returns 409 otherwise. Unauthenticated by
+design (nothing exists yet to authenticate against) and permanently dead
+once a user exists.
+*Verify:* the first call succeeds and logs the account in; any call once a
+user already exists returns 409 and creates nothing.
+
+**9.8.2 First-run routing + wizard** — `App.tsx` checks for zero users (and
+separately, zero accounts) ahead of the normal login gate and routes to
+`/setup` if either is true: **Create Admin Account** (username/password →
+9.8.1, then logs in) → **Shop Setup** (shop name into `settings`; accounts +
+opening balances via the existing `create_account` /
+`AccountCreate.opening_balance_paise` — no backend change needed there).
+Completing both returns to the normal app.
+*Verify:* a fresh DB (no users, no accounts) boots straight to `/setup`, not
+Login; finishing both steps reaches the Dashboard with the created accounts
+and balances visible; relaunching afterward goes straight to Login, not
+`/setup` again.
+
+---
+
 ## Phase 10 — Electron packaging
 
 Deliberately last. Packaging a moving target does the work twice.
@@ -1569,6 +1652,10 @@ without data loss.
 
 **10.5 First-run setup wizard** — shop name, accounts, opening balances.
 *Verify:* a fresh install reaches a usable state without touching a terminal.
+*Superseded:* pulled forward to Phase 9.8, which ships this as a web route
+before Electron packaging exists. Kept here only for phase-number continuity
+— Phase 10 just needs to confirm 9.8's wizard still works once packaged, not
+rebuild it.
 
 **10.6 Clean-machine acceptance test** — full PRD §12 pass.
 *Verify:* installs on a machine with no Python and no Node, works with the
