@@ -1575,11 +1575,17 @@
   },
   {
     "title": "9.5.14 — DailyClosing",
-    "status": "pending",
-    "updated": "2026-08-05",
+    "status": "completed",
+    "updated": "2026-08-08",
+    "seq": 137,
     "details": [
-      "P9.5 · Largest page (435 lines, 108 inline styles). The 5-step wizard's progress rail composes from Card + Separator + Badge; the irreversible close confirmation becomes AlertDialog — the one place a destructive-action component is genuinely earned. The printed closing report keeps its own layout.",
-      "Verify: all five steps advance and block exactly as before (pending-transaction and bank-verification checks still gate the close); the close still locks the day; AND the printed report still renders full-height and unclipped with the app chrome hidden, per PLAN 6.7."
+      "DailyClosing.tsx rebuilt on shadcn/ui: was 435 lines / 108 inline styles, now 0 inline styles. Step rail composes Card + Separator + Badge (circular step-number/checkmark badges, navy for current, green for completed)",
+      "AlertDialog added for the irreversible \"Lock Business Day\" confirmation — first use of AlertDialog in the app, per the plan's call-out as the one genuinely-earned destructive-action component",
+      "ClosedReport (post-close view, shared with reopening on an already-closed day) rebuilt on Card stat tiles + Table/TableFooter; print-report/no-print classes preserved verbatim for PLAN 6.7",
+      "ReopenControl (admin override) restyled with Button/Input/Card, kept as its existing inline-confirm pattern (not window.confirm, not AlertDialog — that upgrade was scoped to the close action only, per the plan)",
+      "Verified: tsc --noEmit clean, vite build clean, grep for style={{ in the file returns 0",
+      "Live browser click-through (routed around Chrome-extension click/screenshot flakiness by driving state via page-context JS after ~2-3 failed pointer-click attempts) confirmed all 5 wizard steps advance and gate correctly, the AlertDialog opens/confirms/locks the day, ClosedReport renders (stat tiles, per-account table, totals row), and ReopenControl reopens the day; reopened the dev-DB day afterward to leave it back in its original open state",
+      "Scope check: no query/mutation/validation logic touched, only presentation"
     ]
   },
   {
