@@ -5,6 +5,7 @@ import { queryKeys } from "../lib/queries"
 import { fmt, fromPaise, localDateISO } from "../lib/format"
 import { downloadCsv } from "../lib/csv"
 import { BlockState, TableRowState } from "../components/QueryState"
+import { SortableTableHead, useSort } from "../components/SortableTableHead"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
@@ -85,6 +86,14 @@ export default function Reports() {
   const cashAccountId = accounts.find(a => a.account_type === "cash")?.id
   const cashRow = dayReport?.accounts.find(a => a.account_id === cashAccountId)
   const dailyTxns = dailyTxnData?.items ?? []
+  const { sorted: sortedDailyTxns, sort: dailyTxnSort, toggleSort: toggleDailyTxnSort } = useSort(dailyTxns, {
+    id: t => t.id,
+    customer: t => t.customer_name ?? "Walk-in",
+    service: t => t.service_name,
+    fees: t => t.fee_paise,
+    charge: t => t.charge_paise,
+    payment: t => t.paid_paise,
+  })
 
   const { data: monthly, isLoading: monthlyLoading, error: monthlyError } = useQuery({
     queryKey: queryKeys.reportMonthly(year, month),
@@ -101,6 +110,12 @@ export default function Reports() {
       return api.get<ServiceRow[]>(`/reports/service-wise?${params}`)
     },
     enabled: activeReport === "service",
+  })
+  const { sorted: sortedServiceRows, sort: serviceRowSort, toggleSort: toggleServiceRowSort } = useSort(serviceRows ?? [], {
+    service: s => s.service_name,
+    transactions: s => s.transaction_count,
+    billed: s => s.billed_paise,
+    income: s => s.income_paise,
   })
 
   const { data: pl, isLoading: plLoading, error: plError } = useQuery({
@@ -119,6 +134,10 @@ export default function Reports() {
       return api.get<CommissionReport>(`/reports/banking-commission?${params}`)
     },
     enabled: activeReport === "commission",
+  })
+  const { sorted: sortedCommissionItems, sort: commissionSort, toggleSort: toggleCommissionSort } = useSort(commission?.items ?? [], {
+    account: r => r.account_name,
+    commission: r => r.total_commission_paise,
   })
 
   // PLAN 7.7: CSV export builds rows straight from the same fetched data the
@@ -325,7 +344,13 @@ export default function Reports() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  {["TXN", "Customer", "Service", "Fees", "Charge", "Payment", "Status"].map(h => <TableHead key={h}>{h}</TableHead>)}
+                  <SortableTableHead sortKey="id" sort={dailyTxnSort} onSort={toggleDailyTxnSort}>TXN</SortableTableHead>
+                  <SortableTableHead sortKey="customer" sort={dailyTxnSort} onSort={toggleDailyTxnSort}>Customer</SortableTableHead>
+                  <SortableTableHead sortKey="service" sort={dailyTxnSort} onSort={toggleDailyTxnSort}>Service</SortableTableHead>
+                  <SortableTableHead sortKey="fees" sort={dailyTxnSort} onSort={toggleDailyTxnSort}>Fees</SortableTableHead>
+                  <SortableTableHead sortKey="charge" sort={dailyTxnSort} onSort={toggleDailyTxnSort}>Charge</SortableTableHead>
+                  <SortableTableHead sortKey="payment" sort={dailyTxnSort} onSort={toggleDailyTxnSort}>Payment</SortableTableHead>
+                  <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -342,7 +367,7 @@ export default function Reports() {
                     </TableCell>
                   </TableRow>
                 )}
-                {dailyTxns.map(t => (
+                {sortedDailyTxns.map(t => (
                   <TableRow key={t.id}>
                     <TableCell className="font-mono text-xs text-ring">#{t.id}</TableCell>
                     <TableCell>{t.customer_name ?? "Walk-in"}</TableCell>
@@ -396,7 +421,10 @@ export default function Reports() {
           <Table>
             <TableHeader>
               <TableRow>
-                {["Service", "Transactions", "Billed", "Income Collected"].map(h => <TableHead key={h}>{h}</TableHead>)}
+                <SortableTableHead sortKey="service" sort={serviceRowSort} onSort={toggleServiceRowSort}>Service</SortableTableHead>
+                <SortableTableHead sortKey="transactions" sort={serviceRowSort} onSort={toggleServiceRowSort}>Transactions</SortableTableHead>
+                <SortableTableHead sortKey="billed" sort={serviceRowSort} onSort={toggleServiceRowSort}>Billed</SortableTableHead>
+                <SortableTableHead sortKey="income" sort={serviceRowSort} onSort={toggleServiceRowSort}>Income Collected</SortableTableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -413,7 +441,7 @@ export default function Reports() {
                   </TableCell>
                 </TableRow>
               )}
-              {(serviceRows ?? []).map(s => (
+              {sortedServiceRows.map(s => (
                 <TableRow key={s.service_id}>
                   <TableCell>{s.service_name}</TableCell>
                   <TableCell className="font-mono text-xs tabular-nums">{s.transaction_count}</TableCell>
@@ -503,7 +531,8 @@ export default function Reports() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  {["Account", "Commission"].map(h => <TableHead key={h}>{h}</TableHead>)}
+                  <SortableTableHead sortKey="account" sort={commissionSort} onSort={toggleCommissionSort}>Account</SortableTableHead>
+                  <SortableTableHead sortKey="commission" sort={commissionSort} onSort={toggleCommissionSort}>Commission</SortableTableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -520,7 +549,7 @@ export default function Reports() {
                     </TableCell>
                   </TableRow>
                 )}
-                {(commission?.items ?? []).map(r => (
+                {sortedCommissionItems.map(r => (
                   <TableRow key={r.account_id}>
                     <TableCell>{r.account_name}</TableCell>
                     <TableCell className="font-mono text-xs font-bold tabular-nums text-success">{fmt(fromPaise(r.total_commission_paise))}</TableCell>

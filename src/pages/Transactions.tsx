@@ -4,6 +4,7 @@ import { api } from "../lib/api"
 import { queryKeys } from "../lib/queries"
 import { fmt, formatDate, formatTime, fromPaise } from "../lib/format"
 import { TableRowState } from "../components/QueryState"
+import { SortableTableHead, useSort } from "../components/SortableTableHead"
 import TransactionForm from "../components/forms/TransactionForm"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Field, FieldLabel } from "@/components/ui/field"
@@ -72,6 +73,20 @@ export default function Transactions() {
   const items = data?.items ?? []
   const total = data?.total ?? 0
   const showFigures = !isLoading && !error
+
+  const { sorted: sortedItems, sort, toggleSort } = useSort(items, {
+    id: t => t.id,
+    date: t => t.business_date,
+    time: t => t.created_at,
+    customer: t => t.customer_name ?? "Walk-in",
+    service: t => t.service_name,
+    fee: t => t.fee_paise,
+    charge: t => t.charge_paise,
+    discount: t => t.discount_paise,
+    total: t => t.total_paise,
+    paid: t => t.paid_paise,
+    pending: t => Math.max(0, t.total_paise - t.paid_paise),
+  })
 
   const totalCollected = items.reduce((s, t) => s + t.paid_paise, 0)
   const totalPending = items.reduce((s, t) => s + Math.max(0, t.total_paise - t.paid_paise), 0)
@@ -166,12 +181,23 @@ export default function Transactions() {
         <Table>
           <TableHeader>
             <TableRow>
-              {columns.map(h => <TableHead key={h}>{h}</TableHead>)}
+              <SortableTableHead sortKey="id" sort={sort} onSort={toggleSort}>TXN ID</SortableTableHead>
+              <SortableTableHead sortKey="date" sort={sort} onSort={toggleSort}>Date</SortableTableHead>
+              <SortableTableHead sortKey="time" sort={sort} onSort={toggleSort}>Time</SortableTableHead>
+              <SortableTableHead sortKey="customer" sort={sort} onSort={toggleSort}>Customer</SortableTableHead>
+              <SortableTableHead sortKey="service" sort={sort} onSort={toggleSort}>Service</SortableTableHead>
+              <SortableTableHead sortKey="fee" sort={sort} onSort={toggleSort}>Fee</SortableTableHead>
+              <SortableTableHead sortKey="charge" sort={sort} onSort={toggleSort}>Charge</SortableTableHead>
+              <SortableTableHead sortKey="discount" sort={sort} onSort={toggleSort}>Discount</SortableTableHead>
+              <SortableTableHead sortKey="total" sort={sort} onSort={toggleSort}>Total</SortableTableHead>
+              <SortableTableHead sortKey="paid" sort={sort} onSort={toggleSort}>Paid</SortableTableHead>
+              <SortableTableHead sortKey="pending" sort={sort} onSort={toggleSort}>Pending</SortableTableHead>
+              <TableHead>Status</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             <TableRowState isLoading={isLoading} error={error} colSpan={columns.length} />
-            {showFigures && items.map(t => {
+            {showFigures && sortedItems.map(t => {
               const pending = Math.max(0, t.total_paise - t.paid_paise)
               return (
                 <TableRow key={t.id}>

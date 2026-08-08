@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query"
 import { useNavigate } from "react-router-dom"
 import StatCard from "../components/StatCard"
 import { BlockState, TableRowState } from "../components/QueryState"
+import { SortableTableHead, useSort } from "../components/SortableTableHead"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import TransactionForm from "../components/forms/TransactionForm"
 import BankingEntryForm from "../components/forms/BankingEntryForm"
@@ -75,6 +76,13 @@ export default function Dashboard() {
   })
   const todaysTxns = txnData?.items ?? []
   const recentTxns = todaysTxns.slice(0, 5)
+  const { sorted: sortedRecentTxns, sort: recentTxnSort, toggleSort: toggleRecentTxnSort } = useSort(recentTxns, {
+    customer: t => t.customer_name ?? "Walk-in",
+    service: t => t.service_name,
+    fee: t => t.fee_paise,
+    charge: t => t.charge_paise,
+    paid: t => t.paid_paise,
+  })
   // H.41: !txnLoading && !txnError isn't proof of a confirmed empty result --
   // a query stuck between retries (or otherwise settled with no data) reads
   // that way too. Only treat it as genuinely empty once txnData has arrived;
@@ -155,7 +163,13 @@ export default function Dashboard() {
           <Table>
             <TableHeader>
               <TableRow>
-                {txnColumns.map(h => <TableHead key={h}>{h}</TableHead>)}
+                <TableHead>S.No</TableHead>
+                <SortableTableHead sortKey="customer" sort={recentTxnSort} onSort={toggleRecentTxnSort}>Customer</SortableTableHead>
+                <SortableTableHead sortKey="service" sort={recentTxnSort} onSort={toggleRecentTxnSort}>Service</SortableTableHead>
+                <SortableTableHead sortKey="fee" sort={recentTxnSort} onSort={toggleRecentTxnSort}>Fees</SortableTableHead>
+                <SortableTableHead sortKey="charge" sort={recentTxnSort} onSort={toggleRecentTxnSort}>Charge</SortableTableHead>
+                <SortableTableHead sortKey="paid" sort={recentTxnSort} onSort={toggleRecentTxnSort}>Payment</SortableTableHead>
+                <TableHead>Status</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -172,7 +186,7 @@ export default function Dashboard() {
                   </TableCell>
                 </TableRow>
               )}
-              {recentTxns.map((t, i) => (
+              {sortedRecentTxns.map((t, i) => (
                 <TableRow key={t.id}>
                   <TableCell className="font-mono font-semibold text-ring">{i + 1}</TableCell>
                   <TableCell>{t.customer_name ?? "Walk-in"}</TableCell>

@@ -4,6 +4,7 @@ import { api } from "../lib/api"
 import { queryKeys } from "../lib/queries"
 import { fmt, fromPaise, toPaise } from "../lib/format"
 import { TableRowState } from "../components/QueryState"
+import { SortableTableHead, useSort } from "../components/SortableTableHead"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
@@ -35,6 +36,13 @@ export default function Services() {
   const { data: services = [], isLoading: servicesLoading, error: servicesError } = useQuery({
     queryKey: queryKeys.services,
     queryFn: () => api.get<Service[]>("/services"),
+  })
+
+  const { sorted: sortedServices, sort, toggleSort } = useSort(services, {
+    name: s => s.name,
+    category: s => s.category,
+    fee: s => s.default_fee_paise,
+    charge: s => s.default_charge_paise,
   })
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: queryKeys.services })
@@ -144,12 +152,17 @@ export default function Services() {
         <Table>
           <TableHeader>
             <TableRow>
-              {columns.map(h => <TableHead key={h}>{h}</TableHead>)}
+              <SortableTableHead sortKey="name" sort={sort} onSort={toggleSort}>Name</SortableTableHead>
+              <SortableTableHead sortKey="category" sort={sort} onSort={toggleSort}>Category</SortableTableHead>
+              <SortableTableHead sortKey="fee" sort={sort} onSort={toggleSort}>Default Fee</SortableTableHead>
+              <SortableTableHead sortKey="charge" sort={sort} onSort={toggleSort}>Default Charge</SortableTableHead>
+              <TableHead>Status</TableHead>
+              <TableHead></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             <TableRowState isLoading={servicesLoading} error={servicesError} colSpan={columns.length} />
-            {!servicesLoading && !servicesError && services.map(s => (
+            {!servicesLoading && !servicesError && sortedServices.map(s => (
               <TableRow key={s.id} className={cn(!s.is_active && "opacity-60")}>
                 <TableCell className="font-semibold">{s.name}</TableCell>
                 <TableCell className="text-muted-foreground">{s.category}</TableCell>

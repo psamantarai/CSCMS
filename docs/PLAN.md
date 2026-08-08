@@ -1631,6 +1631,44 @@ and balances visible; relaunching afterward goes straight to Login, not
 
 ---
 
+## Phase 9.9 — Session persistence across reload (httpOnly cookie auth)
+
+Reported by the user: refreshing the page logs the current session out. Investigated —
+not a defect. `src/lib/auth.tsx` and `src/lib/api.ts` deliberately keep the token in
+React state only (never `localStorage`), per `ARCHITECTURE.md` §9, and this was
+independently reaffirmed by the Phase 8.8 hardening audit's browser pass ("a full page
+reload correctly returns to Login... the intended behavior, not a defect"). The fix
+isn't "persist the bearer token" — `localStorage`/`sessionStorage` would make it
+XSS-readable, a step backward from today. Instead: move the session out of JS reach
+entirely onto an httpOnly cookie the browser sends automatically and the frontend never
+touches. This survives reload **and** is strictly more secure than today's JS-held token
+(unreadable via `document.cookie`, immune to any XSS token-exfiltration path).
+
+**9.9.1 Backend: cookie-based session** — `backend/app/auth.py`'s `login` sets
+`Set-Cookie` (`HttpOnly; SameSite=Strict; Path=/`) carrying the session token instead of
+returning it in the response body; `get_current_user` reads the token from the cookie
+instead of the `Authorization: Bearer` header; `logout` clears the cookie.
+*Verify:* login sets the cookie and no token appears in the JSON body; a request with no
+`Authorization` header but a valid session cookie succeeds; logout clears the cookie and
+the same session cookie is rejected on the next request.
+
+**9.9.2 Frontend: drop the in-memory bearer token** — `src/lib/api.ts` stops threading
+`authToken`/`setAuthToken` through the `Authorization` header (adds
+`credentials: "include"` to fetch calls instead); `src/lib/auth.tsx`'s `AuthProvider`
+restores `user` on mount via a `GET /auth/me` call that only succeeds with a valid
+session cookie, instead of starting logged-out every time.
+*Verify:* refreshing any authenticated page keeps the user logged in; a browser with no
+session cookie still lands on Login; an expired/cleared cookie is treated as logged-out
+via the existing `setOnUnauthorized` 401 handling, unchanged.
+
+*Verify (phase):* refresh no longer logs the user out; `document.cookie` never contains
+the session token; the loopback-only, no-external-network-surface posture from
+`ARCHITECTURE.md` §9 is otherwise unchanged. Update `ARCHITECTURE.md` §9's "session
+token in memory, not `localStorage`" line to describe the httpOnly-cookie design once
+this ships.
+
+---
+
 ## Phase 10 — Electron packaging
 
 Deliberately last. Packaging a moving target does the work twice.

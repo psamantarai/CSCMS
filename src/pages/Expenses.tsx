@@ -4,6 +4,7 @@ import { api } from "../lib/api"
 import { queryKeys } from "../lib/queries"
 import { fmt, formatDate, fromPaise } from "../lib/format"
 import { TableRowState } from "../components/QueryState"
+import { SortableTableHead, useSort } from "../components/SortableTableHead"
 import ExpenseForm from "../components/forms/ExpenseForm"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Field, FieldLabel } from "@/components/ui/field"
@@ -63,6 +64,15 @@ export default function Expenses() {
   const total = data?.total ?? 0
   const showFigures = !isLoading && !error
   const pageTotal = items.reduce((s, e) => s + e.amount_paise, 0)
+
+  const { sorted: sortedItems, sort, toggleSort } = useSort(items, {
+    id: e => e.id,
+    category: e => e.category,
+    amount: e => e.amount_paise,
+    date: e => e.business_date,
+    account: e => accountName(e.account_id),
+    note: e => e.note ?? "",
+  })
 
   function invalidate() {
     queryClient.invalidateQueries({ queryKey: ["expenses"] })
@@ -161,12 +171,18 @@ export default function Expenses() {
         <Table>
           <TableHeader>
             <TableRow>
-              {columns.map(h => <TableHead key={h}>{h}</TableHead>)}
+              <SortableTableHead sortKey="id" sort={sort} onSort={toggleSort}>#</SortableTableHead>
+              <SortableTableHead sortKey="category" sort={sort} onSort={toggleSort}>Category</SortableTableHead>
+              <SortableTableHead sortKey="amount" sort={sort} onSort={toggleSort}>Amount</SortableTableHead>
+              <SortableTableHead sortKey="date" sort={sort} onSort={toggleSort}>Date</SortableTableHead>
+              <SortableTableHead sortKey="account" sort={sort} onSort={toggleSort}>Account</SortableTableHead>
+              <SortableTableHead sortKey="note" sort={sort} onSort={toggleSort}>Note</SortableTableHead>
+              <TableHead></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             <TableRowState isLoading={isLoading} error={error} colSpan={columns.length} />
-            {showFigures && items.map(e => (
+            {showFigures && sortedItems.map(e => (
               <TableRow key={e.id}>
                 <TableCell className="font-mono text-muted-foreground">{e.id}</TableCell>
                 <TableCell>

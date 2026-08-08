@@ -4,13 +4,14 @@ import { api } from "../lib/api"
 import { queryKeys } from "../lib/queries"
 import { formatDate, formatTime } from "../lib/format"
 import { TableRowState } from "../components/QueryState"
+import { SortableTableHead, useSort } from "../components/SortableTableHead"
 import { Card, CardContent } from "@/components/ui/card"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table"
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 
 type AuditEntry = {
@@ -78,6 +79,16 @@ export default function AuditLog() {
   const total = data?.total ?? 0
   const showRows = !isLoading && !error
 
+  const { sorted: sortedItems, sort, toggleSort } = useSort(items, {
+    id: e => e.id,
+    date: e => e.created_at.split(" ")[0],
+    time: e => e.created_at,
+    table: e => tableLabel[e.table_name] ?? e.table_name,
+    row: e => e.row_id,
+    action: e => e.action,
+    user: e => e.username ?? "",
+  })
+
   function resetPage() {
     setOffset(0)
   }
@@ -141,12 +152,18 @@ export default function AuditLog() {
         <Table>
           <TableHeader>
             <TableRow>
-              {columns.map(h => <TableHead key={h}>{h}</TableHead>)}
+              <SortableTableHead sortKey="id" sort={sort} onSort={toggleSort}>Entry</SortableTableHead>
+              <SortableTableHead sortKey="date" sort={sort} onSort={toggleSort}>Date</SortableTableHead>
+              <SortableTableHead sortKey="time" sort={sort} onSort={toggleSort}>Time</SortableTableHead>
+              <SortableTableHead sortKey="table" sort={sort} onSort={toggleSort}>Table</SortableTableHead>
+              <SortableTableHead sortKey="row" sort={sort} onSort={toggleSort}>Row</SortableTableHead>
+              <SortableTableHead sortKey="action" sort={sort} onSort={toggleSort}>Action</SortableTableHead>
+              <SortableTableHead sortKey="user" sort={sort} onSort={toggleSort}>User</SortableTableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             <TableRowState isLoading={isLoading} error={error} colSpan={columns.length} />
-            {showRows && items.map(e => {
+            {showRows && sortedItems.map(e => {
               const ac = actionClass[e.action] ?? "bg-muted text-muted-foreground"
               const expanded = expandedId === e.id
               return (

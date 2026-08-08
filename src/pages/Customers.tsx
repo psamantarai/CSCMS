@@ -5,6 +5,7 @@ import { api } from "../lib/api"
 import { queryKeys } from "../lib/queries"
 import { fmt, formatDate, fromPaise, localDateISO, toPaise } from "../lib/format"
 import { BlockState, InlineState } from "../components/QueryState"
+import { SortableTableHead, useSort } from "../components/SortableTableHead"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
@@ -65,6 +66,20 @@ function CustomerHistory({ id }: { id: number }) {
   const banking = data?.banking_transactions ?? []
   const loaded = !isLoading && !error
 
+  const { sorted: sortedTxns, sort: txnSort, toggleSort: toggleTxnSort } = useSort(txns, {
+    id: t => t.id,
+    date: t => t.business_date,
+    service: t => t.service_name,
+    total: t => t.total_paise,
+  })
+  const { sorted: sortedBanking, sort: bankingSort, toggleSort: toggleBankingSort } = useSort(banking, {
+    id: b => b.id,
+    date: b => b.business_date,
+    type: b => b.txn_type,
+    principal: b => b.principal_paise,
+    commission: b => b.commission_paise,
+  })
+
   return (
     <Card className="py-0">
       {!loaded && <div className="p-2"><BlockState isLoading={isLoading} error={error} /></div>}
@@ -78,11 +93,15 @@ function CustomerHistory({ id }: { id: number }) {
             <Table>
               <TableHeader>
                 <TableRow>
-                  {serviceColumns.map(h => <TableHead key={h}>{h}</TableHead>)}
+                  <SortableTableHead sortKey="id" sort={txnSort} onSort={toggleTxnSort}>ID</SortableTableHead>
+                  <SortableTableHead sortKey="date" sort={txnSort} onSort={toggleTxnSort}>Date</SortableTableHead>
+                  <SortableTableHead sortKey="service" sort={txnSort} onSort={toggleTxnSort}>Service</SortableTableHead>
+                  <SortableTableHead sortKey="total" sort={txnSort} onSort={toggleTxnSort}>Total</SortableTableHead>
+                  <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {txns.map(t => (
+                {sortedTxns.map(t => (
                   <TableRow key={t.id}>
                     <TableCell className="font-mono text-ring">{t.id}</TableCell>
                     <TableCell className="text-muted-foreground">{formatDate(t.business_date)}</TableCell>
@@ -103,11 +122,15 @@ function CustomerHistory({ id }: { id: number }) {
             <Table>
               <TableHeader>
                 <TableRow>
-                  {bankingColumns.map(h => <TableHead key={h}>{h}</TableHead>)}
+                  <SortableTableHead sortKey="id" sort={bankingSort} onSort={toggleBankingSort}>ID</SortableTableHead>
+                  <SortableTableHead sortKey="date" sort={bankingSort} onSort={toggleBankingSort}>Date</SortableTableHead>
+                  <SortableTableHead sortKey="type" sort={bankingSort} onSort={toggleBankingSort}>Type</SortableTableHead>
+                  <SortableTableHead sortKey="principal" sort={bankingSort} onSort={toggleBankingSort}>Principal</SortableTableHead>
+                  <SortableTableHead sortKey="commission" sort={bankingSort} onSort={toggleBankingSort}>Commission</SortableTableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {banking.map(b => (
+                {sortedBanking.map(b => (
                   <TableRow key={b.id}>
                     <TableCell className="font-mono text-ring">{b.id}</TableCell>
                     <TableCell className="text-muted-foreground">{formatDate(b.business_date)}</TableCell>

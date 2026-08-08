@@ -4,6 +4,7 @@ import { api } from "../lib/api"
 import { queryKeys } from "../lib/queries"
 import { fmt, formatDate, formatTime, fromPaise, localDateISO } from "../lib/format"
 import { TableRowState } from "../components/QueryState"
+import { SortableTableHead, useSort } from "../components/SortableTableHead"
 import BankingEntryForm from "../components/forms/BankingEntryForm"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Field, FieldLabel } from "@/components/ui/field"
@@ -92,6 +93,19 @@ export default function Banking() {
   const items = data?.items ?? []
   const total = data?.total ?? 0
   const showFigures = !isLoading && !error
+
+  const { sorted: sortedItems, sort, toggleSort } = useSort(items, {
+    id: t => t.id,
+    date: t => t.business_date,
+    time: t => t.created_at,
+    customer: t => t.customer_id ?? -1,
+    type: t => typeLabels[t.txn_type],
+    amount: t => t.principal_paise,
+    commission: t => t.commission_paise,
+    settlement: t => accountName(t.settlement_account_id),
+    cash: t => accountName(t.cash_account_id),
+    remarks: t => t.remarks ?? "",
+  })
 
   // PLAN 5.3's own endpoint, not a client-side sum — this is what keeps the
   // page's commission tile from ever drifting from the ledger.
@@ -254,12 +268,22 @@ export default function Banking() {
         <Table>
           <TableHeader>
             <TableRow>
-              {columns.map(h => <TableHead key={h}>{h}</TableHead>)}
+              <SortableTableHead sortKey="id" sort={sort} onSort={toggleSort}>ID</SortableTableHead>
+              <SortableTableHead sortKey="date" sort={sort} onSort={toggleSort}>Date</SortableTableHead>
+              <SortableTableHead sortKey="time" sort={sort} onSort={toggleSort}>Time</SortableTableHead>
+              <SortableTableHead sortKey="customer" sort={sort} onSort={toggleSort}>Customer</SortableTableHead>
+              <SortableTableHead sortKey="type" sort={sort} onSort={toggleSort}>Type</SortableTableHead>
+              <SortableTableHead sortKey="amount" sort={sort} onSort={toggleSort}>Amount</SortableTableHead>
+              <SortableTableHead sortKey="commission" sort={sort} onSort={toggleSort}>Commission</SortableTableHead>
+              <SortableTableHead sortKey="settlement" sort={sort} onSort={toggleSort}>Settlement Acct</SortableTableHead>
+              <SortableTableHead sortKey="cash" sort={sort} onSort={toggleSort}>Cash Acct</SortableTableHead>
+              <SortableTableHead sortKey="remarks" sort={sort} onSort={toggleSort}>Remarks</SortableTableHead>
+              <TableHead></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             <TableRowState isLoading={isLoading} error={error} colSpan={columns.length} />
-            {showFigures && items.map(t => (
+            {showFigures && sortedItems.map(t => (
               <TableRow key={t.id}>
                 <TableCell className="font-mono font-semibold text-ring">#{t.id}</TableCell>
                 <TableCell className="text-muted-foreground">{formatDate(t.business_date)}</TableCell>

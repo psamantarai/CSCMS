@@ -104,6 +104,23 @@ milestone the plan explicitly says not to invent yet.
 - **Skills:** ponytail (always on) + shadcn + frontend-design
 - **Token budget:** 50000
 
+### M5.5 — 9.9 Session persistence across reload (httpOnly cookie auth)
+- **Outcome:** move the session token off the JS-held bearer/`Authorization` header
+  onto an httpOnly, `SameSite=Strict` cookie the backend sets on login and reads on
+  every request; the frontend restores `user` on mount via `GET /auth/me` instead of
+  starting logged-out. Reload keeps the user signed in, and the token becomes
+  unreadable to any JS (stronger than today's in-memory approach, not weaker).
+  Reported by the user as "refresh logs me out"; investigated and confirmed
+  intentional-but-improvable (`ARCHITECTURE.md` §9, Phase 8.8 audit) before slicing
+  this milestone — not a silent architecture change.
+- **Phase (swe-master):** Phase 1 Backend/API Design (trust boundary — auth mechanism) + Phase 2 Frontend Engineering
+- **Files / freeze boundary:** `backend/app/auth.py` (login/logout/`get_current_user`), `src/lib/api.ts` (drop `authToken`/`setAuthToken`, add `credentials: "include"`), `src/lib/auth.tsx` (`AuthProvider` mount restore via `/auth/me`)
+- **Demo command:** log in, refresh the page → still authenticated; `npx tsc --noEmit && pnpm build`
+- **Success criteria:** login sets the cookie with no token in the JSON body; a valid session cookie authenticates with no `Authorization` header; logout clears the cookie and it's rejected afterward; refresh on any authenticated page stays logged in; no session cookie still lands on Login; `document.cookie` never contains the token (docs/PLAN.md 9.9 Verify).
+- **Loops:** L1, L4
+- **Skills:** ponytail (always on) — trust-boundary change, no unrequested scope beyond the two files above
+- **Token budget:** 50000
+
 ### M6 — 10.1 Electron shell
 - **Outcome:** Electron shell loads the built frontend — single window, app menu.
 - **Phase:** Phase 13 Infrastructure & Deployment
@@ -179,3 +196,17 @@ milestone the plan explicitly says not to invent yet.
   properties not colors). L4 VERIFY (fresh-context checker, independently re-derived every G0
   claim): APPROVE. Manual live-browser click-through of all 12 pages: zero console errors. Quiz-me
   gate: APPROVE (3/3). Full log: `checkpoints/M2.md`.
+- **2026-08-08 · M3 (9.6 Table sorting) — DONE.** G0 verdict UNBUILT (no existing sort UI anywhere;
+  one unrelated data-prep `.sort()` in `Dashboard.tsx` doesn't count). New shared
+  `src/components/SortableTableHead.tsx` (`useSort` hook + `SortableTableHead` wrapper around
+  `ui/table.tsx`'s `TableHead`, lucide `ArrowUp`/`ArrowDown`, asc→desc→unsorted cycle, no new
+  dependency) wired into all 10 milestone pages (13 `<Table>` instances total, including Customers'
+  two history tables and Reports' three tables). Status/badge workflow columns left non-sortable per
+  spec's carve-out; categorical Badge columns (Type/Action/Category) made sortable by label text.
+  Demo command passed (`tsc --noEmit`, `vite build` clean). L4 VERIFY (fresh-context checker,
+  independently re-ran build/typecheck, grepped `backend/` and `package.json` itself): APPROVE.
+  Manual live-browser verify: real 3-click asc→desc→unsorted cycles confirmed correct on
+  Transactions/Ledger/Banking/Expenses/Services/AuditLog/Reports with live data reordering; mechanical
+  cycle + correct header wiring confirmed on Accounts/Customers/Dashboard where seeded data was too
+  sparse to show reordering. Zero console errors across all 10 pages. Quiz-me gate: APPROVE (3/3).
+  Full log: `checkpoints/M3.md`.

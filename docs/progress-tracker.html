@@ -1617,6 +1617,31 @@
     ]
   },
   {
+    "title": "9.6 — Table sorting",
+    "status": "completed",
+    "updated": "2026-08-08",
+    "seq": 140,
+    "details": [
+      "New shared src/components/SortableTableHead.tsx: useSort hook + SortableTableHead wrapper around ui/table.tsx's TableHead, lucide ArrowUp/ArrowDown indicator, asc→desc→unsorted cycle. No new dependency (@tanstack/react-table confirmed absent).",
+      "Wired into all 10 milestone pages, 13 <Table> instances total: Accounts, Transactions, Ledger, Banking, Expenses, Services, Customers (two history tables), AuditLog, Reports (three tables), Dashboard's recent-transactions table.",
+      "Status/workflow badge columns (Transactions, Services, Customers service history) left non-sortable per the plan's carve-out; categorical Badge columns (Type/Action/Category) made sortable by label text.",
+      "Demo command passed: tsc --noEmit clean, vite build clean.",
+      "L4 VERIFY: independent fresh-context checker re-ran build/typecheck itself and grepped backend/package.json to confirm zero backend touch and no new dependency — APPROVE.",
+      "Manual live-browser verify (Chrome automation, admin login): real 3-click asc→desc→unsorted cycles confirmed with live data reordering on 7 of 10 pages; mechanical cycle + correct header wiring confirmed on the other 3 (Accounts/Customers/Dashboard) where seeded data was too sparse to show reordering. Zero console errors across all 10 pages.",
+      "Quiz-me gate: APPROVE (3/3 correct)."
+    ]
+  },
+  {
+    "title": "9.9 — Session persistence across reload (httpOnly cookie auth)",
+    "status": "pending",
+    "updated": "2026-08-08",
+    "details": [
+      "User reported refresh logs them out. Investigated: intentional, not a bug (ARCHITECTURE.md §9, in-memory token by design), reaffirmed by the Phase 8.8 hardening audit.",
+      "Plan: move the session onto an httpOnly, SameSite=Strict cookie instead of a JS-held bearer token — survives reload and removes JS/XSS readability of the token entirely (stronger than today, not weaker).",
+      "See docs/PLAN.md Phase 9.9 and .genesis/PLAN.md M5.5 for the sliced milestone."
+    ]
+  },
+  {
     "title": "10.1 — Electron shell",
     "status": "pending",
     "updated": "2026-08-04",

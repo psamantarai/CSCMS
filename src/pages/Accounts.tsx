@@ -4,13 +4,14 @@ import { api } from "../lib/api"
 import { queryKeys } from "../lib/queries"
 import { fmt, formatDate, formatTime, fromPaise, localDateISO, toPaise } from "../lib/format"
 import { BlockState, InlineState, TableRowState } from "../components/QueryState"
+import { SortableTableHead, useSort } from "../components/SortableTableHead"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table"
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 import { cn } from "@/lib/utils"
 
@@ -100,6 +101,15 @@ export default function Accounts() {
   const { data: transfers = [], isLoading: transfersLoading, error: transfersError } = useQuery({
     queryKey: queryKeys.transfers,
     queryFn: () => api.get<Transfer[]>("/transfers"),
+  })
+
+  const { sorted: sortedTransfers, sort: transferSort, toggleSort: toggleTransferSort } = useSort(transfers, {
+    id: t => t.id,
+    from: t => t.from_account_name,
+    to: t => t.to_account_name,
+    amount: t => t.amount_paise,
+    date: t => t.business_date,
+    time: t => t.created_at,
   })
 
   const invalidate = () => {
@@ -388,12 +398,17 @@ export default function Accounts() {
         <Table>
           <TableHeader>
             <TableRow>
-              {transferColumns.map(h => <TableHead key={h}>{h}</TableHead>)}
+              <SortableTableHead sortKey="id" sort={transferSort} onSort={toggleTransferSort}>ID</SortableTableHead>
+              <SortableTableHead sortKey="from" sort={transferSort} onSort={toggleTransferSort}>From</SortableTableHead>
+              <SortableTableHead sortKey="to" sort={transferSort} onSort={toggleTransferSort}>To</SortableTableHead>
+              <SortableTableHead sortKey="amount" sort={transferSort} onSort={toggleTransferSort}>Amount</SortableTableHead>
+              <SortableTableHead sortKey="date" sort={transferSort} onSort={toggleTransferSort}>Date</SortableTableHead>
+              <SortableTableHead sortKey="time" sort={transferSort} onSort={toggleTransferSort}>Time</SortableTableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             <TableRowState isLoading={transfersLoading} error={transfersError} colSpan={transferColumns.length} />
-            {!transfersLoading && !transfersError && transfers.map(t => (
+            {!transfersLoading && !transfersError && sortedTransfers.map(t => (
               <TableRow key={t.id}>
                 <TableCell className="font-mono text-xs font-semibold text-ring">TRF-{t.id}</TableCell>
                 <TableCell>{t.from_account_name}</TableCell>

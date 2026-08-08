@@ -4,13 +4,14 @@ import { api } from "../lib/api"
 import { queryKeys } from "../lib/queries"
 import { fmt, formatDate, formatTime, fromPaise } from "../lib/format"
 import { TableRowState } from "../components/QueryState"
+import { SortableTableHead, useSort } from "../components/SortableTableHead"
 import { Card, CardContent } from "@/components/ui/card"
 import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Table, TableBody, TableCell, TableHeader, TableRow } from "@/components/ui/table"
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 import { cn } from "@/lib/utils"
 
@@ -76,6 +77,18 @@ export default function Ledger() {
   const items = data?.items ?? []
   const total = data?.total ?? 0
   const showFigures = !isLoading && !error
+
+  const { sorted: sortedItems, sort, toggleSort } = useSort(items, {
+    id: e => e.id,
+    date: e => e.business_date,
+    time: e => e.created_at,
+    description: e => e.description ?? "",
+    type: e => typeLabel[e.entry_type] ?? e.entry_type,
+    account: e => accountName(e.account_id),
+    debit: e => (e.amount_paise < 0 ? -e.amount_paise : 0),
+    credit: e => (e.amount_paise > 0 ? e.amount_paise : 0),
+    balance: e => e.running_balance,
+  })
 
   const totalCredit = items.reduce((s, e) => s + (e.amount_paise > 0 ? e.amount_paise : 0), 0)
   const totalDebit = items.reduce((s, e) => s + (e.amount_paise < 0 ? -e.amount_paise : 0), 0)
@@ -168,12 +181,20 @@ export default function Ledger() {
         <Table>
           <TableHeader>
             <TableRow>
-              {columns.map(h => <TableHead key={h}>{h}</TableHead>)}
+              <SortableTableHead sortKey="id" sort={sort} onSort={toggleSort}>Entry</SortableTableHead>
+              <SortableTableHead sortKey="date" sort={sort} onSort={toggleSort}>Date</SortableTableHead>
+              <SortableTableHead sortKey="time" sort={sort} onSort={toggleSort}>Time</SortableTableHead>
+              <SortableTableHead sortKey="description" sort={sort} onSort={toggleSort}>Description</SortableTableHead>
+              <SortableTableHead sortKey="type" sort={sort} onSort={toggleSort}>Type</SortableTableHead>
+              <SortableTableHead sortKey="account" sort={sort} onSort={toggleSort}>Account</SortableTableHead>
+              <SortableTableHead sortKey="debit" sort={sort} onSort={toggleSort}>Debit</SortableTableHead>
+              <SortableTableHead sortKey="credit" sort={sort} onSort={toggleSort}>Credit</SortableTableHead>
+              <SortableTableHead sortKey="balance" sort={sort} onSort={toggleSort}>Running Balance</SortableTableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             <TableRowState isLoading={isLoading} error={error} colSpan={columns.length} />
-            {showFigures && items.map(e => {
+            {showFigures && sortedItems.map(e => {
               const debit = e.amount_paise < 0 ? -e.amount_paise : 0
               const credit = e.amount_paise > 0 ? e.amount_paise : 0
               return (
