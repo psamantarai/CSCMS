@@ -1,5 +1,6 @@
-"""Idempotent seed data: Cash Drawer account, PRD §3 services, admin user,
-default settings. Run standalone: python -m app.seed"""
+"""Idempotent seed data: Cash Drawer account, PRD §3 services, default
+settings. Run standalone: python -m app.seed. seed_admin_user() is a
+separate, test-only helper — see its docstring."""
 import json
 import sqlite3
 
@@ -14,10 +15,15 @@ DEFAULT_SETTINGS = {
 }
 
 ADMIN_USERNAME = "admin"
-ADMIN_DEFAULT_PASSWORD = "admin123"  # temporary; change once auth ships (8.1/8.2)
+ADMIN_DEFAULT_PASSWORD = "admin123"  # only used by seed_admin_user(), a test-only helper (9.8)
 
 
 def run_seed(conn: sqlite3.Connection) -> None:
+    """Startup seed: reference data only (accounts/services/settings). Does
+    NOT create a user — 9.8's /api/auth/bootstrap is what creates the first
+    account on a real fresh install now; a standing admin/admin123 row would
+    make bootstrap's "zero users" precondition never true. Tests that need a
+    user row call seed_admin_user(conn) explicitly."""
     if conn.execute("SELECT 1 FROM accounts WHERE name = 'Cash Drawer'").fetchone() is None:
         conn.execute(
             "INSERT INTO accounts (name, account_type, opening_balance_paise, is_active, sort_order) "
@@ -32,18 +38,25 @@ def run_seed(conn: sqlite3.Connection) -> None:
                 (name, name),
             )
 
+    for key, value in DEFAULT_SETTINGS.items():
+        if conn.execute("SELECT 1 FROM settings WHERE key = ?", (key,)).fetchone() is None:
+            conn.execute("INSERT INTO settings (key, value) VALUES (?, ?)", (key, value))
+
+    conn.commit()
+
+
+def seed_admin_user(conn: sqlite3.Connection) -> None:
+    """Test-only: inserts the admin/admin123 row most backend tests use as a
+    stand-in session user (FK target for created_by/user_id, or a login
+    fixture). Never called from run_seed()/app startup — see run_seed's
+    docstring (9.8)."""
     if conn.execute("SELECT 1 FROM users WHERE username = ?", (ADMIN_USERNAME,)).fetchone() is None:
         password_hash = bcrypt.hashpw(ADMIN_DEFAULT_PASSWORD.encode(), bcrypt.gensalt()).decode()
         conn.execute(
             "INSERT INTO users (username, password_hash, role, is_active) VALUES (?, ?, 'admin', 1)",
             (ADMIN_USERNAME, password_hash),
         )
-
-    for key, value in DEFAULT_SETTINGS.items():
-        if conn.execute("SELECT 1 FROM settings WHERE key = ?", (key,)).fetchone() is None:
-            conn.execute("INSERT INTO settings (key, value) VALUES (?, ?)", (key, value))
-
-    conn.commit()
+        conn.commit()
 
 
 if __name__ == "__main__":

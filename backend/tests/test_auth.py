@@ -8,14 +8,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from fastapi import HTTPException
 
-from app.auth import LoginRequest, get_current_user, login, logout
+from app.auth import BootstrapRequest, LoginRequest, bootstrap, bootstrap_status, get_current_user, login, logout
 from app.db import get_connection, run_migrations
-from app.seed import ADMIN_DEFAULT_PASSWORD, ADMIN_USERNAME, run_seed
+from app.seed import ADMIN_DEFAULT_PASSWORD, ADMIN_USERNAME, run_seed, seed_admin_user
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
 
 
 def _seeded_conn(tmp: Path):
+    conn = get_connection(tmp / "test.db")
+    run_migrations(conn, MIGRATIONS_DIR)
+    run_seed(conn)
+    seed_admin_user(conn)
+    return conn
+
+
+def _bare_conn(tmp: Path):
+    # 9.8: no seed_admin_user() — bootstrap only makes sense against a
+    # genuinely zero-user DB, same as a real fresh install.
     conn = get_connection(tmp / "test.db")
     run_migrations(conn, MIGRATIONS_DIR)
     run_seed(conn)
@@ -97,10 +107,60 @@ def test_logout_invalidates_the_token():
         conn.close()
 
 
+def test_bootstrap_status_reports_needed_on_a_fresh_db():
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _bare_conn(Path(tmp))
+        assert bootstrap_status(conn) == {"needed": True}
+        conn.close()
+
+
+def test_bootstrap_status_reports_not_needed_once_a_user_exists():
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        assert bootstrap_status(conn) == {"needed": False}
+        conn.close()
+
+
+def test_bootstrap_creates_admin_logs_in_and_writes_shop_name():
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _bare_conn(Path(tmp))
+
+        result = bootstrap(BootstrapRequest(username="priya", password="s3cret", shop_name="  Priya CSC  "), conn)
+        assert "token" in result and len(result["token"]) > 20
+        assert result["user"]["username"] == "priya" and result["user"]["role"] == "admin"
+
+        user = get_current_user(authorization=f"Bearer {result['token']}", conn=conn)
+        assert user["username"] == "priya"
+
+        shop_name = conn.execute("SELECT value FROM settings WHERE key = 'shop_name'").fetchone()[0]
+        assert shop_name == "Priya CSC", "must be trimmed"
+
+        conn.close()
+
+
+def test_bootstrap_rejects_once_a_user_already_exists_and_creates_nothing():
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        count_before = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+
+        try:
+            bootstrap(BootstrapRequest(username="second", password="whatever"), conn)
+            assert False, "expected 409"
+        except HTTPException as e:
+            assert e.status_code == 409
+
+        assert conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == count_before
+        conn.close()
+
+
 if __name__ == "__main__":
     test_login_succeeds_and_password_is_never_returned_or_stored_plaintext()
     test_login_rejects_wrong_password()
     test_login_rejects_unknown_username()
     test_get_current_user_accepts_a_valid_token_and_rejects_a_bad_one()
     test_logout_invalidates_the_token()
+    test_bootstrap_status_reports_needed_on_a_fresh_db()
+    test_bootstrap_status_reports_not_needed_once_a_user_exists()
+    test_bootstrap_creates_admin_logs_in_and_writes_shop_name()
+    test_bootstrap_rejects_once_a_user_already_exists_and_creates_nothing()
     print("All auth tests passed.")

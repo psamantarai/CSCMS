@@ -20,7 +20,7 @@ from app.reports import (
     banking_commission_report, customer_wise_report, monthly_report,
     profit_loss_report, service_wise_report,
 )
-from app.seed import run_seed
+from app.seed import run_seed, seed_admin_user
 from app.services import ServiceCreate, create_service
 from app.transactions import TransactionCreate, create_transaction
 
@@ -31,6 +31,7 @@ def _seeded_conn(tmp: Path):
     conn = get_connection(tmp / "test.db")
     run_migrations(conn, MIGRATIONS_DIR)
     run_seed(conn)
+    seed_admin_user(conn)
     return conn
 
 

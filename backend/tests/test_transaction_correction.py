@@ -14,7 +14,7 @@ from app.closing import CloseDayRequest, close_day
 from app.customers import CustomerCreate, create_customer
 from app.db import get_connection, run_migrations
 from app.ledger import account_balance
-from app.seed import run_seed
+from app.seed import run_seed, seed_admin_user
 from app.services import ServiceCreate, create_service
 from app.transactions import TransactionCorrection, TransactionCreate, correct_transaction, create_transaction
 
@@ -25,6 +25,7 @@ def _seeded_conn(tmp: Path):
     conn = get_connection(tmp / "test.db")
     run_migrations(conn, MIGRATIONS_DIR)
     run_seed(conn)
+    seed_admin_user(conn)
     return conn
 
 
@@ -420,6 +421,7 @@ def test_concurrent_account_corrections_never_double_reverse_the_same_entry():
         setup = get_connection(db_path)
         run_migrations(setup, MIGRATIONS_DIR)
         run_seed(setup)
+        seed_admin_user(setup)
         cash_id, service_id = _cash_and_service(setup)
         target_accounts = [
             create_account(AccountCreate(name=f"Acc{i}", account_type="savings"), setup)["id"] for i in range(8)

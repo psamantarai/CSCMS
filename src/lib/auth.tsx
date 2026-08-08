@@ -9,6 +9,7 @@ type User = { id: number; username: string; role: string }
 type AuthContextValue = {
   user: User | null
   login: (username: string, password: string) => Promise<void>
+  bootstrap: (username: string, password: string, shopName?: string) => Promise<void>
   logout: () => void
 }
 
@@ -28,13 +29,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(result.user)
   }
 
+  // 9.8.1: same shape as login (token + user), just via /auth/bootstrap so
+  // it works with zero users in the DB.
+  async function bootstrap(username: string, password: string, shopName?: string) {
+    const result = await api.post<{ token: string; user: User }>("/auth/bootstrap", {
+      username, password, shop_name: shopName,
+    })
+    setAuthToken(result.token)
+    setUser(result.user)
+  }
+
   function logout() {
     api.post("/auth/logout").catch(() => {}) // best-effort; clear local state regardless
     setAuthToken(null)
     setUser(null)
   }
 
-  return <AuthContext.Provider value={{ user, login, logout }}>{children}</AuthContext.Provider>
+  return <AuthContext.Provider value={{ user, login, bootstrap, logout }}>{children}</AuthContext.Provider>
 }
 
 export function useAuth(): AuthContextValue {

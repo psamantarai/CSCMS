@@ -225,3 +225,25 @@ milestone the plan explicitly says not to invent yet.
   close/reopen; `DialogContent` measured at exactly 85vh with genuine internal scroll (no horizontal
   overflow) on the tallest form; Close Business Day still navigates to `/closing`; zero console errors.
   Quiz-me gate: APPROVE (3/3). Full log: `checkpoints/M4.md`.
+- **2026-08-08 · M5 (9.8 First-run onboarding) — DONE.** Implementation (backend
+  `POST/GET /api/auth/bootstrap`, `run_seed()`/`seed_admin_user()` split so a standing admin
+  row can't make bootstrap's zero-users precondition permanently false, `_system_user_id()`
+  switched to a role lookup; frontend `src/pages/Setup.tsx` two-step wizard, `App.tsx`
+  routing gate, `auth.tsx`'s `bootstrap()`) was written in a prior session that ended in a
+  `/clear` before reaching verify — this session picked up via "continue," found the diff
+  already sitting uncommitted, and ran verification rather than a fresh BUILD loop. All 28
+  backend test files pass (6 new: bootstrap status/create/409-reject, run_seed creates no
+  user, seed_admin_user idempotent). Demo command passed (`tsc --noEmit`, `vite build`
+  clean). Live fresh-DB browser verify (Chrome automation): stopped the dev backend, swapped
+  in an empty DB, drove the real UI — fresh DB boots straight to `/setup` (not Login);
+  Create Admin Account → Shop Setup (added "Main Till", ₹5,000 opening) → lands on Dashboard
+  with Cash in Hand ₹5,000.00 and both accounts visible; reload goes to Login, not `/setup`
+  again; logged in with the created credentials, same data still there; zero console errors
+  — matches docs/PLAN.md's 9.8.2 Verify line exactly. Original dev DB restored and both
+  servers restarted afterward, nothing lost. One documented deviation from PLAN.md's literal
+  wording: the frontend gate checks zero-users only, not "zero accounts" too, since
+  `run_seed()` always creates a Cash Drawer account (explained in an `App.tsx` comment,
+  functionally verified correct above). No independent L4 fresh-context checker and no
+  quiz-me gate ran this round — the implementation predates this session's continuity, so
+  neither is fabricated here; open if the user wants either run retroactively. Full log:
+  `checkpoints/M5.md`.

@@ -8,7 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.customers import CustomerCreate, create_customer
 from app.db import get_connection, run_migrations
-from app.seed import run_seed
+from app.seed import run_seed, seed_admin_user
 from app.services import ServiceCreate, create_service
 from app.transactions import TransactionCreate, create_transaction, list_transactions
 
@@ -19,6 +19,7 @@ def _seeded_conn(tmp: Path):
     conn = get_connection(tmp / "test.db")
     run_migrations(conn, MIGRATIONS_DIR)
     run_seed(conn)
+    seed_admin_user(conn)
     return conn
 
 

@@ -29,7 +29,7 @@ from app.reports import (
     banking_commission_report, customer_wise_report, monthly_report,
     profit_loss_report, service_wise_report,
 )
-from app.seed import run_seed
+from app.seed import run_seed, seed_admin_user
 from app.services import ServiceCreate, create_service
 from app.transactions import TransactionCorrection, TransactionCreate, correct_transaction, create_transaction
 from app.transfers import TransferCreate, create_transfer
@@ -43,6 +43,7 @@ def test_reconciliation_suite_scripted_month():
         conn = get_connection(Path(tmp) / "test.db")
         run_migrations(conn, MIGRATIONS_DIR)
         run_seed(conn)
+        seed_admin_user(conn)
 
         cash_id = conn.execute("SELECT id FROM accounts WHERE name = 'Cash Drawer'").fetchone()[0]
         sbi_id = create_account(AccountCreate(name="SBI", account_type="settlement", opening_balance_paise=1000000), conn)["id"]

@@ -1,34 +1,29 @@
 # CURRENT
 - active_loop: NONE
-- target: M5 (9.8 First-run onboarding) — not started
+- target: M5.5 (9.9 Session persistence across reload) — not started
 - iteration: 0
-- last_gate: M4 quiz-me → APPROVE (3/3)
-- last_action: M4 (9.7 Quick Actions modal rework) completed end-to-end this session. G0 verdict
-  PARTIAL (the three quick-action forms/Dialogs already existed; milestone unified them). Collapsed
-  `Dashboard.tsx`'s three separate Dialogs into one controlled `Dialog` + shadcn `Tabs`
-  (`activeTab`/`modalOpen` state, `TabsContent keepMounted` per panel so an in-progress form survives a
-  tab switch — base-ui `Tabs.Panel` unmounts hidden panels by default); `DialogContent`'s base class
-  gained `max-h-[85vh] overflow-y-auto`; `TransactionForm`/`BankingEntryForm`/`ExpenseForm` grids
-  changed `grid-cols-3`/`grid-cols-3`/`grid-cols-5` → `grid-cols-1`. L4 VERIFY round 1: REJECT —
-  independent fresh-context checker caught a real bug the maker missed: the pre-existing `rs-grid`
-  class left on all three forms still forced 2 columns via an `!important` media query between
-  600-900px viewport width, which beats a non-`!important` Tailwind utility regardless of source
-  order — contradicted the milestone's own verify line. Fixed by dropping `rs-grid` from the three
-  forms' outer div (kept in `index.css`, still legitimately used elsewhere). L4 VERIFY round 2:
-  APPROVE. Demo command passed both times (`tsc --noEmit`, `vite build` clean). Manual live-browser
-  verify via Chrome automation: modal opens on the matching tab for all three quick actions; typed a
-  real value into the Banking tab, switched to Expense and back, confirmed the value survived (state
-  preservation is real, not cosmetic); Cancel + reopen confirmed a full reset (Dialog fully unmounts
-  on close, no stray `keepMounted`); measured `DialogContent` at exactly 85vh with a genuine internal
-  scroll on the tallest form (Transaction, 8 fields) and no horizontal overflow; Close Business Day
-  still navigates to `/closing` unaffected; zero console errors throughout. Quiz-me gate: APPROVE
-  (3/3). Full detail in checkpoints/M4.md. .genesis/PLAN.md updated; DONE.html and
-  docs/progress-tracker.html still need the M4 row/9.7 entry (progress-tracker skill) before the
-  next session.
-- next_action: per CLAUDE.md's Plan Execution Workflow, STOP here — update docs/progress-tracker.html
-  via the progress-tracker skill, then wait for the user to start M5 (9.8 First-run onboarding). Do
-  not auto-chain into it.
+- last_gate: M5 — no L4/quiz-me this round (see checkpoints/M5.md Process note)
+- last_action: M5 (9.8 First-run onboarding) completed. Implementation (backend
+  `/api/auth/bootstrap`, `run_seed()`/`seed_admin_user()` split, `_system_user_id()` role
+  lookup, frontend `Setup.tsx` wizard + `App.tsx` routing gate + `auth.tsx` `bootstrap()`)
+  was written in a prior session that ended in a `/clear` before reaching verify — this
+  session picked up via "continue," found the diff already sitting uncommitted, and ran
+  verification rather than a fresh BUILD loop: all 28 backend test files pass (6 new), `tsc
+  --noEmit`/`vite build` clean, and a live fresh-DB browser walkthrough (stopped the dev
+  backend, swapped in an empty DB, drove the real UI end-to-end) confirmed docs/PLAN.md's
+  9.8.2 Verify line exactly — fresh DB boots to `/setup` not Login, finishing both steps
+  reaches the Dashboard with the created account/balance visible, relaunch goes to Login not
+  `/setup` again. Zero console errors. Original dev DB restored and both servers restarted
+  after. One documented deviation from PLAN.md's literal wording: the frontend gate checks
+  zero-users only (not "zero accounts" too), since `run_seed()` always creates a Cash Drawer
+  account — explained in an `App.tsx` comment, functionally verified correct. No independent
+  L4 fresh-context checker and no quiz-me gate ran this round (code predates this session's
+  continuity). Full detail in checkpoints/M5.md. docs/progress-tracker.html and
+  .genesis/DONE.html updated (9.8 row → done); .genesis/PLAN.md Progress log updated.
+- next_action: per CLAUDE.md's Plan Execution Workflow, STOP here and wait for the user to
+  start M5.5 (9.9 Session persistence across reload). Do not auto-chain into it. If the user
+  wants the skipped L4/quiz-me gates run retroactively for M5, that's also open.
 - model: claude-sonnet-5
 - tokens_used: 0
 - tokens_budget: 50000
-- skills_loaded: [ponytail (session-active), shadcn, frontend-design]
+- skills_loaded: [ponytail (session-active), progress-tracker]

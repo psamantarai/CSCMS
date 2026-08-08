@@ -15,7 +15,7 @@ from app.closing import CloseDayRequest, close_day
 from app.customers import CustomerCreate, create_customer
 from app.db import get_connection, run_migrations
 from app.ledger import account_balance
-from app.seed import run_seed
+from app.seed import run_seed, seed_admin_user
 from app.services import ServiceCreate, ServiceUpdate, create_service, update_service
 from app.transactions import TransactionCreate, create_transaction
 
@@ -26,6 +26,7 @@ def _seeded_conn(tmp: Path):
     conn = get_connection(tmp / "test.db")
     run_migrations(conn, MIGRATIONS_DIR)
     run_seed(conn)
+    seed_admin_user(conn)
     return conn
 
 
@@ -417,6 +418,7 @@ def test_concurrent_close_never_lets_an_unpaid_create_slip_through():
             setup = get_connection(db_path)
             run_migrations(setup, MIGRATIONS_DIR)
             run_seed(setup)
+            seed_admin_user(setup)
             cash_id, service_id = _cash_and_service(setup)
             setup.close()
 

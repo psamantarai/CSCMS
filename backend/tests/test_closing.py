@@ -15,7 +15,7 @@ from app.closing import CloseDayRequest, ReopenRequest, close_day, get_day_repor
 from app.db import get_connection, run_migrations
 from app.expenses import ExpenseCreate, create_expense
 from app.ledger import closing_balance
-from app.seed import run_seed
+from app.seed import run_seed, seed_admin_user
 from app.transfers import TransferCreate, create_transfer
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
@@ -25,6 +25,7 @@ def _seeded_conn(tmp: Path):
     conn = get_connection(tmp / "test.db")
     run_migrations(conn, MIGRATIONS_DIR)
     run_seed(conn)
+    seed_admin_user(conn)
     return conn
 
 

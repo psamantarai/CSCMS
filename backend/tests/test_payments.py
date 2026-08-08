@@ -14,7 +14,7 @@ from app.customers import CustomerCreate, create_customer, get_customer_outstand
 from app.db import get_connection, run_migrations
 from app.ledger import account_balance
 from app.payments import PaymentCreate, create_payment
-from app.seed import run_seed
+from app.seed import run_seed, seed_admin_user
 from app.services import ServiceCreate, create_service
 from app.transactions import TransactionCreate, create_transaction
 
@@ -25,6 +25,7 @@ def _seeded_conn(tmp: Path):
     conn = get_connection(tmp / "test.db")
     run_migrations(conn, MIGRATIONS_DIR)
     run_seed(conn)
+    seed_admin_user(conn)
     return conn
 
 
@@ -200,6 +201,7 @@ def test_concurrent_payments_against_one_bill_only_one_succeeds():
         setup = get_connection(db_path)
         run_migrations(setup, MIGRATIONS_DIR)
         run_seed(setup)
+        seed_admin_user(setup)
         cash_id, service_id, customer_id = _cash_service_customer(setup)
         create_transaction(
             TransactionCreate(business_date="2026-08-01", customer_id=customer_id, service_id=service_id,

@@ -1649,12 +1649,16 @@
   },
   {
     "title": "9.8 — First-run onboarding (account creation + setup wizard)",
-    "status": "pending",
+    "status": "completed",
     "updated": "2026-08-08",
+    "seq": 142,
     "details": [
       "Pulled forward from 10.5 so it ships web-only, ahead of Electron packaging.",
-      "Plan: POST /api/auth/bootstrap creates the first admin account (only when zero users exist); /setup route walks Create Admin Account -> Shop Setup before the normal login gate.",
-      "See docs/PLAN.md Phase 9.8 and .genesis/PLAN.md M5 for the sliced milestone."
+      "Backend: GET/POST /api/auth/bootstrap (backend/app/auth.py) creates the first admin user only when zero users exist (409 + no write otherwise), begin_write before the count guard so two concurrent first-run submits can't both pass it, shop name written to settings on the same call.",
+      "run_seed() no longer creates the admin user (would make bootstrap's zero-users precondition never true on a real install); seed_admin_user() split out as a separate test-only helper, all ~28 backend test files' _seeded_conn updated to call it. _system_user_id() now looks up the first admin by role instead of a literal 'admin' username, since bootstrap lets the operator pick any username.",
+      "Frontend: new src/pages/Setup.tsx, two steps — Create Admin Account (shop name + credentials, via useAuth().bootstrap) then Shop Setup (repeatable account rows via existing POST /accounts, no backend change needed there). App.tsx gates on a bootstrap-status query (zero users) with a sticky inSetup flag, since run_seed always creates a Cash Drawer account so accounts.length is never actually 0 the way the plan's 'or zero accounts' wording assumes; documented in a comment on the deviation.",
+      "6 new backend tests (bootstrap status/create/409-reject, run_seed creates no user, seed_admin_user is idempotent) — all 28 backend test files pass. tsc --noEmit and vite build both clean.",
+      "Live fresh-DB browser verify (Chrome automation): stopped the dev backend, swapped in an empty DB, drove the real UI — fresh DB boots straight to /setup (not Login); Create Admin Account -> Shop Setup (added 'Main Till', Rs 5,000 opening) -> lands on Dashboard with Cash in Hand Rs 5,000.00 and both accounts visible; reload goes to Login, not /setup again; logged in with the created credentials, same data still there. Zero console errors. Matches docs/PLAN.md's 9.8.2 Verify line exactly. Original dev DB restored and both servers restarted afterward."
     ]
   },
   {

@@ -10,7 +10,7 @@ from app.accounts import AccountCreate, create_account
 from app.audit import MAX_LIST_LIMIT, list_audit_logs
 from app.db import get_connection, run_migrations
 from app.expenses import ExpenseCreate, create_expense, delete_expense
-from app.seed import run_seed
+from app.seed import run_seed, seed_admin_user
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
 
@@ -19,6 +19,7 @@ def _seeded_conn(tmp: Path):
     conn = get_connection(tmp / "test.db")
     run_migrations(conn, MIGRATIONS_DIR)
     run_seed(conn)
+    seed_admin_user(conn)
     return conn
 
 

@@ -92,9 +92,11 @@ def _get_active_or_404(conn: sqlite3.Connection, account_id: int) -> sqlite3.Row
 
 
 def _system_user_id(conn: sqlite3.Connection) -> int:
-    # ponytail: hardcoded to the seeded admin user until auth (8.1/8.2) provides
-    # a real session user for created_by/operator_id fields.
-    return conn.execute("SELECT id FROM users WHERE username = 'admin'").fetchone()[0]
+    # ponytail: still not the real session user (needs get_current_user
+    # threaded through every writer) — until then, falls back to the first
+    # admin by role rather than a literal 'admin' username, since 9.8's
+    # bootstrap lets the operator pick any username.
+    return conn.execute("SELECT id FROM users WHERE role = 'admin' ORDER BY id LIMIT 1").fetchone()[0]
 
 
 @router.get("")

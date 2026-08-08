@@ -10,7 +10,7 @@ import bcrypt
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel
 
-from app.db import get_db
+from app.db import begin_write, get_db
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -20,6 +20,12 @@ SESSION_TTL = timedelta(hours=12)
 class LoginRequest(BaseModel):
     username: str
     password: str
+
+
+class BootstrapRequest(BaseModel):
+    username: str
+    password: str
+    shop_name: str | None = None
 
 
 def _extract_token(authorization: str | None) -> str | None:
@@ -45,6 +51,53 @@ def login(body: LoginRequest, conn: sqlite3.Connection = Depends(get_db)):
     )
     conn.commit()
     return {"token": token, "user": {"id": row["id"], "username": row["username"], "role": row["role"]}}
+
+
+@router.get("/bootstrap")
+def bootstrap_status(conn: sqlite3.Connection = Depends(get_db)):
+    """9.8.1: unauthenticated by design — nothing exists yet to authenticate
+    against. Lets the frontend decide whether to show /setup before login."""
+    needed = conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] == 0
+    return {"needed": needed}
+
+
+@router.post("/bootstrap")
+def bootstrap(body: BootstrapRequest, conn: sqlite3.Connection = Depends(get_db)):
+    """9.8.1: creates the first admin account, only when zero users exist
+    (409 otherwise) — permanently dead once one does. H.11: begin_write
+    before the count guard so two concurrent first-run submits can't both
+    pass it. Shop name (9.8.2) rides along here rather than a separate
+    settings endpoint, since it's collected on the same first screen."""
+    begin_write(conn)
+    try:
+        if conn.execute("SELECT COUNT(*) FROM users").fetchone()[0] != 0:
+            raise HTTPException(status_code=409, detail="setup already completed")
+
+        password_hash = bcrypt.hashpw(body.password.encode(), bcrypt.gensalt()).decode()
+        cur = conn.execute(
+            "INSERT INTO users (username, password_hash, role) VALUES (?, ?, 'admin')",
+            (body.username, password_hash),
+        )
+        user_id = cur.lastrowid
+
+        if body.shop_name and body.shop_name.strip():
+            conn.execute(
+                "INSERT INTO settings (key, value) VALUES ('shop_name', ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (body.shop_name.strip(),),
+            )
+
+        token = secrets.token_urlsafe(32)
+        expires_at = (datetime.utcnow() + SESSION_TTL).isoformat(sep=" ")
+        conn.execute(
+            "INSERT INTO sessions (user_id, token, expires_at) VALUES (?, ?, ?)",
+            (user_id, token, expires_at),
+        )
+    except Exception:
+        conn.rollback()
+        raise
+    conn.commit()
+    return {"token": token, "user": {"id": user_id, "username": body.username, "role": "admin"}}
 
 
 @router.post("/logout", status_code=204)

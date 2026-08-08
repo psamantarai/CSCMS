@@ -26,7 +26,7 @@ from app.expenses import (
     update_expense,
 )
 from app.ledger import account_balance
-from app.seed import run_seed
+from app.seed import run_seed, seed_admin_user
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
 
@@ -35,6 +35,7 @@ def _seeded_conn(tmp: Path):
     conn = get_connection(tmp / "test.db")
     run_migrations(conn, MIGRATIONS_DIR)
     run_seed(conn)
+    seed_admin_user(conn)
     return conn
 
 
@@ -393,6 +394,7 @@ def test_concurrent_expenses_never_drive_balance_negative():
         setup = get_connection(db_path)
         run_migrations(setup, MIGRATIONS_DIR)
         run_seed(setup)
+        seed_admin_user(setup)
         sbi = create_account(AccountCreate(name="SBI", account_type="savings", opening_balance_paise=100000), setup)
         setup.close()
 

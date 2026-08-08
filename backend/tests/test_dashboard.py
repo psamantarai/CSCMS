@@ -13,7 +13,7 @@ from app.dashboard import get_dashboard
 from app.db import get_connection, run_migrations
 from app.expenses import ExpenseCreate, create_expense
 from app.payments import PaymentCreate, create_payment
-from app.seed import run_seed
+from app.seed import run_seed, seed_admin_user
 from app.services import ServiceCreate, create_service
 from app.transactions import TransactionCreate, create_transaction
 
@@ -24,6 +24,7 @@ def _seeded_conn(tmp: Path):
     conn = get_connection(tmp / "test.db")
     run_migrations(conn, MIGRATIONS_DIR)
     run_seed(conn)
+    seed_admin_user(conn)
     return conn
 
 

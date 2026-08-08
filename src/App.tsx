@@ -20,6 +20,7 @@ import {
   SidebarProvider, SidebarTrigger, useSidebar,
 } from "@/components/ui/sidebar"
 import Login from "./pages/Login"
+import Setup from "./pages/Setup"
 import Dashboard from "./pages/Dashboard"
 import Customers from "./pages/Customers"
 import Services from "./pages/Services"
@@ -101,13 +102,31 @@ function AppShell({ dark, onToggleDark }: { dark: boolean; onToggleDark: () => v
     queryFn: () => api.get<{ status: "open" | "closed" }>(`/day/${today}`),
     enabled: !!user,
   })
+  // PLAN 9.8.2: first-run gate. Public, pre-login check for zero users.
+  const { data: bootstrapStatus } = useQuery({
+    queryKey: ["auth", "bootstrap-status"],
+    queryFn: () => api.get<{ needed: boolean }>("/auth/bootstrap"),
+    enabled: !user,
+  })
+  // Sticky for the rest of this session once bootstrap says setup is
+  // needed: run_seed() always creates a Cash Drawer account (kept for the
+  // ~24 backend tests that depend on it), so accounts.length is never
+  // actually 0 the way PLAN 9.8.2's "or zero accounts" wording assumes —
+  // re-deriving from account count would skip Setup's step 2 the instant
+  // bootstrap() logs the operator in. Reset when the wizard finishes.
+  const [inSetup, setInSetup] = useState(false)
+  useEffect(() => {
+    if (bootstrapStatus?.needed) setInSetup(true)
+  }, [bootstrapStatus?.needed])
   const dayClosed = dayStatus?.status === "closed"
   const apiUp = health?.status === "ok"
 
-  // PLAN 8.2: the app is unusable until authenticated. Below this point
-  // nothing renders without a user — checked after the hooks above so their
-  // count never changes across a login/logout re-render.
-  if (!user) return <Login />
+  // PLAN 8.2/9.8: the app is unusable until authenticated, and unusable
+  // until first-run setup is done. Below this point nothing renders without
+  // a user (or mid-setup) — checked after the hooks above so their count
+  // never changes across a login/logout/setup re-render.
+  if (!user) return inSetup ? <Setup onComplete={() => setInSetup(false)} /> : <Login />
+  if (inSetup) return <Setup onComplete={() => setInSetup(false)} />
 
   return (
     <SidebarProvider
