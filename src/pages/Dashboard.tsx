@@ -5,6 +5,7 @@ import StatCard from "../components/StatCard"
 import { BlockState, TableRowState } from "../components/QueryState"
 import { SortableTableHead, useSort } from "../components/SortableTableHead"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import TransactionForm from "../components/forms/TransactionForm"
 import BankingEntryForm from "../components/forms/BankingEntryForm"
 import ExpenseForm from "../components/forms/ExpenseForm"
@@ -21,8 +22,9 @@ import { cn } from "@/lib/utils"
 // PLAN 9.5: the three quick actions that are single forms open inline here
 // instead of navigating away; "Close Business Day" stays a navigation link
 // since DailyClosing.tsx is a multi-step wizard, not a form (see PLAN.md
-// Phase 9's rationale).
-type QuickModal = "transaction" | "banking" | "expense" | null
+// Phase 9's rationale). PLAN 9.7: the three now share one modal with tabs
+// instead of three separate Dialogs.
+type QuickTab = "transaction" | "banking" | "expense"
 
 type Dashboard = {
   business_date: string
@@ -59,7 +61,8 @@ const txnColumns = ["S.No", "Customer", "Service", "Fees", "Charge", "Payment", 
 export default function Dashboard() {
   const today = localDateISO()
   const navigate = useNavigate()
-  const [openModal, setOpenModal] = useState<QuickModal>(null)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [activeTab, setActiveTab] = useState<QuickTab>("transaction")
 
   const { data: dash, isLoading: dashLoading, error: dashError } = useQuery({
     queryKey: queryKeys.dashboard(today),
@@ -232,10 +235,10 @@ export default function Dashboard() {
             </CardHeader>
             <CardContent className="flex flex-col gap-2">
               {[
-                { label: "New Transaction", modal: "transaction" as QuickModal, path: null as string | null },
-                { label: "New Banking Entry", modal: "banking" as QuickModal, path: null as string | null },
-                { label: "Record Expense", modal: "expense" as QuickModal, path: null as string | null },
-                { label: "Close Business Day", modal: null as QuickModal, path: "/closing" as string | null },
+                { label: "New Transaction", tab: "transaction" as QuickTab | null, path: null as string | null },
+                { label: "New Banking Entry", tab: "banking" as QuickTab | null, path: null as string | null },
+                { label: "Record Expense", tab: "expense" as QuickTab | null, path: null as string | null },
+                { label: "Close Business Day", tab: null as QuickTab | null, path: "/closing" as string | null },
               ].map((a, i) => (
                 <Button
                   key={a.label}
@@ -244,7 +247,7 @@ export default function Dashboard() {
                     "justify-start",
                     i === 3 ? "bg-warning text-warning-foreground hover:bg-warning/90" : "bg-white/10 text-primary-foreground hover:bg-white/15"
                   )}
-                  onClick={() => (a.modal ? setOpenModal(a.modal) : navigate(a.path!))}
+                  onClick={() => { if (a.tab) { setActiveTab(a.tab); setModalOpen(true) } else navigate(a.path!) }}
                 >
                   {a.label}
                 </Button>
@@ -254,30 +257,27 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {openModal === "transaction" && (
-        <Dialog open onOpenChange={o => !o && setOpenModal(null)}>
-          <DialogContent>
-            <DialogHeader><DialogTitle>New Transaction</DialogTitle></DialogHeader>
-            <TransactionForm onSuccess={() => setOpenModal(null)} onCancel={() => setOpenModal(null)} />
-          </DialogContent>
-        </Dialog>
-      )}
-      {openModal === "banking" && (
-        <Dialog open onOpenChange={o => !o && setOpenModal(null)}>
-          <DialogContent>
-            <DialogHeader><DialogTitle>New Banking Entry</DialogTitle></DialogHeader>
-            <BankingEntryForm onSuccess={() => setOpenModal(null)} onCancel={() => setOpenModal(null)} />
-          </DialogContent>
-        </Dialog>
-      )}
-      {openModal === "expense" && (
-        <Dialog open onOpenChange={o => !o && setOpenModal(null)}>
-          <DialogContent>
-            <DialogHeader><DialogTitle>Record Expense</DialogTitle></DialogHeader>
-            <ExpenseForm onSuccess={() => setOpenModal(null)} onCancel={() => setOpenModal(null)} />
-          </DialogContent>
-        </Dialog>
-      )}
+      <Dialog open={modalOpen} onOpenChange={setModalOpen}>
+        <DialogContent className="sm:max-w-lg">
+          <DialogHeader><DialogTitle>Quick Actions</DialogTitle></DialogHeader>
+          <Tabs value={activeTab} onValueChange={v => setActiveTab(v as QuickTab)}>
+            <TabsList>
+              <TabsTrigger value="transaction">New Transaction</TabsTrigger>
+              <TabsTrigger value="banking">New Banking Entry</TabsTrigger>
+              <TabsTrigger value="expense">Record Expense</TabsTrigger>
+            </TabsList>
+            <TabsContent value="transaction" keepMounted>
+              <TransactionForm onSuccess={() => setModalOpen(false)} onCancel={() => setModalOpen(false)} />
+            </TabsContent>
+            <TabsContent value="banking" keepMounted>
+              <BankingEntryForm onSuccess={() => setModalOpen(false)} onCancel={() => setModalOpen(false)} />
+            </TabsContent>
+            <TabsContent value="expense" keepMounted>
+              <ExpenseForm onSuccess={() => setModalOpen(false)} onCancel={() => setModalOpen(false)} />
+            </TabsContent>
+          </Tabs>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

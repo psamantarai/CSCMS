@@ -114,7 +114,7 @@ export default function ExpenseForm({ editing, onSuccess, onCancel }: {
 
   return (
     <>
-      <div className="rs-grid grid grid-cols-5 gap-3">
+      <div className="grid grid-cols-1 gap-3">
         <Field data-invalid={invalidField === "category"}>
           <FieldLabel htmlFor="expense-category">Category</FieldLabel>
           <Select value={form.category || undefined} onValueChange={v => setForm({ ...form, category: v as string })}>

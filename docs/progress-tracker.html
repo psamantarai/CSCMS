@@ -1632,6 +1632,32 @@
     ]
   },
   {
+    "title": "9.7 — Quick Actions modal rework",
+    "status": "completed",
+    "updated": "2026-08-08",
+    "seq": 141,
+    "details": [
+      "Dashboard's three separate quick-action Dialogs (New Transaction/New Banking Entry/Record Expense) unified into one modal with shadcn Tabs (controlled activeTab + modalOpen state, replacing the old openModal: QuickModal | null).",
+      "TabsContent keepMounted per panel so switching tabs preserves each form's in-progress state; closing the modal fully unmounts and resets everything (Dialog has no keepMounted), so reopening is always fresh.",
+      "TransactionForm/BankingEntryForm/ExpenseForm field grids changed to single-column (grid-cols-1); also dropped the leftover rs-grid class from all three (see next point).",
+      "DialogContent's base class gained max-h-[85vh] overflow-y-auto, fixing the overflow/overlap bug (was capped at sm:max-w-sm with no max-h at all).",
+      "L4 VERIFY round 1: REJECT — independent checker caught a real bug: rs-grid's index.css !important media query still forced 2 columns between 600-900px viewport width, beating the new grid-cols-1 utility. Fixed by removing rs-grid from the three forms (kept in index.css for its other legitimate uses). Round 2: APPROVE.",
+      "Demo command passed both times: tsc --noEmit clean, vite build clean.",
+      "Manual live-browser verify (Chrome automation, admin login): each quick action opens the modal on the matching tab; typed into the Banking tab, switched to Expense and back, confirmed the typed value survived; Cancel + reopen confirmed a full reset; measured DialogContent at exactly 85vh with genuine internal scroll on the tallest form (Transaction) and no horizontal overflow; Close Business Day still navigates to /closing unaffected; zero console errors.",
+      "Quiz-me gate: APPROVE (3/3 correct)."
+    ]
+  },
+  {
+    "title": "9.8 — First-run onboarding (account creation + setup wizard)",
+    "status": "pending",
+    "updated": "2026-08-08",
+    "details": [
+      "Pulled forward from 10.5 so it ships web-only, ahead of Electron packaging.",
+      "Plan: POST /api/auth/bootstrap creates the first admin account (only when zero users exist); /setup route walks Create Admin Account -> Shop Setup before the normal login gate.",
+      "See docs/PLAN.md Phase 9.8 and .genesis/PLAN.md M5 for the sliced milestone."
+    ]
+  },
+  {
     "title": "9.9 — Session persistence across reload (httpOnly cookie auth)",
     "status": "pending",
     "updated": "2026-08-08",

@@ -157,7 +157,7 @@ export default function BankingEntryForm({ editing, initialTxnType, onSuccess, o
 
   return (
     <>
-      <div className="rs-grid mb-3.5 grid grid-cols-3 gap-3.5">
+      <div className="mb-3.5 grid grid-cols-1 gap-3.5">
         <Field>
           <FieldLabel htmlFor="bank-date">Date</FieldLabel>
           <Input id="bank-date" type="date" value={form.businessDate} onChange={e => setForm({ ...form, businessDate: e.target.value })} />

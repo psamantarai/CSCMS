@@ -131,7 +131,7 @@ export default function TransactionForm({ onSuccess, onCancel }: { onSuccess: ()
 
   return (
     <>
-      <div className="rs-grid mb-3.5 grid grid-cols-3 gap-3.5">
+      <div className="mb-3.5 grid grid-cols-1 gap-3.5">
         <Field>
           <FieldLabel htmlFor="txn-date">Date</FieldLabel>
           <Input id="txn-date" type="date" value={form.businessDate} onChange={e => setForm({ ...form, businessDate: e.target.value })} />

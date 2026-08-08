@@ -210,3 +210,18 @@ milestone the plan explicitly says not to invent yet.
   cycle + correct header wiring confirmed on Accounts/Customers/Dashboard where seeded data was too
   sparse to show reordering. Zero console errors across all 10 pages. Quiz-me gate: APPROVE (3/3).
   Full log: `checkpoints/M3.md`.
+- **2026-08-08 · M4 (9.7 Quick Actions modal rework) — DONE.** G0 verdict PARTIAL (three quick-action
+  forms/Dialogs already existed; this milestone unified them). `Dashboard.tsx`'s three separate Dialogs
+  collapsed into one controlled `Dialog` + `Tabs` (`activeTab`/`modalOpen` state, `TabsContent
+  keepMounted` per panel so an in-progress form survives a tab switch); `DialogContent` base class
+  gained `max-h-[85vh] overflow-y-auto`; `TransactionForm`/`BankingEntryForm`/`ExpenseForm` grids
+  changed to `grid-cols-1`. L4 VERIFY round 1: REJECT — independent checker caught a real bug, the
+  pre-existing `rs-grid` class left on these forms still forced 2 columns via an `!important` media
+  query between 600-900px viewport width, beating the new `grid-cols-1` utility. Fixed by dropping
+  `rs-grid` from the three forms (kept in `index.css` for its other, legitimate uses elsewhere). L4
+  VERIFY round 2: APPROVE. Demo command passed both times (`tsc --noEmit`, `vite build` clean). Manual
+  live-browser verify: modal opens on the matching tab for all three quick actions; tab-switch state
+  preservation confirmed via a real typed value surviving a switch away and back; modal fully resets on
+  close/reopen; `DialogContent` measured at exactly 85vh with genuine internal scroll (no horizontal
+  overflow) on the tallest form; Close Business Day still navigates to `/closing`; zero console errors.
+  Quiz-me gate: APPROVE (3/3). Full log: `checkpoints/M4.md`.
