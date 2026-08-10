@@ -354,7 +354,8 @@ rest is covered by the API tests.
 ## 9. Security & operations
 
 - Loopback-bound API; no external network surface.
-- bcrypt password hashing; session token in memory, not `localStorage`.
+- bcrypt password hashing; session token in an httpOnly, `SameSite=Strict`
+  cookie (9.9) — unreadable via JS/`document.cookie`, never `localStorage`.
 - Soft delete everywhere except ledger, which reverses instead.
 - `audit_logs` written for every mutation of a financial row.
 - Automated backup: timestamped copy of the SQLite file on app close, keep the

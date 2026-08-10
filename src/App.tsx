@@ -9,6 +9,7 @@ import { api } from "./lib/api"
 import { queryKeys } from "./lib/queries"
 import { formatDate, localDateISO } from "./lib/format"
 import { useAuth } from "./lib/auth"
+import { BlockState } from "@/components/QueryState"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -86,7 +87,7 @@ export default function App() {
 }
 
 function AppShell({ dark, onToggleDark }: { dark: boolean; onToggleDark: () => void }) {
-  const { user, logout } = useAuth()
+  const { user, restoring, logout } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const activePath = navItems.find(n => location.pathname.startsWith(n.path))?.path
@@ -121,10 +122,13 @@ function AppShell({ dark, onToggleDark }: { dark: boolean; onToggleDark: () => v
   const dayClosed = dayStatus?.status === "closed"
   const apiUp = health?.status === "ok"
 
-  // PLAN 8.2/9.8: the app is unusable until authenticated, and unusable
+  // PLAN 8.2/9.8/9.9: the app is unusable until authenticated, and unusable
   // until first-run setup is done. Below this point nothing renders without
   // a user (or mid-setup) — checked after the hooks above so their count
-  // never changes across a login/logout/setup re-render.
+  // never changes across a login/logout/setup re-render. 9.9.2: while the
+  // mount-restore call is in flight, show nothing rather than Login — a
+  // reload of an authenticated session must never flash the login screen.
+  if (restoring) return <div className="flex h-svh items-center justify-center"><BlockState isLoading error={null} /></div>
   if (!user) return inSetup ? <Setup onComplete={() => setInSetup(false)} /> : <Login />
   if (inSetup) return <Setup onComplete={() => setInSetup(false)} />
 

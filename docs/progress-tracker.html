@@ -1663,12 +1663,18 @@
   },
   {
     "title": "9.9 — Session persistence across reload (httpOnly cookie auth)",
-    "status": "pending",
-    "updated": "2026-08-08",
+    "status": "completed",
+    "updated": "2026-08-10",
+    "seq": 143,
     "details": [
-      "User reported refresh logs them out. Investigated: intentional, not a bug (ARCHITECTURE.md §9, in-memory token by design), reaffirmed by the Phase 8.8 hardening audit.",
-      "Plan: move the session onto an httpOnly, SameSite=Strict cookie instead of a JS-held bearer token — survives reload and removes JS/XSS readability of the token entirely (stronger than today, not weaker).",
-      "See docs/PLAN.md Phase 9.9 and .genesis/PLAN.md M5.5 for the sliced milestone."
+      "Backend (backend/app/auth.py): login/bootstrap now set an httpOnly, SameSite=Strict session cookie via Set-Cookie instead of returning the token in the JSON body; get_current_user reads the session from the cookie instead of an Authorization header; logout clears the cookie; new GET /api/auth/me mount-restore endpoint added.",
+      "Frontend: src/lib/api.ts drops the in-memory authToken/setAuthToken, adds credentials: \"include\" to fetch instead. src/lib/auth.tsx's AuthProvider calls GET /auth/me on mount to restore the session instead of starting logged out.",
+      "Found and fixed during verification: AuthProvider had no loading state, so every reload of an authenticated session briefly rendered the Login screen before the async /auth/me restore resolved — a visible flash of exactly the kind this phase exists to remove. Added a restoring flag (true until the mount-restore call settles); App.tsx now renders a loading block instead of Login while restoring, then resolves straight to the authenticated app.",
+      "backend/tests/test_auth.py updated to match cookie-based responses (login/bootstrap return a JSONResponse with Set-Cookie, get_current_user/logout take a session cookie param); new test_me_returns_the_current_user_and_requires_a_session. All 27 backend test files pass.",
+      "docs/ARCHITECTURE.md §9 updated: \"session token in memory\" -> \"session token in an httpOnly, SameSite=Strict cookie\".",
+      "tsc --noEmit and vite build both clean.",
+      "Live browser verify (Chrome automation) against a scratch DB/backend on port 8322: logged in as admin, confirmed document.cookie is empty (httpOnly, unreadable via JS) while still authenticated; reloaded on /ledger — stayed logged in on the same page, GET /auth/me returned 200, zero console errors; logged out — cookie cleared, returned to Login; reloaded again — correctly stayed on Login, session did not resurrect.",
+      "This work (auth.py, api.ts, auth.tsx, test_auth.py, ARCHITECTURE.md) was already present uncommitted in the working tree at session start; this step verified it, fixed the login-flash bug found during that verification, and ran it through the full test/build/browser pass."
     ]
   },
   {

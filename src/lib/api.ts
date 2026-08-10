@@ -2,14 +2,9 @@
 // dev proxy at /api (see vite.config.ts), so no base URL or CORS config
 // is needed in development.
 
-// PLAN 8.2: the session token lives here in memory only, never localStorage
-// (ARCHITECTURE.md §9) — a page reload logs the operator out.
-let authToken: string | null = null
+// PLAN 9.9: the session lives in an httpOnly cookie the browser manages —
+// never readable via JS. credentials: "include" makes fetch send it.
 let onUnauthorized: (() => void) | null = null
-
-export function setAuthToken(token: string | null) {
-  authToken = token
-}
 
 // AuthProvider registers this once, to clear its own state on a 401 (expired
 // session, logged out elsewhere) without api.ts importing React.
@@ -21,9 +16,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`/api${path}`, {
     headers: {
       "Content-Type": "application/json",
-      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
       ...init?.headers,
     },
+    credentials: "include",
     ...init,
   })
   if (res.status === 401) {

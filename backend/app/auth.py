@@ -1,13 +1,15 @@
-"""Auth API (PLAN 8.1/8.2): bcrypt login against `users`, a bearer session
-token in `sessions` (ARCHITECTURE.md §9 — token in memory on the frontend,
-never localStorage), and get_current_user as the dependency every other
-router is guarded with in main.py."""
+"""Auth API (PLAN 8.1/8.2, 9.9): bcrypt login against `users`, an httpOnly
+session cookie (ARCHITECTURE.md §9 — unreadable via JS/document.cookie,
+replacing the old in-memory bearer token so a page reload survives), and
+get_current_user as the dependency every other router is guarded with in
+main.py."""
 import secrets
 import sqlite3
 from datetime import datetime, timedelta
 
 import bcrypt
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, Cookie, Depends, HTTPException
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 
 from app.db import begin_write, get_db
@@ -15,6 +17,7 @@ from app.db import begin_write, get_db
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 SESSION_TTL = timedelta(hours=12)
+SESSION_COOKIE = "session"
 
 
 class LoginRequest(BaseModel):
@@ -28,10 +31,25 @@ class BootstrapRequest(BaseModel):
     shop_name: str | None = None
 
 
-def _extract_token(authorization: str | None) -> str | None:
-    if not authorization or not authorization.startswith("Bearer "):
-        return None
-    return authorization.removeprefix("Bearer ").strip() or None
+def _issue_session(user_id: int, conn: sqlite3.Connection) -> str:
+    token = secrets.token_urlsafe(32)
+    expires_at = (datetime.utcnow() + SESSION_TTL).isoformat(sep=" ")
+    conn.execute(
+        "INSERT INTO sessions (user_id, token, expires_at) VALUES (?, ?, ?)",
+        (user_id, token, expires_at),
+    )
+    return token
+
+
+def _session_response(body: dict, token: str) -> JSONResponse:
+    """9.9.1: cookie carries the token instead of the JSON body. Secure isn't
+    set — the API is loopback-only (ARCHITECTURE.md §9), often plain http."""
+    resp = JSONResponse(body)
+    resp.set_cookie(
+        SESSION_COOKIE, token, httponly=True, samesite="strict", path="/",
+        max_age=int(SESSION_TTL.total_seconds()),
+    )
+    return resp
 
 
 @router.post("/login")
@@ -43,14 +61,9 @@ def login(body: LoginRequest, conn: sqlite3.Connection = Depends(get_db)):
     if row is None or not bcrypt.checkpw(body.password.encode(), row["password_hash"].encode()):
         raise HTTPException(status_code=401, detail="invalid username or password")
 
-    token = secrets.token_urlsafe(32)
-    expires_at = (datetime.utcnow() + SESSION_TTL).isoformat(sep=" ")
-    conn.execute(
-        "INSERT INTO sessions (user_id, token, expires_at) VALUES (?, ?, ?)",
-        (row["id"], token, expires_at),
-    )
+    token = _issue_session(row["id"], conn)
     conn.commit()
-    return {"token": token, "user": {"id": row["id"], "username": row["username"], "role": row["role"]}}
+    return _session_response({"user": {"id": row["id"], "username": row["username"], "role": row["role"]}}, token)
 
 
 @router.get("/bootstrap")
@@ -87,40 +100,44 @@ def bootstrap(body: BootstrapRequest, conn: sqlite3.Connection = Depends(get_db)
                 (body.shop_name.strip(),),
             )
 
-        token = secrets.token_urlsafe(32)
-        expires_at = (datetime.utcnow() + SESSION_TTL).isoformat(sep=" ")
-        conn.execute(
-            "INSERT INTO sessions (user_id, token, expires_at) VALUES (?, ?, ?)",
-            (user_id, token, expires_at),
-        )
+        token = _issue_session(user_id, conn)
     except Exception:
         conn.rollback()
         raise
     conn.commit()
-    return {"token": token, "user": {"id": user_id, "username": body.username, "role": "admin"}}
+    return _session_response({"user": {"id": user_id, "username": body.username, "role": "admin"}}, token)
 
 
 @router.post("/logout", status_code=204)
-def logout(authorization: str | None = Header(default=None), conn: sqlite3.Connection = Depends(get_db)):
-    token = _extract_token(authorization)
-    if token:
-        conn.execute("DELETE FROM sessions WHERE token = ?", (token,))
+def logout(session: str | None = Cookie(default=None), conn: sqlite3.Connection = Depends(get_db)):
+    if session:
+        conn.execute("DELETE FROM sessions WHERE token = ?", (session,))
         conn.commit()
+    resp = Response(status_code=204)
+    resp.delete_cookie(SESSION_COOKIE, path="/")
+    return resp
 
 
 def get_current_user(
-    authorization: str | None = Header(default=None), conn: sqlite3.Connection = Depends(get_db)
+    session: str | None = Cookie(default=None), conn: sqlite3.Connection = Depends(get_db)
 ) -> sqlite3.Row:
     """Guard dependency: every router but auth is wired to this in main.py."""
-    token = _extract_token(authorization)
-    if token is None:
+    if session is None:
         raise HTTPException(status_code=401, detail="not authenticated")
     row = conn.execute(
         "SELECT users.* FROM sessions JOIN users ON users.id = sessions.user_id "
         "WHERE sessions.token = ? AND sessions.expires_at > datetime('now') "
         "AND users.is_active = 1 AND users.deleted_at IS NULL",
-        (token,),
+        (session,),
     ).fetchone()
     if row is None:
         raise HTTPException(status_code=401, detail="session expired or invalid")
     return row
+
+
+@router.get("/me")
+def me(user: sqlite3.Row = Depends(get_current_user)):
+    """9.9.2: mount-restore endpoint — the frontend calls this once on load
+    instead of starting logged out on every reload; 401 (via get_current_user)
+    means no valid session cookie."""
+    return {"user": {"id": user["id"], "username": user["username"], "role": user["role"]}}
