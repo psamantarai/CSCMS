@@ -2,8 +2,9 @@
 // process, waits for it to answer /api/health, then loads the built
 // frontend from that same origin (backend/app/main.py serves it) so
 // src/lib/api.ts's relative `/api` fetches work unchanged — no file://.
-const { app, BrowserWindow } = require("electron")
+const { app, BrowserWindow, session } = require("electron")
 const { spawn } = require("node:child_process")
+const crypto = require("node:crypto")
 const http = require("node:http")
 const path = require("node:path")
 
@@ -15,6 +16,10 @@ app.setName("CSCMS")
 const REPO_ROOT = path.join(__dirname, "..")
 const PORT = process.env.CSCMS_PORT || "8000"
 const HEALTH_URL = `http://127.0.0.1:${PORT}/api/health`
+// PLAN 11.2: one random secret per launch, handed to the backend as
+// CSCMS_APP_SECRET and echoed back on every outgoing request via
+// X-CSCMS-App so 11.1's gate lets this app (and only this app) through.
+const APP_SECRET = crypto.randomUUID()
 
 let backendProcess = null
 let mainWindow = null
@@ -41,6 +46,8 @@ function startBackend() {
       // the source tree — same rule whether this is an installed build or
       // `npm run electron` in the checkout.
       CSCMS_DB_PATH: path.join(app.getPath("userData"), "cscms.db"),
+      // PLAN 11.2
+      CSCMS_APP_SECRET: APP_SECRET,
       // PLAN 10.2: run.py's dev branch defaults reload on for dev.bat;
       // Electron needs the single-process shape so killing the PID it
       // spawned doesn't orphan a reloader-managed server child.
@@ -61,8 +68,10 @@ function waitForBackend(timeoutMs = 20000) {
   const start = Date.now()
   return new Promise((resolve, reject) => {
     const tryOnce = () => {
+      // PLAN 11.2: runs before any window (and so before the session hook
+      // below) exists — it must carry the header itself.
       http
-        .get(HEALTH_URL, (res) => {
+        .get(HEALTH_URL, { headers: { "X-CSCMS-App": APP_SECRET } }, (res) => {
           res.resume()
           if (res.statusCode === 200) return resolve()
           retry()
@@ -84,6 +93,13 @@ function stopBackend() {
 }
 
 async function createWindow() {
+  // PLAN 11.2: every request the renderer's session makes (the app itself,
+  // loaded from http://127.0.0.1:PORT) picks up the header here.
+  session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
+    details.requestHeaders["X-CSCMS-App"] = APP_SECRET
+    callback({ requestHeaders: details.requestHeaders })
+  })
+
   mainWindow = new BrowserWindow({ width: 1280, height: 800, icon: path.join(REPO_ROOT, "electron", "icon.png") })
   try {
     await waitForBackend()
@@ -93,10 +109,25 @@ async function createWindow() {
   mainWindow.loadURL(`http://127.0.0.1:${PORT}/`)
 }
 
-app.whenReady().then(() => {
-  startBackend()
-  createWindow()
-})
+// PLAN 11.3: without this, a second launch's backend fails to bind the port
+// (11.1's gate then rejects its health poll for carrying a different
+// secret), and its window sits on a 403 for the full waitForBackend timeout.
+// Fail the second launch outright instead — focus the first instance.
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+} else {
+  app.on("second-instance", () => {
+    if (mainWindow) {
+      if (mainWindow.isMinimized()) mainWindow.restore()
+      mainWindow.focus()
+    }
+  })
+
+  app.whenReady().then(() => {
+    startBackend()
+    createWindow()
+  })
+}
 
 app.on("window-all-closed", () => {
   stopBackend()

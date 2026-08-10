@@ -24,6 +24,10 @@ class Settings:
     # spawned us from; dev (`python run.py` from source) falls back to the
     # repo-root dist/ that `vite build` produces.
     frontend_dist: Path = Path(os.environ.get("CSCMS_FRONTEND_DIST", BACKEND_DIR.parent / "dist"))
+    # PLAN 11.1: Electron sets this to a per-launch random secret and sends it
+    # back as X-CSCMS-App on every request. Empty (the `python run.py` / `npm
+    # run dev` default) disables the gate entirely.
+    app_secret: str = os.environ.get("CSCMS_APP_SECRET", "")
 
 
 settings = Settings()

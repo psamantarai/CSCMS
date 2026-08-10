@@ -1,5 +1,7 @@
+import hmac
+
 from fastapi import Depends, FastAPI
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.accounts import router as accounts_router
@@ -24,6 +26,18 @@ from app.transactions import router as transactions_router
 from app.transfers import router as transfers_router
 
 app = FastAPI(title=settings.app_name, debug=settings.debug)
+
+
+# PLAN 11.1: Electron-only access. An empty app_secret (plain `python run.py`
+# / `npm run dev`) disables the gate entirely. Covers every path, including
+# /api/health and the SPA catch-all, so a stray browser gets no HTML either.
+@app.middleware("http")
+async def app_secret_gate(request, call_next):
+    if settings.app_secret and not hmac.compare_digest(request.headers.get("x-cscms-app", ""), settings.app_secret):
+        return JSONResponse(status_code=403, content={"detail": "forbidden"})
+    return await call_next(request)
+
+
 app.include_router(auth_router)
 
 # PLAN 8.2: every other router requires a valid session — /api/auth/login and
