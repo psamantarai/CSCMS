@@ -1,6 +1,7 @@
 node_modules/
 dist/
 build/
+release/
 .cache/
 .env*
 .vite/
@@ -18,4 +19,5 @@ __pycache__/
 *.pyc
 backend/.venv/
 backend/data/
+*.spec
 graphify-out

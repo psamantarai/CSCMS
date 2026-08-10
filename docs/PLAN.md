@@ -1,6 +1,6 @@
 # CSCMS — Implementation Plan
 
-19 phases, 138 steps. Phases run in order; each depends on the one before.
+20 phases, 144 steps. Phases run in order; each depends on the one before.
 (Phase 2.5 was inserted after an edge-case audit of the shipped Phase 0–2
 code — see that phase for what it found and why it blocks Phase 3. Phase 3.5
 came from the same pass repeated over the shipped Phase 3 code. Phase 4.5
@@ -1701,7 +1701,93 @@ network disabled, and a transaction survives a full restart.
 
 ---
 
-## Phase 11 — Deferred
+## Phase 11 — Electron-only access & auto-update
+
+Both halves are shell concerns, not application concerns — no route handler,
+no screen and no ledger rule changes in this phase. Phase 10 leaves the app
+reachable at `http://127.0.0.1:8000` from any browser on the machine, and with
+no way to ship a fix to an installed copy. This closes both.
+
+### Part A — Electron-only access (11.1–11.3)
+
+**11.1 Backend: shared-secret gate** — `settings.py` gains
+`app_secret: str = os.environ.get("CSCMS_APP_SECRET", "")`. `main.py` adds one
+middleware: when `app_secret` is non-empty, any request whose `X-CSCMS-App`
+header doesn't match is rejected 403, compared with `hmac.compare_digest`. The
+gate covers **every** path — `/api/health` and the SPA catch-all included, so a
+browser doesn't even receive the app HTML. An empty secret disables the gate
+entirely, which is what keeps `python run.py` and `npm run dev` working.
+*Verify:* with `CSCMS_APP_SECRET` set, `curl 127.0.0.1:8000/api/health` → 403
+and `curl 127.0.0.1:8000/` returns no HTML; the same two with a correct
+`X-CSCMS-App` header → 200; with the variable unset, both → 200 with no header
+at all (the dev path, unchanged).
+
+**11.2 Electron: generate and inject the secret** — `electron/main.cjs`
+generates `crypto.randomUUID()` once per launch, passes it to the backend it
+spawns as `CSCMS_APP_SECRET`, and adds `X-CSCMS-App` to outgoing requests via
+`session.defaultSession.webRequest.onBeforeSendHeaders`. `waitForBackend`'s
+Node-side `http.get` sends the header itself — it runs before any window exists
+and so is not covered by the session hook.
+*Verify:* `npm run electron` reaches a working, logged-in app; while it is
+running, `http://127.0.0.1:8000/` in Chrome returns 403 and renders no app.
+
+**11.3 Single-instance lock** — 11.1 makes a second launch fail in a new way:
+the second instance's backend can't bind the port, so its health poll reaches
+the *first* instance's backend, is rejected for carrying a different secret,
+and the window loads a 403 after a 20s wait. `app.requestSingleInstanceLock()`
+fixes the cause — a second launch focuses the existing window and exits.
+*Verify:* launching the app while it is already running focuses the open window
+instead of opening a second; exactly one `cscms-backend` process exists in Task
+Manager throughout.
+
+### Part B — Auto-update (11.4–11.6)
+
+**Blocked on two prerequisites**, both outside the code and both to be settled
+before 11.4 starts:
+- The GitHub repo (`psamantarai/CSCMS`) must be **public**, or a separate
+  public release-only repo must exist. A private repo requires a GitHub token
+  inside the shipped app, which publishes the token to every user.
+- Builds are unsigned, so Windows SmartScreen warns on each new installer. A
+  code-signing certificate removes it; nothing else does. Not a blocker for
+  updates working, only for how they look to the operator.
+
+**11.4 Publish config and release command** — add the `electron-updater`
+dependency; add `"publish": [{"provider": "github", "owner": "psamantarai",
+"repo": "CSCMS"}]` to the `build` block in `package.json`; add a `release`
+script (`vite build && electron-builder --win --publish always`, with `GH_TOKEN`
+supplied by the environment at publish time, never committed).
+*Verify:* a local `--publish never` build writes `latest.yml` next to the
+`.exe` in `release/`, and `latest.yml`'s version matches `package.json`.
+
+**11.5 Background download, install on quit** — `main.cjs` calls
+`autoUpdater.checkForUpdates()` on ready and on a timer, with `autoDownload`
+and `autoInstallOnAppQuit` both left on. On `update-downloaded`, a single
+native `Notification` says the update applies on close. No preload script and
+no IPC bridge: the renderer is a plain HTTP page served by the backend, and one
+toast does not justify a bridge into it.
+*Verify:* with a higher version published, a running app downloads it with no
+dialog and no interruption, shows the notification once, and the next launch
+after a normal quit reports the new version; declining to quit never
+interrupts an in-progress transaction.
+
+**11.6 Upgrade-with-data acceptance** — distinct from 10.3, which covers
+installer-over-installer. This covers the auto-update path specifically:
+install the published v1.0.0, enter a day of real transactions, publish
+v1.0.1, let the app update itself.
+*Verify:* after the update the DB in `%APPDATA%\CSCMS` is the same file with
+the same rows, migrations for the new version have run, the closing report for
+the pre-update day is unchanged, and 11.1's gate is still enforced in the
+updated build (a browser at `127.0.0.1:8000` still gets 403).
+
+*Verify (phase):* an installed copy is unreachable from any browser, updates
+itself without operator action, and keeps its data across the update. Update
+`ARCHITECTURE.md` §9's "loopback-bound API; no external network surface" line
+to record the shared-secret gate, and add the update channel to §9's
+operations list, once this ships.
+
+---
+
+## Phase 12 — Deferred
 
 Genuinely useful, genuinely not blocking. Pulled forward on request. Left
 unbroken deliberately — breaking down work this far out is speculation.
@@ -1822,3 +1908,28 @@ applies just as much to `ensure_business_day_open`: a helper that exists
 doesn't help unless every write path that can reach the ledger calls it
 unconditionally, not just the paths exercised by that phase's own sequential
 tests.
+
+**The 11.1 secret is a barrier against accident, not against a local attacker.**
+It stops the operator's own browser, a curious family member, and any other
+program that guesses `localhost:8000` — which is the actual exposure for a shop
+till. It does not stop someone who can read the Electron process's environment,
+and it never will: that same person can open `%APPDATA%\CSCMS\cscms.db` in any
+SQLite viewer and skip the API entirely. Do not let a future step spend effort
+hardening the secret (encrypting it at rest, rotating it mid-session) without
+first raising the DB's own protection, or the work buys nothing.
+
+**Auto-update has no downgrade path (11.6).** Migrations only run forward. If a
+build is published and then pulled, an operator already updated to it cannot be
+moved back by publishing the older version — electron-updater will not install
+a lower version, and if forced, the older code meets a DB schema it does not
+know. The recovery route is a fixed *higher* version, not a rollback. This makes
+the 11.6 acceptance test the real gate on the release process: a bad publish is
+expensive in a way a bad local build is not.
+
+**A shell-only phase still touches the money path (11.5).** `autoInstallOnAppQuit`
+fires during the same quit that `main.py`'s shutdown hook uses to write the
+automatic backup (8.5). If the updater's restart pre-empts that hook, the day's
+last backup silently stops happening — a failure that is invisible until someone
+needs to restore. 11.5's *Verify* covers "the update applies on close"; whether
+the close-time backup still lands has to be checked in the same step, not
+assumed from the fact that nothing in `backup.py` changed.

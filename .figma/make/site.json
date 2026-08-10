@@ -1,4 +1,5 @@
 {
+  "title": "CSC Management System",
   "description": "This web application offers a user-friendly frontend for managing project requirements, streamlining collaboration and enhancing productivity for teams.",
   "robots": {
     "index": false

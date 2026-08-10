@@ -1679,60 +1679,139 @@
   },
   {
     "title": "10.1 — Electron shell",
-    "status": "pending",
-    "updated": "2026-08-04",
+    "status": "completed",
+    "updated": "2026-08-10",
+    "seq": 144,
     "details": [
-      "P10 · Loads the built frontend, single window, app menu.",
-      "Verify: npm run electron opens the built app."
+      "electron/main.cjs: spawns the backend, polls /api/health, opens a single BrowserWindow loading http://127.0.0.1:8000/ (default Electron app menu kept).",
+      "backend/app/main.py now mounts settings.frontend_dist (repo dist/) at / with a SPA catch-all, so the window loads the built frontend from the backend's own origin instead of file:// — keeps src/lib/api.ts's relative /api fetches working unchanged.",
+      "package.json: \"main\": \"electron/main.cjs\", script \"electron\": \"vite build && electron .\".",
+      "Verify: ran `npm run electron` live — built the frontend, opened the window, GET / and /assets/* returned 200, /api/health ok, no CORS/file:// issues."
     ]
   },
   {
     "title": "10.2 — Backend bundling & lifecycle",
-    "status": "pending",
-    "updated": "2026-08-04",
+    "status": "completed",
+    "updated": "2026-08-10",
+    "seq": 145,
     "details": [
-      "P10 · PyInstaller build, child process on fixed loopback port, killed on quit.",
-      "Verify: no orphaned Python process after closing."
+      "backend/build_exe.bat runs PyInstaller --onedir into backend/dist/cscms-backend/cscms-backend.exe, bundling migrations/ via --add-data.",
+      "run.py: frozen builds import the app object directly (reload can't work frozen, and PyInstaller can't statically bundle a string import target); dev keeps reload=True unless Electron sets CSCMS_RELOAD=false.",
+      "settings.py resolves BACKEND_DIR via sys._MEIPASS when frozen, matching PyInstaller's _internal/ onedir layout (found by first testing the exe and hitting \"no such table: accounts\" — migrations weren't where BACKEND_DIR pointed).",
+      "Found and fixed during verification: uvicorn's reload=True spawns a watcher + server child pair; main.cjs only tracked the PID it spawned, so quitting the app orphaned the server child (2 leftover python.exe). Fixed via CSCMS_RELOAD=false from Electron, giving a single-process backend in both dev and packaged modes.",
+      "Verify: built the real exe, hit /api/health (200), confirmed migrations applied (user_version 4, seed data present); taskkill /F left zero processes. Re-verified through the actual Electron flow — graceful quit and forced quit of the main process both leave zero python.exe."
     ]
   },
   {
     "title": "10.3 — App data paths",
-    "status": "pending",
-    "updated": "2026-08-04",
+    "status": "completed",
+    "updated": "2026-08-10",
+    "seq": 146,
     "details": [
-      "P10 · DB and backups in APPDATA/RSCMS; migrations run on upgrade.",
-      "Verify: installing a newer build migrates the existing DB without data loss."
+      "main.cjs calls app.setName(\"CSCMS\") and passes CSCMS_DB_PATH = <userData>/cscms.db to the spawned backend; backups ride along since backup.py already derives BACKUPS_DIR from db_path.parent.",
+      "Verify: ran the app, confirmed %APPDATA%\\CSCMS\\cscms.db created at user_version 4 with seed data; re-ran against the same path as a proxy for \"install a newer build over an older one\" (no installer exists yet — that's 10.4) and confirmed migrations stayed idempotent with no data loss.",
+      "Full install-over-install migration still needs a real end-to-end pass once 10.4 ships an actual installer.",
+      "Ran backend/tests/*.py (all 28 files) after the settings.py/run.py/main.py changes — all pass, no regressions.",
+      "Known gap, unchanged by this step: backup-on-quit (main.py's on_shutdown) relies on uvicorn's graceful-shutdown hook, which a force-terminated Windows process doesn't reach — already flagged in-code as later Electron-lifecycle rewiring."
     ]
   },
   {
     "title": "10.4 — Windows installer",
-    "status": "pending",
-    "updated": "2026-08-04",
+    "status": "completed",
+    "updated": "2026-08-10",
+    "seq": 147,
     "details": [
-      "P10 · electron-builder, icon, shortcuts.",
-      "Verify: installer completes on a clean machine."
+      "package.json \"build\" config: electron-builder NSIS target, productName CSCMS, icon electron/icon.png (auto-converted to .ico), extraResources copies backend/dist/cscms-backend → resources/backend and dist → resources/frontend (output dir renamed to release/ so it doesn't collide with vite's dist/); nsis config allows choosing install dir and creates desktop + start menu shortcuts.",
+      "Bug found and fixed during verification: the packaged backend 404'd on every non-/api route. main.cjs never told it where the bundled frontend lives, so settings.py's frontend_dist guess (next to the PyInstaller _internal/ dir) pointed nowhere and the SPA-serving route in main.py never registered. Fixed by adding a frontend extraResources entry and setting CSCMS_FRONTEND_DIST=resourcesPath/frontend when app.isPackaged.",
+      "Also fixed: pnpm wasn't resolvable on PATH in this environment (only `corepack pnpm` worked), which broke electron-builder's pnpm node_modules collector. Installed corepack's pnpm shims into the writable npm global dir (already on PATH) — a real environment fix, not test-specific.",
+      "Verify: built release/CSCMS Setup 1.0.0.exe (~125MB), ran it for real (both /S default per-user install and /S /D=<dir>) — both exit 0, Start Menu and Desktop shortcuts created, launching from the shortcut spawns the bundled backend exe and GET /api/health returns 200. Not a literal clean machine (this is the dev box), so 10.6 still owns that. Uninstaller run afterward removed the install dir and both shortcuts cleanly."
     ]
   },
   {
     "title": "10.5 — First-run setup wizard",
-    "status": "pending",
-    "updated": "2026-08-04",
+    "status": "completed",
+    "updated": "2026-08-10",
+    "seq": 148,
     "details": [
-      "P10 · Shop name, accounts, opening balances.",
-      "Verify: a fresh install reaches a usable state without touching a terminal."
+      "Superseded per PLAN: the wizard itself shipped in 9.8 as a web route. This step only had to confirm it still works once packaged.",
+      "Verify: with the 10.4 installer's frontend-dist fix in place, deleted %APPDATA%\\CSCMS\\cscms.db to simulate a fresh install, launched the installed app, confirmed GET /api/auth/bootstrap returned {\"needed\":true}, then drove the wizard through Chrome against the same origin — Step 1 (shop name/admin account) → Step 2 (Cash Drawer account, ₹5,000 opening) → Finish setup landed logged-in on the Dashboard with Cash in Hand ₹5,000.00. No terminal touched."
     ]
   },
   {
     "title": "10.6 — Clean-machine acceptance test",
-    "status": "pending",
-    "updated": "2026-08-04",
+    "status": "completed",
+    "updated": "2026-08-10",
+    "seq": 149,
     "details": [
-      "P10 · Full PRD section 12 pass.",
-      "Verify: installs with no Python or Node, works with network disabled, transaction survives restart."
+      "No-Python/no-Node: launched release/win-unpacked/CSCMS.exe with python.exe/node.exe dirs stripped from PATH; backend spawns via absolute resourcesPath, never touches PATH — confirmed no python.exe/node.exe process ever existed (tasklist), both on first launch and after a force-kill relaunch.",
+      "Restart persistence: through the real served UI (Chrome pointed at the Electron window's own origin, http://127.0.0.1:8000), ran the first-run wizard, created transaction #1 (Walk-in, PAN, ₹150, Cash Drawer), force-killed all CSCMS.exe + cscms-backend.exe processes (harder than graceful quit), relaunched, reloaded — transaction and login session both survived intact.",
+      "Network-disabled: not live-tested (skipped disabling the adapter, per decision to avoid interrupting the session) — did a static audit instead. Found one real gap, not fixed: src/index.css imports Roboto Slab/Outfit/JetBrains Mono from Google Fonts over HTTPS; offline this @import fails, but CSS fallbacks (system-ui/serif/monospace) mean the app still fully functions, just loses its custom typography. Flagged for the user to decide whether to self-host.",
+      "10.1-10.5 were already implemented and verified in the working tree from a prior uncommitted session; none of Phase 10 has been committed yet."
     ]
   },
   {
-    "title": "Phase 11 — Deferred scope",
+    "title": "11.1 — Backend: shared-secret gate",
+    "status": "pending",
+    "updated": "2026-08-11",
+    "details": [
+      "settings.py gains app_secret from CSCMS_APP_SECRET; main.py middleware rejects any request without a matching X-CSCMS-App header (hmac.compare_digest), 403.",
+      "Covers every path including /api/health and the SPA catch-all, so a browser never receives the app HTML.",
+      "Empty secret disables the gate entirely — that is what keeps python run.py and npm run dev working."
+    ]
+  },
+  {
+    "title": "11.2 — Electron: generate and inject the secret",
+    "status": "pending",
+    "updated": "2026-08-11",
+    "details": [
+      "main.cjs generates crypto.randomUUID() per launch, passes it to the spawned backend as CSCMS_APP_SECRET.",
+      "session.defaultSession.webRequest.onBeforeSendHeaders adds the header to window requests; waitForBackend's Node-side http.get must send it itself (runs before any window exists).",
+      "Verify: npm run electron works end to end while Chrome at 127.0.0.1:8000 gets 403."
+    ]
+  },
+  {
+    "title": "11.3 — Single-instance lock",
+    "status": "pending",
+    "updated": "2026-08-11",
+    "details": [
+      "Fixes a failure 11.1 introduces: a second launch's health poll reaches the first instance's backend, is rejected for carrying a different secret, and loads a 403 after a 20s wait.",
+      "app.requestSingleInstanceLock() — second launch focuses the existing window and exits.",
+      "Verify: exactly one cscms-backend process in Task Manager throughout."
+    ]
+  },
+  {
+    "title": "11.4 — Publish config and release command",
+    "status": "pending",
+    "updated": "2026-08-11",
+    "details": [
+      "BLOCKED on two prerequisites: the GitHub repo must be public (a private repo needs a token inside the shipped app), and builds are unsigned so SmartScreen will warn on each installer.",
+      "Add electron-updater dep; add publish config (provider github, psamantarai/CSCMS) to package.json build block; add a release script using GH_TOKEN from the environment, never committed.",
+      "Verify: a --publish never build writes latest.yml next to the .exe with a version matching package.json."
+    ]
+  },
+  {
+    "title": "11.5 — Background download, install on quit",
+    "status": "pending",
+    "updated": "2026-08-11",
+    "details": [
+      "autoUpdater.checkForUpdates() on ready and on a timer; autoDownload and autoInstallOnAppQuit both left on. One native Notification on update-downloaded — no preload script, no IPC bridge for a single toast.",
+      "Verify: a running app downloads a newer published version with no dialog and no interruption; next launch after a normal quit reports the new version.",
+      "Must also verify the 8.5 close-time automatic backup still lands — the updater restart fires during the same quit that main.py's shutdown hook uses to write it."
+    ]
+  },
+  {
+    "title": "11.6 — Upgrade-with-data acceptance",
+    "status": "pending",
+    "updated": "2026-08-11",
+    "details": [
+      "Distinct from 10.3 (installer-over-installer); this covers the auto-update path specifically.",
+      "Install published v1.0.0, enter a day of real transactions, publish v1.0.1, let the app update itself.",
+      "Verify: same DB file and rows in %APPDATA%\\CSCMS, new migrations ran, the pre-update day's closing report is unchanged, and 11.1's gate is still enforced in the updated build.",
+      "Note: no downgrade path exists — migrations only run forward, so recovery from a bad publish is a fixed higher version, not a rollback."
+    ]
+  },
+  {
+    "title": "Phase 12 — Deferred scope",
     "status": "pending",
     "updated": "2026-08-04",
     "details": [

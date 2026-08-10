@@ -1,4 +1,6 @@
 from fastapi import Depends, FastAPI
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from app.accounts import router as accounts_router
 from app.audit import router as audit_router
@@ -67,3 +69,15 @@ def on_shutdown():
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+# PLAN 10.1: the Electron shell loads the built frontend from this same
+# origin instead of file://, so relative /api fetches (src/lib/api.ts) keep
+# working unchanged. Only mounted when a build actually exists — plain
+# `python run.py` dev use (no `vite build` run) is unaffected.
+if settings.frontend_dist.is_dir():
+    app.mount("/assets", StaticFiles(directory=settings.frontend_dist / "assets"), name="frontend-assets")
+
+    @app.get("/{full_path:path}")
+    def spa(full_path: str):
+        return FileResponse(settings.frontend_dist / "index.html")
