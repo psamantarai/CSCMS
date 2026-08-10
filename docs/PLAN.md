@@ -1,6 +1,6 @@
 # CSCMS — Implementation Plan
 
-20 phases, 144 steps. Phases run in order; each depends on the one before.
+21 phases, 149 steps. Phases run in order; each depends on the one before.
 (Phase 2.5 was inserted after an edge-case audit of the shipped Phase 0–2
 code — see that phase for what it found and why it blocks Phase 3. Phase 3.5
 came from the same pass repeated over the shipped Phase 3 code. Phase 4.5
@@ -1787,7 +1787,172 @@ operations list, once this ships.
 
 ---
 
-## Phase 12 — Deferred
+## Phase 12 — Application logging & diagnostics
+
+Today a production failure leaves **no trace at all**. Backend errors go to
+uvicorn's stdout, which `electron/main.cjs` pipes to `process.stdout` — but the
+packaged app spawns the backend with `windowsHide: true` and has no console
+attached, so that output goes nowhere. The shell's own `console.error` calls
+(backend spawn failure, health-poll timeout, update-check failure) go nowhere
+for the same reason. And there is no React error boundary, so a render crash is
+a white screen with nothing written down. The machine is a shop counter that
+cannot be reached remotely; the only diagnostic channel is a file the operator
+can find on disk.
+
+This phase gives each of the three processes a durable place to write, and
+gives the renderer a way to report a crash it currently cannot survive.
+
+**Where logs live:** `%APPDATA%\CSCMS\logs\`, alongside the DB and backups per
+10.3. `settings.py` derives it as `db_path.parent / "logs"` rather than taking
+a new environment variable — Electron already points `CSCMS_DB_PATH` at
+userData, so the packaged app lands in the right place with **no change to
+`main.cjs`'s env block**, and a plain `python run.py` gets `backend/data/logs/`
+for free. Two streams: `backend.log` (backend + renderer-reported errors) and
+`electron-YYYY-MM-DD.log` (shell).
+
+**Retention: 5 days, by age.** Logs roll over at midnight and anything older
+than 5 days is deleted. The obvious implementation — stdlib
+`TimedRotatingFileHandler(when="midnight", backupCount=5)` — is *not* on its
+own sufficient, and the reason matters: `backupCount` counts **files, not
+days**. A shop closed on Sunday writes no Sunday file, so five files can span
+eight calendar days; and a machine left off for a week rotates nothing at all,
+because rollover only happens when a running process emits a record. Both
+steps below therefore pair the handler with an explicit mtime sweep at startup,
+which is what actually enforces the 5-day promise. The retention window lives
+in one constant (`LOG_RETENTION_DAYS = 5`) so changing it is a one-line edit.
+
+**Deliberately skipped:** request-correlation IDs (single operator, single
+machine — timestamps correlate the three files well enough), an in-app "export
+diagnostics" zip, configurable log levels beyond the existing `CSCMS_DEBUG`,
+a **size** cap on top of the age cap (12.4's 10-posts-per-load counter is the
+one realistic runaway-growth path, and it is already capped at the source), and
+any remote or network-based error reporting. The last one is not a
+convenience trade: `ARCHITECTURE.md` §9 commits to no external network surface,
+and these logs contain customer financial activity.
+
+**12.1 Backend file logging with 5-day retention** — new
+`app/logging_setup.py`: a `logging.handlers.TimedRotatingFileHandler` on
+`settings.log_dir / "backend.log"` with `when="midnight"` and
+`backupCount=LOG_RETENTION_DAYS`, format
+`%(asctime)s %(levelname)s %(name)s %(message)s`, attached to the root logger
+and to `uvicorn`, `uvicorn.error` and `uvicorn.access`. `settings.py` gains
+`log_dir`. Alongside it, a ~3-line `sweep_old_logs()` that deletes any
+`backend.log.*` whose mtime is older than 5 days — this, not `backupCount`, is
+what makes the retention age-based (see the phase note above). Both run as the
+first statements of `main.py`'s `on_startup()`, before `run_migrations` — a
+migration that fails on a customer's machine is exactly the failure this phase
+exists to catch, and it happens before any route is ever hit. Python's stdlib
+covers all of this; no dependency is added.
+*Verify:* start the backend, hit any endpoint, and `backend.log` exists at the
+derived path containing the startup and request lines; stop and restart and the
+file is appended to, not truncated. For retention, `os.utime()` a set of fake
+`backend.log.*` files to 2, 4, 6 and 30 days old, restart, and only the 2- and
+4-day files survive — the boundary case (exactly 5 days) must resolve
+consistently rather than flapping between runs. Confirm the current
+`backend.log` is never deleted by the sweep regardless of its mtime.
+
+**12.2 Unhandled-exception handler with redacted payloads** — `main.py` gains
+`@app.exception_handler(Exception)`, logging the method, path, full traceback
+and the request body at ERROR, and returning the existing `{detail, code}`
+shape with `code: "internal_error"` so `src/lib/api.ts`'s error reading keeps
+working unchanged. A 4xx is logged at WARNING with the same detail — a 409
+"business day is closed" rejection is precisely what an operator phones about.
+Bodies pass through a redaction denylist (`password`, `phone`, `aadhaar`,
+`account_number`, `token` → `***`) so the file stays diagnosable without
+becoming a plaintext dump of customer PII.
+
+**Known trap:** a request body can only be consumed once. Reading it in the
+handler after the route has already read it yields empty bytes, and reading it
+in a middleware without caching it back onto the request starves the route.
+Cache `await request.body()` explicitly; the *Verify* below exists to catch
+exactly this.
+*Verify:* a deliberately raised exception in a route produces a full traceback
+in `backend.log` and a `{"detail": ..., "code": "internal_error"}` 500 to the
+client; a `POST /api/transactions` with a bad `total_paise` logs its body with
+`phone` and `aadhaar_masked` shown as `***`; and — the trap — a **valid**
+`POST /api/transactions` still succeeds and still writes its ledger rows, i.e.
+body capture did not consume the stream the route needs.
+
+**12.3 Electron main-process log file with 5-day retention** — `main.cjs` gains
+an `fs.appendFileSync`-based `log()` helper (~8 lines, no `electron-log`
+dependency) writing to `userData/logs/electron-YYYY-MM-DD.log`, replacing the
+four `console.error` / `process.stdout.write` calls that currently write to a
+console that does not exist in a packaged build. It captures: app version and
+a start marker, backend spawn failure, backend stdout/stderr, the 20 s
+`waitForBackend` timeout, `autoUpdater` errors, `process.on("uncaughtException")`,
+and a quit marker.
+
+The **date in the filename is the rotation** — Node has no
+`TimedRotatingFileHandler`, and a per-day file makes age-based deletion a
+directory listing rather than a parsing problem. At startup, unlink any
+`electron-*.log` older than 5 days by mtime — the same rule as 12.1, kept as a
+separate copy in each process on purpose: each sweeps only its own filename
+pattern, so neither can delete a file the other process is mid-write on
+(Windows will not unlink an open handle, and a cross-process sweep is the kind
+of thing that fails only on the customer's machine).
+*Verify:* in a packaged build (not `npm run electron`), today's
+`electron-YYYY-MM-DD.log` contains the version and start marker plus the
+backend's own stdout; renaming `cscms-backend.exe` and launching produces a
+spawn-failure line **and** the health-timeout line rather than a silent hang;
+the start/quit markers make individual launches distinguishable within one
+day's file. For retention, drop in backdated `electron-*.log` files at 2, 6 and
+30 days old, relaunch, and only the 2-day file survives — with the app running,
+confirm today's file was not among the candidates considered.
+
+**12.4 Renderer error capture** — three pieces:
+- `src/components/ErrorBoundary.tsx` wrapping the router in `App.tsx`. Replaces
+  the white screen with a "Something went wrong / Reload" card and POSTs the
+  error message plus component stack.
+- `window.onerror` and an `unhandledrejection` listener in `src/main.tsx` for
+  what a boundary structurally cannot catch (event handlers, async rejections).
+- `POST /api/client-log` on the backend, writing at ERROR into `backend.log`
+  tagged `[client]`. Unauthenticated by necessity — it has to work when auth
+  itself is what broke — but still behind 11.1's app-secret gate, so it is no
+  more reachable than any other route.
+
+A module-level counter caps the client at 10 posts per page load: a render loop
+that throws on every retry would otherwise hammer the endpoint and bury the
+first, useful error under thousands of copies. No preload script and no IPC
+bridge — the renderer is a plain HTTP page served by the backend, and the same
+reasoning as 11.5 applies.
+*Verify:* a component that throws on render shows the fallback card instead of
+a white screen, and its message and component stack appear in `backend.log`
+tagged `[client]`; a thrown error inside a button's `onClick` (which the
+boundary does **not** catch) is still logged via `window.onerror`; a component
+that throws in a loop produces 10 log entries, not thousands.
+
+**12.5 Packaged-build acceptance** — the four failure classes forced against an
+installed copy, not a dev run, because every mechanism in this phase exists
+specifically for the packaged case where no console is attached.
+*Verify:* on an installed build, each of (a) backend fails to start, (b) an API
+call returns 500, (c) a React render crash, (d) an update check fails, leaves
+an entry in `backend.log` or `electron.log` with enough detail — file, line or
+route — to locate the cause without attaching a debugger. Confirm the log
+folder sits next to `cscms.db` in `%APPDATA%\CSCMS` so it can be described to a
+non-technical operator over the phone, and that a backup/restore cycle does not
+disturb it.
+
+**Retention acceptance, which only shows up over time:** run the installed
+build across a simulated week by backdating files, and confirm the folder holds
+at most 5 days of each stream with today's files never touched. The failure
+this catches is a sweep that either deletes nothing (pattern doesn't match the
+rotated names) or deletes the live file — neither is visible on day one, and
+both are only discovered when a log is actually needed.
+
+**Consequence of a 5-day window, recorded here deliberately:** a fault reported
+more than 5 days after it happened has no log left. The window is one constant
+(`LOG_RETENTION_DAYS`) in each process; widening it is a one-line change in
+both.
+
+*Verify (phase):* every one of the three processes leaves a durable, rotating
+record on disk in a packaged build, and no failure mode found in 12.5 is
+silent. Add a logging entry to `ARCHITECTURE.md` §9's operations list recording
+the two file paths, the rotation policy and the redaction denylist, once this
+ships.
+
+---
+
+## Phase 13 — Deferred
 
 Genuinely useful, genuinely not blocking. Pulled forward on request. Left
 unbroken deliberately — breaking down work this far out is speculation.

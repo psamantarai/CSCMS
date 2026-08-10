@@ -1785,11 +1785,16 @@
     "title": "11.4 — Publish config and release command",
     "status": "completed",
     "updated": "2026-08-11",
-    "seq": 153,
+    "seq": 155,
     "details": [
       "Prerequisite cleared: psamantarai/CSCMS repo confirmed set to public (was returning 404 on the anonymous GitHub API; user made it public).",
       "Added electron-updater dep (pnpm add); added publish config (provider github, owner psamantarai, repo CSCMS) to package.json's build block; added a release script: vite build && electron-builder --win --publish always.",
-      "Verified live: vite build + electron-builder --win --publish never wrote release/latest.yml with version: 1.0.0, matching package.json. release/ cleaned up after (already gitignored)."
+      "Root cause of first real run failing: electron-builder only auto-loads GH_TOKEN from a file literally named electron-builder.env (cli-util.js), not .env — created it, added it to .gitignore (the existing .env* glob didn't cover it).",
+      "Second failure was the token itself lacking repo write access (403) — user regenerated a fine-grained PAT with Contents: Read and write on psamantarai/CSCMS.",
+      "Found a real electron-builder bug: PublishManager.getOrCreatePublisher() (app-builder-lib) does a check-then-act on a plain Map with no lock, so nsis's near-simultaneous .exe + .blockmap artifactBuildCompleted events both create their own GitHubPublisher and both create a release — reproduced 2/2 times, confirmed at the source line.",
+      "Added scripts/fix-duplicate-release.cjs (no new dep, Node 24 global fetch) chained into the release script: finds releases sharing a tag, deletes the extras, re-uploads any assets missing from the survivor from the local release/ build output.",
+      "Verified live end-to-end: v1.0.0 published as a real (non-draft) GitHub release with all 3 assets (CSCMS-Setup-1.0.0.exe, .blockmap, latest.yml); public download URL returns 200 with the correct ~120MB size.",
+      "Committed as 657aaff and pushed to origin/main."
     ]
   },
   {
@@ -1812,11 +1817,76 @@
       "Install published v1.0.0, enter a day of real transactions, publish v1.0.1, let the app update itself.",
       "Verify: same DB file and rows in %APPDATA%\\CSCMS, new migrations ran, the pre-update day's closing report is unchanged, and 11.1's gate is still enforced in the updated build.",
       "Note: no downgrade path exists — migrations only run forward, so recovery from a bad publish is a fixed higher version, not a rollback.",
-      "BLOCKED on manual execution outside this session: needs a real GH_TOKEN to publish two real releases, an actual installer run, live data entry through the UI, and waiting for a real auto-update to land — not something a coding session can drive headlessly."
+      "v1.0.0 is now published live on GitHub (see 11.4) — that prerequisite is cleared. Still needed: an installer run from that release, live data entry through the UI, a v1.0.1 publish, and waiting for a real auto-update to land.",
+      "BLOCKED on manual execution outside this session: not something a coding session can drive headlessly."
     ]
   },
   {
-    "title": "Phase 12 — Deferred scope",
+    "title": "12.1 — Backend file logging with 5-day retention",
+    "status": "pending",
+    "updated": "2026-08-11",
+    "details": [
+      "Problem this phase solves: a prod failure currently leaves zero trace. Backend stdout goes to a console the packaged app doesn't have (windowsHide: true), main.cjs's console.error calls go nowhere, and there's no React error boundary — a render crash is a silent white screen.",
+      "New app/logging_setup.py: stdlib TimedRotatingFileHandler (when=midnight, backupCount=LOG_RETENTION_DAYS) on settings.log_dir / 'backend.log', attached to root + uvicorn/uvicorn.error/uvicorn.access. No new dependency.",
+      "Plus a ~3-line sweep_old_logs() deleting backend.log.* older than 5 days by mtime. This, NOT backupCount, is what makes retention age-based: backupCount counts FILES not DAYS, so a shop closed Sunday writes no Sunday file and 5 files can span 8 calendar days; a machine left off for a week rotates nothing at all, since rollover only fires when a running process emits a record.",
+      "settings.py gains log_dir, derived as db_path.parent / 'logs' — Electron already sets CSCMS_DB_PATH to userData, so this needs NO change to main.cjs's env block.",
+      "Both run first thing in on_startup(), before run_migrations — a migration failing on a customer machine is exactly what this phase exists to catch.",
+      "Verify: log file exists at the derived path after a request; restart appends rather than truncates. For retention, os.utime() fake backend.log.* files to 2/4/6/30 days old, restart, and only 2- and 4-day survive; the exactly-5-days boundary must resolve consistently, and the live backend.log must never be swept regardless of mtime."
+    ]
+  },
+  {
+    "title": "12.2 — Unhandled-exception handler with redacted payloads",
+    "status": "pending",
+    "updated": "2026-08-11",
+    "details": [
+      "main.py gains @app.exception_handler(Exception): logs method, path, traceback and request body at ERROR; returns the existing {detail, code} shape with code 'internal_error' so src/lib/api.ts keeps working unchanged.",
+      "4xx logged at WARNING with the same detail — a 409 'business day is closed' rejection is precisely what an operator phones about.",
+      "Redaction denylist on bodies: password, phone, aadhaar, account_number, token -> ***. Keeps the file diagnosable without dumping customer PII to plaintext.",
+      "KNOWN TRAP: a request body can only be consumed once. Cache await request.body() explicitly or the route sees empty bytes.",
+      "Verify: a raised exception gives a full traceback + a 500 with code internal_error; a bad POST logs its body with phone/aadhaar_masked as ***; and a VALID POST /api/transactions still succeeds and still writes its ledger rows (this is the check that catches the trap)."
+    ]
+  },
+  {
+    "title": "12.3 — Electron main-process log file with 5-day retention",
+    "status": "pending",
+    "updated": "2026-08-11",
+    "details": [
+      "main.cjs gains an ~8-line fs.appendFileSync log() helper writing to userData/logs/electron-YYYY-MM-DD.log, replacing the four console.error / process.stdout.write calls that write to a console that doesn't exist in a packaged build. No electron-log dependency.",
+      "Captures: app version + start marker, backend spawn failure, backend stdout/stderr, the 20s waitForBackend timeout, autoUpdater errors, process uncaughtException, quit marker.",
+      "The DATE IN THE FILENAME is the rotation — Node has no TimedRotatingFileHandler, and a per-day file turns age-based deletion into a directory listing rather than a parsing problem. At startup, unlink any electron-*.log older than 5 days by mtime.",
+      "The sweep is deliberately a separate copy from 12.1's rather than shared: each process sweeps only its own filename pattern, so neither can unlink a file the other is mid-write on (Windows won't unlink an open handle, and a cross-process sweep fails only on the customer's machine).",
+      "Verify: in a PACKAGED build (not npm run electron), today's file holds version + start marker + backend stdout; renaming cscms-backend.exe produces a spawn-failure line AND the health-timeout line instead of a silent hang. For retention, drop in backdated electron-*.log at 2/6/30 days, relaunch, only the 2-day survives — and with the app running, today's file was never a candidate."
+    ]
+  },
+  {
+    "title": "12.4 — Renderer error capture",
+    "status": "pending",
+    "updated": "2026-08-11",
+    "details": [
+      "New src/components/ErrorBoundary.tsx wrapping the router in App.tsx: replaces the white screen with a 'Something went wrong / Reload' card and POSTs error + component stack.",
+      "window.onerror + unhandledrejection listeners in src/main.tsx for what a boundary structurally cannot catch (event handlers, async rejections).",
+      "New POST /api/client-log writes at ERROR into backend.log tagged [client]. Unauthenticated by necessity — it has to work when auth itself is what broke — but still behind 11.1's app-secret gate.",
+      "Module-level counter caps the client at 10 posts per page load: a render loop that throws on every retry would bury the first useful error under thousands of copies.",
+      "No preload script, no IPC bridge — the renderer is a plain HTTP page served by the backend; same reasoning as 11.5.",
+      "Verify: a throwing component shows the fallback card and logs its stack tagged [client]; a throw inside an onClick (which the boundary does NOT catch) is still logged via window.onerror; a loop produces 10 entries, not thousands."
+    ]
+  },
+  {
+    "title": "12.5 — Packaged-build acceptance",
+    "status": "pending",
+    "updated": "2026-08-11",
+    "details": [
+      "Four failure classes forced against an INSTALLED copy, not a dev run — every mechanism in this phase exists for the packaged case where no console is attached.",
+      "Verify: (a) backend fails to start, (b) an API call returns 500, (c) a React render crash, (d) an update check fails — each leaves an entry with enough detail (file, line or route) to locate the cause without a debugger.",
+      "Confirm the logs folder sits next to cscms.db in %APPDATA%\\CSCMS so it can be described to a non-technical operator over the phone, and that a backup/restore cycle doesn't disturb it.",
+      "Retention acceptance (only shows up over time): run the installed build across a simulated week by backdating files; the folder holds at most 5 days of each stream and today's files are never touched. Catches a sweep that either deletes nothing (pattern doesn't match the rotated names) or deletes the live file — neither is visible on day one, both surface only when a log is actually needed.",
+      "Accepted consequence of a 5-day window: a fault reported more than 5 days later has no log left. The window is one constant (LOG_RETENTION_DAYS) per process; widening it is a one-line change in both.",
+      "Phase close-out: add a logging entry to ARCHITECTURE.md section 9's operations list recording the two file paths, the 5-day retention policy and the redaction denylist.",
+      "Skipped deliberately across the phase: correlation IDs (single operator — timestamps suffice), an in-app export-diagnostics zip, configurable log levels beyond CSCMS_DEBUG, a SIZE cap on top of the age cap (12.4's 10-posts-per-load counter is the one realistic runaway path and is capped at the source), and any remote error reporting (section 9 commits to no external network surface, and these logs contain customer financial activity)."
+    ]
+  },
+  {
+    "title": "Phase 13 — Deferred scope",
     "status": "pending",
     "updated": "2026-08-04",
     "details": [
