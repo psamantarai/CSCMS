@@ -1,6 +1,6 @@
 # CSCMS — Implementation Plan
 
-21 phases, 149 steps. Phases run in order; each depends on the one before.
+22 phases, 154 steps. Phases run in order; each depends on the one before.
 (Phase 2.5 was inserted after an edge-case audit of the shipped Phase 0–2
 code — see that phase for what it found and why it blocks Phase 3. Phase 3.5
 came from the same pass repeated over the shipped Phase 3 code. Phase 4.5
@@ -1952,7 +1952,153 @@ ships.
 
 ---
 
-## Phase 13 — Deferred
+## Phase 13 — Self-contained install directory
+
+Everything the app owns — database, backups, logs, and Electron's own browser
+state — lives under the directory the operator picks at install time, and
+nothing of the app's lands outside it. Today the installer asks for a location
+(`nsis.allowToChangeInstallationDirectory` is already `true`) but the data
+ignores that answer entirely: `main.cjs` hard-codes
+`CSCMS_DB_PATH` to `app.getPath("userData")`, so the ledger goes to
+`%APPDATA%\CSCMS` no matter what the operator chose.
+
+**The backend needs almost no work.** Every path it uses already derives from
+one root: `BACKUPS_DIR = db_path.parent / "backups"` (`backup.py:20`), Phase
+12's `log_dir = db_path.parent / "logs"`, and `db.py:8` creates the parent
+directory itself. Sessions and settings are DB *tables*, not files. Point
+`CSCMS_DB_PATH` at the chosen folder and the entire backend follows. The work
+in this phase is Electron-side and installer-side.
+
+### The risk this phase is really about
+
+Data lives in `$INSTDIR\data`, and **NSIS clears the install directory on
+every auto-update** — electron-builder runs the old uninstaller before laying
+down the new version. Phase 11 shipped auto-update, so without an explicit
+carve-out the first automatic update destroys the ledger silently, on a
+machine with no other copy.
+
+Normally the answer would be a copy somewhere else. The single-directory
+requirement forbids that, and `data\backups\` is inside the blast radius of the
+exact failure it would need to protect against. **There is therefore no safety
+net: the correctness of the NSIS carve-out in 13.3 is the safety net.** That is
+why 13.3 is verified by performing a real update and a real uninstall over real
+data, and not by reasoning about what the NSIS templates are believed to do.
+Treat 13.3 as the step this phase exists for; 13.1 is comparatively mechanical.
+
+**What unavoidably remains outside**, recorded here so it is a known quantity
+rather than a discovered surprise: the Add/Remove Programs registry key, the
+Start Menu and Desktop shortcuts, and electron-updater's download cache under
+`%LOCALAPPDATA%\cscms-updater` (transient — written during a download, removed
+after the update installs). Redirecting the last one has no supported API and
+would mean depending on electron-updater internals to relocate files that
+delete themselves; explicitly out of scope.
+
+**13.1 Single data root derived from the install directory** — `main.cjs`
+computes `DATA_DIR = path.join(path.dirname(app.getPath("exe")), "data")` for
+packaged builds, falling back to the existing `backend/data` for an unpacked
+dev run. It then calls `app.setPath("userData", DATA_DIR)` and passes
+`CSCMS_DB_PATH = DATA_DIR/cscms.db` to the spawned backend, which carries
+backups and logs with it for free.
+
+**Ordering constraint, and it is strict:** `app.setPath("userData", …)` must
+run before `app.whenReady()` and before *any* other `getPath` call, for the
+same reason `app.setName` already does at `main.cjs:12-15`. Chromium resolves
+its cache, cookie and local-storage locations once; set it late and the app
+half-migrates, with the DB in the new folder and browser state still in
+`%APPDATA%`. Phase 12.3's electron log path resolves from `userData` too, so if
+Phase 12 ships first, its `log()` helper must not compute its path at module
+load — only after the `setPath` call.
+*Verify:* install to a non-default directory (e.g. `D:\CSCMS`) and confirm
+`data\cscms.db`, `data\backups\`, `data\logs\` **and** Chromium's own `Cache`,
+`Network` and `Local Storage` folders all sit under it; then confirm
+`%APPDATA%\CSCMS` does not exist at all after a full login → transaction →
+backup → quit cycle.
+
+**13.2 Writability preflight** — `allowToChangeInstallationDirectory` lets the
+operator type `C:\Program Files\CSCMS`. The installer elevates and succeeds;
+the app at runtime does **not** run elevated and cannot write there. The
+failure surfaces as an opaque SQLite "unable to open database file" long after
+the install looked fine. On startup, before spawning the backend, write and
+delete a probe file in `DATA_DIR`; on failure show a native dialog naming the
+folder and the fix, and quit.
+
+Set `nsis.perMachine: false` explicitly so the default stays the per-user
+`%LOCALAPPDATA%\Programs\CSCMS`, which is writable — the preflight is for the
+operator who overrides that default, not a substitute for a sane one.
+
+**This step must run before Phase 12's file logging is initialised**, not
+after: the log file lives in the very directory being probed, so a failure here
+cannot be reported to it. Dialog and stderr only.
+*Verify:* install deliberately into `C:\Program Files\CSCMS`, launch, and get a
+readable dialog naming the directory — not a traceback, not a silent hang, and
+not a window that opens onto a broken app. Confirm a normal per-user install is
+completely unaffected by the probe.
+
+**13.3 NSIS carve-out so update and uninstall never delete `data\`** — add
+`build/installer.nsh` hooked in via `nsis.include`, using electron-builder's
+documented `customRemoveFiles` / `customUnInstall` macros to exclude
+`$INSTDIR\data` from removal. Data is a **subfolder**, not the install root
+itself, precisely so the exclusion is expressible: app files and operator data
+have to be separable for the uninstaller to treat them differently.
+
+Per the decision on uninstall behaviour, the data folder is preserved
+unconditionally — no checkbox. An operator uninstalling to reinstall is a
+routine move, and for an app holding the only copy of the ledger a destructive
+default in that moment is unrecoverable.
+
+**Verify empirically, not from documentation.** NSIS removal semantics vary
+between electron-builder versions and between the update path and the manual
+uninstall path, and this is the step where being wrong costs the ledger:
+*Verify:* (a) install v1.0.0, enter a day of real transactions through the UI,
+publish v1.0.1, let auto-update apply it, and confirm after restart that
+`data\cscms.db` is the same file with the same rows and the pre-update day's
+closing report is unchanged; (b) run a manual uninstall from Add/Remove
+Programs and confirm `data\` still exists with the DB and backups intact while
+the app's own files are gone; (c) reinstall over that preserved folder and
+confirm the app opens the existing data rather than seeding a fresh DB.
+
+**13.4 Migration from `%APPDATA%\CSCMS`** — v1.0.0 is already published, so an
+existing install has its ledger in the old location. On first launch of a build
+containing 13.1, if `DATA_DIR` holds no database and
+`%APPDATA%\CSCMS\cscms.db` does exist, move the DB, `backups\` and `logs\`
+across, then remove the old folder so nothing of the app's is left outside.
+
+Move the SQLite sidecar files (`-wal`, `-shm`) with the database or leave
+neither — a DB moved without its WAL loses the most recent committed
+transactions, which is the worst possible outcome for this particular app.
+`backup.py:100` already handles those suffixes and is the precedent to follow.
+Copy-then-verify-then-delete, never a bare `rename` that can half-complete
+across volumes when the operator has installed to a different drive.
+*Verify:* seed the old location with a DB containing known rows plus a
+populated `backups\`, launch the new build, and confirm the rows are readable
+in the new location, the backups list still shows the same files, and
+`%APPDATA%\CSCMS` is gone. Then relaunch and confirm the migration does not run
+a second time or overwrite anything. Interrupt the migration mid-way (kill the
+process) and confirm the next launch either completes it or leaves the original
+intact — never a half-moved database.
+
+**13.5 Acceptance: nothing outside the folder** — install to a custom directory
+on a clean machine or VM, exercise the app fully (first-run onboarding, login,
+transactions, a banking entry, a backup, a daily closing, a restore), quit, and
+audit the filesystem.
+*Verify:* `%APPDATA%\CSCMS` and `%LOCALAPPDATA%\CSCMS` do not exist; every file
+the app created is under the chosen directory; and the only things outside it
+are the four documented items listed in the phase intro. Confirm the chosen
+folder is portable in the way this design implies — copy it to another machine
+with the app installed to the same-named path and confirm it opens with its
+data and its login state intact.
+
+*Verify (phase):* an installed copy keeps its database, backups, logs and
+browser state entirely inside the operator's chosen directory; an auto-update
+and an uninstall both leave that data untouched; and an upgrade from a
+pre-Phase-13 install moves its data across without loss. Update
+`ARCHITECTURE.md` §9's operations list to record the install-directory layout,
+the preserved-on-uninstall guarantee, and the documented residue, once this
+ships.
+
+---
+
+## Phase 14 — Deferred
 
 Genuinely useful, genuinely not blocking. Pulled forward on request. Left
 unbroken deliberately — breaking down work this far out is speculation.
@@ -1976,6 +2122,16 @@ explicit rebuild command, never as a second writable source.
 **Banking commission modelling (5.1, 5.5) is the most common correctness bug**
 in this class of application. Booking the ₹5,000 principal of an AEPS
 withdrawal as income overstates daily profit by a hundredfold.
+
+**Phase 13 puts the ledger inside a directory the installer clears (13.3).**
+Data lives in `$INSTDIR\data`, and NSIS removes the install directory on every
+auto-update before laying down the new version. The single-directory
+requirement rules out keeping a copy anywhere else, and `data\backups\` sits
+inside the blast radius of the very failure it would need to survive — so the
+NSIS carve-out is not a safeguard among several, it is the only one. Any future
+change to the installer config, the electron-builder version, or the NSIS
+templates re-opens this, and the only adequate check is a real update over real
+data, not a reading of the templates.
 
 **Concurrency was assumed away and it does not hold (H.1).** "Single operator,
 single machine" was read as "one request at a time", but react-query issues

@@ -1886,7 +1886,66 @@
     ]
   },
   {
-    "title": "Phase 13 — Deferred scope",
+    "title": "13.1 — Single data root derived from the install directory",
+    "status": "pending",
+    "updated": "2026-08-11",
+    "details": [
+      "Goal of the phase: DB, backups, logs and Electron's own browser state all live under the directory the operator picks at install time. Today the installer asks (allowToChangeInstallationDirectory is already true) but main.cjs hard-codes CSCMS_DB_PATH to app.getPath('userData'), so the ledger goes to %APPDATA%\\CSCMS regardless of the answer.",
+      "Backend needs almost no work: every path already derives from one root — BACKUPS_DIR = db_path.parent / 'backups' (backup.py:20), Phase 12's log_dir = db_path.parent / 'logs', db.py:8 mkdirs the parent. Sessions and settings are DB tables, not files. Point CSCMS_DB_PATH at the folder and the backend follows.",
+      "main.cjs computes DATA_DIR = dirname(app.getPath('exe')) + '/data' for packaged builds (dev falls back to backend/data), calls app.setPath('userData', DATA_DIR), and passes CSCMS_DB_PATH.",
+      "STRICT ORDERING: setPath('userData') must run before app.whenReady() and before any other getPath call — same constraint app.setName already carries at main.cjs:12-15. Chromium resolves cache/cookie/local-storage locations once; set it late and you get a half-migration (DB in the new folder, browser state still in %APPDATA%). Phase 12.3's electron log path also resolves from userData, so its log() helper must not compute its path at module load.",
+      "Verify: install to D:\\CSCMS; data\\cscms.db, data\\backups\\, data\\logs\\ AND Chromium's Cache/Network/Local Storage all sit under it; %APPDATA%\\CSCMS does not exist after a full login -> transaction -> backup -> quit cycle."
+    ]
+  },
+  {
+    "title": "13.2 — Writability preflight",
+    "status": "pending",
+    "updated": "2026-08-11",
+    "details": [
+      "allowToChangeInstallationDirectory lets the operator type C:\\Program Files\\CSCMS. The installer elevates and succeeds; the app at runtime does NOT run elevated and cannot write there. Surfaces as an opaque SQLite 'unable to open database file' long after the install looked fine.",
+      "On startup, before spawning the backend, write and delete a probe file in DATA_DIR; on failure show a native dialog naming the folder and the fix, then quit.",
+      "Set nsis.perMachine: false explicitly so the default stays the per-user (writable) %LOCALAPPDATA%\\Programs\\CSCMS — the preflight is for the operator who overrides that default, not a substitute for a sane one.",
+      "Must run BEFORE Phase 12's file logging is initialised: the log file lives in the directory being probed, so a failure here cannot be reported to it. Dialog and stderr only.",
+      "Verify: install deliberately into C:\\Program Files\\CSCMS, launch, get a readable dialog naming the directory — not a traceback, not a silent hang, not a window onto a broken app. Confirm a normal per-user install is unaffected by the probe."
+    ]
+  },
+  {
+    "title": "13.3 — NSIS carve-out so update and uninstall never delete data\\",
+    "status": "pending",
+    "updated": "2026-08-11",
+    "details": [
+      "THIS IS THE STEP THE PHASE EXISTS FOR. NSIS clears the install directory on every auto-update — electron-builder runs the old uninstaller before laying down the new version. Phase 11 shipped auto-update, so without a carve-out the first automatic update destroys the ledger silently on a machine with no other copy.",
+      "There is NO safety net. The single-directory requirement rules out a copy elsewhere, and data\\backups\\ sits inside the blast radius of the exact failure it would need to survive. Correctness of this carve-out IS the safety net.",
+      "Add build/installer.nsh via nsis.include, using electron-builder's documented customRemoveFiles / customUnInstall macros to exclude $INSTDIR\\data. Data is a SUBFOLDER, not the install root, precisely so the exclusion is expressible — app files and operator data must be separable for the uninstaller to treat them differently.",
+      "Data preserved unconditionally on uninstall, no checkbox: uninstalling to reinstall is a routine operator move, and a destructive default at that moment is unrecoverable for an app holding the only copy of the ledger.",
+      "VERIFY EMPIRICALLY, NOT FROM DOCS — NSIS removal semantics vary across electron-builder versions and between the update path and the manual-uninstall path: (a) install v1.0.0, enter a day of real transactions, publish v1.0.1, let auto-update apply it, confirm same DB file, same rows, unchanged pre-update closing report; (b) manual uninstall from Add/Remove Programs leaves data\\ with DB and backups intact while app files are gone; (c) reinstall over the preserved folder opens the existing data rather than seeding a fresh DB."
+    ]
+  },
+  {
+    "title": "13.4 — Migration from %APPDATA%\\CSCMS",
+    "status": "pending",
+    "updated": "2026-08-11",
+    "details": [
+      "v1.0.0 is already published, so existing installs have their ledger in the old location. On first launch of a build containing 13.1, if DATA_DIR has no DB and %APPDATA%\\CSCMS\\cscms.db exists, move the DB, backups\\ and logs\\ across, then remove the old folder so nothing of the app's remains outside.",
+      "Move the SQLite sidecars (-wal, -shm) with the database or move neither — a DB moved without its WAL loses the most recent committed transactions, the worst possible outcome for this app. backup.py:100 already handles those suffixes and is the precedent.",
+      "Copy-then-verify-then-delete, never a bare rename: it can half-complete across volumes when the operator has installed to a different drive.",
+      "Verify: seed the old location with known rows plus a populated backups\\, launch the new build, rows readable in the new location, backups list unchanged, %APPDATA%\\CSCMS gone. Relaunch and confirm the migration doesn't run twice or overwrite. Kill the process mid-migration and confirm the next launch either completes it or leaves the original intact — never a half-moved database."
+    ]
+  },
+  {
+    "title": "13.5 — Acceptance: nothing outside the folder",
+    "status": "pending",
+    "updated": "2026-08-11",
+    "details": [
+      "Install to a custom directory on a clean machine or VM, exercise fully (first-run onboarding, login, transactions, a banking entry, a backup, a daily closing, a restore), quit, audit the filesystem.",
+      "Verify: %APPDATA%\\CSCMS and %LOCALAPPDATA%\\CSCMS do not exist; every file the app created is under the chosen directory.",
+      "Known residue that cannot be eliminated, recorded so it's a known quantity not a discovered surprise: the Add/Remove Programs registry key, Start Menu and Desktop shortcuts, and electron-updater's download cache under %LOCALAPPDATA%\\cscms-updater (transient — written during download, removed after install). Redirecting the last has no supported API and would mean depending on electron-updater internals to relocate files that delete themselves. Explicitly out of scope.",
+      "Also confirm the folder is portable in the way this design implies: copy it to another machine with the app installed to the same-named path and it opens with data and login state intact.",
+      "Phase close-out: update ARCHITECTURE.md section 9's operations list with the install-directory layout, the preserved-on-uninstall guarantee, and the documented residue."
+    ]
+  },
+  {
+    "title": "Phase 14 — Deferred scope",
     "status": "pending",
     "updated": "2026-08-04",
     "details": [
