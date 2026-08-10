@@ -4,6 +4,7 @@ build/
 release/
 .cache/
 .env*
+electron-builder.env
 .vite/
 vite.config.*.timestamp-*
 *.tsbuildinfo

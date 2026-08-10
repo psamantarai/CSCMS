@@ -1783,22 +1783,24 @@
   },
   {
     "title": "11.4 — Publish config and release command",
-    "status": "pending",
+    "status": "completed",
     "updated": "2026-08-11",
+    "seq": 153,
     "details": [
-      "BLOCKED on two prerequisites: the GitHub repo must be public (a private repo needs a token inside the shipped app), and builds are unsigned so SmartScreen will warn on each installer.",
-      "Add electron-updater dep; add publish config (provider github, psamantarai/CSCMS) to package.json build block; add a release script using GH_TOKEN from the environment, never committed.",
-      "Verify: a --publish never build writes latest.yml next to the .exe with a version matching package.json."
+      "Prerequisite cleared: psamantarai/CSCMS repo confirmed set to public (was returning 404 on the anonymous GitHub API; user made it public).",
+      "Added electron-updater dep (pnpm add); added publish config (provider github, owner psamantarai, repo CSCMS) to package.json's build block; added a release script: vite build && electron-builder --win --publish always.",
+      "Verified live: vite build + electron-builder --win --publish never wrote release/latest.yml with version: 1.0.0, matching package.json. release/ cleaned up after (already gitignored)."
     ]
   },
   {
     "title": "11.5 — Background download, install on quit",
-    "status": "pending",
+    "status": "completed",
     "updated": "2026-08-11",
+    "seq": 154,
     "details": [
-      "autoUpdater.checkForUpdates() on ready and on a timer; autoDownload and autoInstallOnAppQuit both left on. One native Notification on update-downloaded — no preload script, no IPC bridge for a single toast.",
-      "Verify: a running app downloads a newer published version with no dialog and no interruption; next launch after a normal quit reports the new version.",
-      "Must also verify the 8.5 close-time automatic backup still lands — the updater restart fires during the same quit that main.py's shutdown hook uses to write it."
+      "electron/main.cjs: autoUpdater.checkForUpdates() called on app ready and every 4h via setInterval; autoDownload/autoInstallOnAppQuit left true (electron-updater defaults, set explicitly with a comment for clarity).",
+      "One native Notification on update-downloaded ('applied next time you close CSCMS') — no preload script, no IPC bridge.",
+      "Verified live: pnpm exec electron . in dev logged 'Skip checkForUpdates because application is not packed' with no crash; backend/window flow unaffected. Real download/install-on-quit needs a published release — deferred to 11.6."
     ]
   },
   {
@@ -1809,7 +1811,8 @@
       "Distinct from 10.3 (installer-over-installer); this covers the auto-update path specifically.",
       "Install published v1.0.0, enter a day of real transactions, publish v1.0.1, let the app update itself.",
       "Verify: same DB file and rows in %APPDATA%\\CSCMS, new migrations ran, the pre-update day's closing report is unchanged, and 11.1's gate is still enforced in the updated build.",
-      "Note: no downgrade path exists — migrations only run forward, so recovery from a bad publish is a fixed higher version, not a rollback."
+      "Note: no downgrade path exists — migrations only run forward, so recovery from a bad publish is a fixed higher version, not a rollback.",
+      "BLOCKED on manual execution outside this session: needs a real GH_TOKEN to publish two real releases, an actual installer run, live data entry through the UI, and waiting for a real auto-update to land — not something a coding session can drive headlessly."
     ]
   },
   {

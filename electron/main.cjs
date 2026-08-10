@@ -2,7 +2,8 @@
 // process, waits for it to answer /api/health, then loads the built
 // frontend from that same origin (backend/app/main.py serves it) so
 // src/lib/api.ts's relative `/api` fetches work unchanged — no file://.
-const { app, BrowserWindow, session } = require("electron")
+const { app, BrowserWindow, session, Notification } = require("electron")
+const { autoUpdater } = require("electron-updater")
 const { spawn } = require("node:child_process")
 const crypto = require("node:crypto")
 const http = require("node:http")
@@ -20,6 +21,24 @@ const HEALTH_URL = `http://127.0.0.1:${PORT}/api/health`
 // CSCMS_APP_SECRET and echoed back on every outgoing request via
 // X-CSCMS-App so 11.1's gate lets this app (and only this app) through.
 const APP_SECRET = crypto.randomUUID()
+
+// PLAN 11.5: no dialog, no interruption — download in the background and
+// apply on the next natural quit. Explicit even though they're
+// electron-updater's own defaults, since this is the deliberate UX choice.
+autoUpdater.autoDownload = true
+autoUpdater.autoInstallOnAppQuit = true
+autoUpdater.on("update-downloaded", () => {
+  new Notification({
+    title: "CSCMS update ready",
+    body: "An update has been downloaded. It will be applied the next time you close CSCMS.",
+  }).show()
+})
+// No-ops with a log warning in an unpacked dev run (no app-update.yml) —
+// safe to call unconditionally.
+const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000 // 4 hours
+function checkForUpdates() {
+  autoUpdater.checkForUpdates().catch((err) => console.error("[electron] update check failed:", err.message))
+}
 
 let backendProcess = null
 let mainWindow = null
@@ -126,6 +145,8 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     startBackend()
     createWindow()
+    checkForUpdates()
+    setInterval(checkForUpdates, UPDATE_CHECK_INTERVAL_MS)
   })
 }
 
