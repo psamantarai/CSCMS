@@ -4,6 +4,7 @@ import tailwindcss from '@tailwindcss/vite'
 import path from 'node:path'
 
 import siteConfiguration from './.figma/make/site.json'
+import pkg from './package.json'
 
 // Vite config — https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
@@ -12,6 +13,10 @@ export default defineConfig(({ mode }) => {
 
   return {
     base: process.env.FIGMA_PUBLIC_URL ? `${process.env.FIGMA_PUBLIC_URL}/` : '/',
+    // PLAN 14.1: the one version the app knows is package.json's — the same
+    // field electron-builder stamps on the installer, baked in by the
+    // `vite build` that every dist/release script runs immediately before it.
+    define: { __APP_VERSION__: JSON.stringify(pkg.version) },
     build: {
       sourcemap: emitSourcemaps ? 'inline' : false,
       minify: !emitSourcemaps,

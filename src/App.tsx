@@ -278,6 +278,9 @@ function AppSidebar({ activePath, user, logout, dark, onToggleDark }: {
             <LogOut />
           </Button>
         </div>
+        {/* PLAN 14.2: on screen on every page, so "which build is this?" is
+            readable without navigating anywhere. */}
+        <div className="px-1 text-[10px] text-sidebar-foreground/40">v{__APP_VERSION__}</div>
       </SidebarFooter>
     </Sidebar>
   )
