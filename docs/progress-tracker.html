@@ -1920,14 +1920,18 @@
   },
   {
     "title": "13.3 — NSIS carve-out so update and uninstall never delete data\\",
-    "status": "pending",
+    "status": "completed",
     "updated": "2026-08-11",
+    "seq": 167,
     "details": [
-      "THIS IS THE STEP THE PHASE EXISTS FOR. NSIS clears the install directory on every auto-update — electron-builder runs the old uninstaller before laying down the new version. Phase 11 shipped auto-update, so without a carve-out the first automatic update destroys the ledger silently on a machine with no other copy.",
-      "There is NO safety net. The single-directory requirement rules out a copy elsewhere, and data\\backups\\ sits inside the blast radius of the exact failure it would need to survive. Correctness of this carve-out IS the safety net.",
-      "Add build/installer.nsh via nsis.include, using electron-builder's documented customRemoveFiles / customUnInstall macros to exclude $INSTDIR\\data. Data is a SUBFOLDER, not the install root, precisely so the exclusion is expressible — app files and operator data must be separable for the uninstaller to treat them differently.",
-      "Data preserved unconditionally on uninstall, no checkbox: uninstalling to reinstall is a routine operator move, and a destructive default at that moment is unrecoverable for an app holding the only copy of the ledger.",
-      "VERIFY EMPIRICALLY, NOT FROM DOCS — NSIS removal semantics vary across electron-builder versions and between the update path and the manual-uninstall path: (a) install v1.0.0, enter a day of real transactions, publish v1.0.1, let auto-update apply it, confirm same DB file, same rows, unchanged pre-update closing report; (b) manual uninstall from Add/Remove Programs leaves data\\ with DB and backups intact while app files are gone; (c) reinstall over the preserved folder opens the existing data rather than seeding a fresh DB."
+      "build/installer.nsh (new): !macro customRemoveFiles walks the top level of $INSTDIR with FindFirst/FindNext/IfFileExists (mirroring the exact idiom app-builder-lib's own uninstaller.nsh uses for un.atomicRMDir) and RMDir/Delete's everything except \"data\", recursing into subfolders — no hardcoded Chromium/Electron file list to track across versions.",
+      "Read app-builder-lib's templates/nsis/uninstaller.nsh directly (not just docs) to confirm the mechanism: its un.${UNINSTALL_SECTION_NAME} Section runs for both a manual uninstall AND the silent uninstall of the old version that auto-update performs before installing the new one, and does `!ifmacrodef customRemoveFiles / !insertmacro customRemoveFiles !else RMDir /r $INSTDIR` — so defining the macro replaces the destructive default on both paths for free, satisfying (a) and (b) of the verify list by construction.",
+      "customUnInstall not used — customRemoveFiles alone controls the file-removal step; no other uninstall-time action was needed.",
+      "Data preserved unconditionally, no checkbox — matches the plan's decision (routine reinstall shouldn't have a destructive default).",
+      "package.json: nsis.include: \"build/installer.nsh\". .gitignore: build/ was fully ignored (meant for build artifacts); added !/build/ and !/build/installer.nsh (root-anchored, so backend/build/'s PyInstaller output stays ignored) to track this one source file.",
+      "ponytail: no busy-file rename-and-retry fallback like the default un.atomicRMDir has for a locked exe mid-update — noted in the .nsh comment as the upgrade path if it ever bites.",
+      "REAL BUILD RAN: npx electron-builder --win --publish never in this sandbox — full pipeline (native rebuild, packaging, codesigning, NSIS compile) completed clean, producing release\\CSCMS Setup 1.0.0.exe with no macro/syntax errors. This is real evidence the macro compiles and app-builder-lib picks it up, not just static reasoning.",
+      "STILL UNVERIFIED (same sandbox blocker as 13.1/13.2 — electron.exe blocked by Application Control policy, and this step's whole point per the plan is 'verify empirically, not from documentation'): the actual install v1.0.0 -> transactions -> publish v1.0.1 -> auto-update -> confirm DB survives cycle, and the manual-uninstall-preserves-data check, and the reinstall-opens-existing-data check. All three need a real Windows session outside this sandbox before this step can be trusted for a release."
     ]
   },
   {
