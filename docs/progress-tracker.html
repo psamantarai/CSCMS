@@ -1893,26 +1893,29 @@
   },
   {
     "title": "13.1 — Single data root derived from the install directory",
-    "status": "pending",
+    "status": "completed",
     "updated": "2026-08-11",
+    "seq": 164,
     "details": [
-      "Goal of the phase: DB, backups, logs and Electron's own browser state all live under the directory the operator picks at install time. Today the installer asks (allowToChangeInstallationDirectory is already true) but main.cjs hard-codes CSCMS_DB_PATH to app.getPath('userData'), so the ledger goes to %APPDATA%\\CSCMS regardless of the answer.",
-      "Backend needs almost no work: every path already derives from one root — BACKUPS_DIR = db_path.parent / 'backups' (backup.py:20), Phase 12's log_dir = db_path.parent / 'logs', db.py:8 mkdirs the parent. Sessions and settings are DB tables, not files. Point CSCMS_DB_PATH at the folder and the backend follows.",
-      "main.cjs computes DATA_DIR = dirname(app.getPath('exe')) + '/data' for packaged builds (dev falls back to backend/data), calls app.setPath('userData', DATA_DIR), and passes CSCMS_DB_PATH.",
-      "STRICT ORDERING: setPath('userData') must run before app.whenReady() and before any other getPath call — same constraint app.setName already carries at main.cjs:12-15. Chromium resolves cache/cookie/local-storage locations once; set it late and you get a half-migration (DB in the new folder, browser state still in %APPDATA%). Phase 12.3's electron log path also resolves from userData, so its log() helper must not compute its path at module load.",
-      "Verify: install to D:\\CSCMS; data\\cscms.db, data\\backups\\, data\\logs\\ AND Chromium's Cache/Network/Local Storage all sit under it; %APPDATA%\\CSCMS does not exist after a full login -> transaction -> backup -> quit cycle."
+      "main.cjs now computes DATA_DIR right after app.setName, before app.whenReady() and before any other getPath() call: packaged -> dirname(app.getPath('exe')) + '\\data'; unpacked dev -> backend/data (unchanged from before this phase). Then app.setPath('userData', DATA_DIR).",
+      "No other file changed — CSCMS_DB_PATH (main.cjs:83) and Phase 12.3's logDir() already derive from app.getPath('userData') at call time, not module load, so DB/backups/logs all follow the new root for free, per the plan's own note that the backend needs almost no work here.",
+      "getPath('exe') (used only in the packaged branch, to compute DATA_DIR) doesn't depend on userData, so calling it before setPath('userData') doesn't violate the ordering constraint.",
+      "Verified statically: node --check passes; hand-evaluated the dev-branch DATA_DIR and it's byte-identical to settings.py's existing default (backend/data/cscms.db), so dev/npm run electron behavior is unchanged.",
+      "COULD NOT verify live: this sandboxed session cannot launch the Electron GUI at all — electron.exe is blocked by a system-level Application Control policy ('An Application Control policy has blocked this file'), independent of --dangerously-disable-sandbox. Same blocker will likely hit any future GUI-dependent verify in this environment (13.2's dialog, 13.3's install/update/uninstall cycle, 13.5's full run) — needs a real Windows machine/session outside this sandbox, flagged for follow-up.",
+      "Plan's own Verify line for 13.1 (install to D:\\CSCMS, confirm data\\cscms.db/backups\\/logs\\ and Chromium's Cache/Network/Local Storage all sit under it, %APPDATA%\\CSCMS absent after a full cycle) is still open — run manually outside this sandbox."
     ]
   },
   {
     "title": "13.2 — Writability preflight",
-    "status": "pending",
+    "status": "completed",
     "updated": "2026-08-11",
+    "seq": 166,
     "details": [
-      "allowToChangeInstallationDirectory lets the operator type C:\\Program Files\\CSCMS. The installer elevates and succeeds; the app at runtime does NOT run elevated and cannot write there. Surfaces as an opaque SQLite 'unable to open database file' long after the install looked fine.",
-      "On startup, before spawning the backend, write and delete a probe file in DATA_DIR; on failure show a native dialog naming the folder and the fix, then quit.",
-      "Set nsis.perMachine: false explicitly so the default stays the per-user (writable) %LOCALAPPDATA%\\Programs\\CSCMS — the preflight is for the operator who overrides that default, not a substitute for a sane one.",
-      "Must run BEFORE Phase 12's file logging is initialised: the log file lives in the directory being probed, so a failure here cannot be reported to it. Dialog and stderr only.",
-      "Verify: install deliberately into C:\\Program Files\\CSCMS, launch, get a readable dialog naming the directory — not a traceback, not a silent hang, not a window onto a broken app. Confirm a normal per-user install is unaffected by the probe."
+      "electron/writability.cjs: new isWritable(dir) — mkdir+write+unlink a probe file, returns true/false. Pulled out as a pure function (no electron import) purely so it's testable under plain node, same reasoning as logger.cjs.",
+      "electron/main.cjs: checkDataDirWritable() calls isWritable(DATA_DIR); on failure logs to console.error and shows dialog.showErrorBox() naming the folder and the fix (reinstall to a writable location, or run as administrator). Called first thing inside app.whenReady().then(), before sweepOldLogs()/log() and before startBackend() — satisfies both 'before spawning the backend' and 'before Phase 12's file logging is initialised' since the log dir lives inside the folder being probed. app.exit(1) on failure.",
+      "package.json build.nsis gained \"perMachine\": false explicitly (previously implicit via NSIS default) — keeps the default per-user %LOCALAPPDATA%\\Programs\\CSCMS, which is writable; the preflight is for the operator who overrides that default.",
+      "electron/writability.test.cjs (new, plain assert, node electron/writability.test.cjs): writable dir -> true, missing nested dir gets created and returns true, probe file never lingers, a path blocked by a file-where-a-dir-should-be -> false. All pass. logger.test.cjs still passes (unaffected).",
+      "Live GUI verify (install into C:\\Program Files\\CSCMS, confirm the dialog vs. a silent hang) blocked in this sandbox by the same Application Control policy noted on 13.1 — electron.exe can't be launched here at all. Needs a real Windows session outside the sandbox."
     ]
   },
   {

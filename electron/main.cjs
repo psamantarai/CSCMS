@@ -2,18 +2,52 @@
 // process, waits for it to answer /api/health, then loads the built
 // frontend from that same origin (backend/app/main.py serves it) so
 // src/lib/api.ts's relative `/api` fetches work unchanged — no file://.
-const { app, BrowserWindow, session, Notification } = require("electron")
+const { app, BrowserWindow, session, Notification, dialog } = require("electron")
 const { autoUpdater } = require("electron-updater")
 const { spawn } = require("node:child_process")
 const crypto = require("node:crypto")
 const http = require("node:http")
 const path = require("node:path")
 const { log: logTo, sweepOldLogs: sweepOldLogsIn } = require("./logger.cjs")
+const { isWritable } = require("./writability.cjs")
 
 // PLAN 10.3: must run before any app.getPath() call — it's what makes
 // getPath("userData") resolve to %APPDATA%\CSCMS instead of the package.json
 // name.
 app.setName("CSCMS")
+
+// PLAN 13.1: single data root derived from the install directory, so the DB,
+// backups, logs and Chromium's own userData (Cache, Network, Local Storage)
+// all land in one operator-chosen folder instead of %APPDATA%\CSCMS. Must run
+// before app.whenReady() and before any other getPath() call — Chromium
+// resolves its own paths off userData once, so setting it late half-migrates
+// the app. Packaged: <install dir>\data, sibling of the exe. Unpacked dev
+// run: backend/data, matching settings.py's own default so `npm run electron`
+// needs no env override.
+const DATA_DIR = app.isPackaged
+  ? path.join(path.dirname(app.getPath("exe")), "data")
+  : path.join(__dirname, "..", "backend", "data")
+app.setPath("userData", DATA_DIR)
+
+// PLAN 13.2: allowToChangeInstallationDirectory lets the operator type
+// C:\Program Files\CSCMS. The installer elevates and succeeds; the app at
+// runtime does not run elevated and cannot write there. Unchecked, that
+// surfaces later as an opaque SQLite "unable to open database file" long
+// after the install looked fine. Probe before anything else touches
+// DATA_DIR — including Phase 12's file logging, since the log file lives in
+// the very directory being probed and a failure here can't be reported to
+// it. Dialog and stderr only.
+function checkDataDirWritable() {
+  if (isWritable(DATA_DIR)) return true
+  console.error("data directory not writable:", DATA_DIR)
+  dialog.showErrorBox(
+    "CSCMS cannot start",
+    `CSCMS cannot write to its data folder:\n${DATA_DIR}\n\n` +
+      "Reinstall CSCMS to a location you have write access to (the default " +
+      "per-user install path works for everyone), or run CSCMS as an administrator.",
+  )
+  return false
+}
 
 const REPO_ROOT = path.join(__dirname, "..")
 const PORT = process.env.CSCMS_PORT || "8000"
@@ -159,6 +193,10 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   app.whenReady().then(() => {
+    if (!checkDataDirWritable()) {
+      app.exit(1)
+      return
+    }
     sweepOldLogs()
     log(`CSCMS v${app.getVersion()} starting`)
     startBackend()
