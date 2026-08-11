@@ -177,7 +177,7 @@ def test_malformed_business_date_rejected_on_correction():
 
         txn = create_transaction(
             TransactionCreate(business_date="2026-08-04", service_id=service_id,
-                               fee_paise=150, account_id=cash_id),
+                               fee_paise=150, account_id=cash_id, amount_paid_paise=150),
             conn,
         )
 
@@ -199,9 +199,12 @@ def test_correction_of_unpaid_transaction_is_a_plain_update():
         conn = _seeded_conn(Path(tmp))
         cash_id, service_id = _cash_and_service(conn)
         sbi_id = create_account(AccountCreate(name="SBI", account_type="savings"), conn)["id"]
+        # PLAN 15.1: unpaid is the point of this test, so it names a customer.
+        customer = create_customer(CustomerCreate(name="Test Customer"), conn)
 
         txn = create_transaction(
-            TransactionCreate(business_date="2026-08-04", service_id=service_id,
+            TransactionCreate(business_date="2026-08-04", customer_id=customer["id"],
+                               service_id=service_id,
                                fee_paise=150, account_id=cash_id),
             conn,
         )
@@ -228,7 +231,7 @@ def test_correction_to_non_positive_total_rejected():
 
         txn = create_transaction(
             TransactionCreate(business_date="2026-08-04", service_id=service_id,
-                               fee_paise=150, account_id=cash_id),
+                               fee_paise=150, account_id=cash_id, amount_paid_paise=150),
             conn,
         )
 
@@ -252,7 +255,7 @@ def test_correction_to_overflowing_total_rejected():
 
         txn = create_transaction(
             TransactionCreate(business_date="2026-08-04", service_id=service_id,
-                               fee_paise=150, account_id=cash_id),
+                               fee_paise=150, account_id=cash_id, amount_paid_paise=150),
             conn,
         )
 
@@ -272,7 +275,7 @@ def test_no_fields_is_a_no_op():
 
         txn = create_transaction(
             TransactionCreate(business_date="2026-08-04", service_id=service_id,
-                               fee_paise=150, account_id=cash_id),
+                               fee_paise=150, account_id=cash_id, amount_paid_paise=150),
             conn,
         )
         result = correct_transaction(txn["id"], TransactionCorrection(), conn)
@@ -309,7 +312,7 @@ def test_correction_onto_deactivated_account_rejected():
 
         txn = create_transaction(
             TransactionCreate(business_date="2026-08-04", service_id=service_id,
-                               fee_paise=150, account_id=cash_id),
+                               fee_paise=150, account_id=cash_id, amount_paid_paise=150),
             conn,
         )
 
@@ -330,9 +333,12 @@ def test_correction_of_pending_transaction_on_closed_day_rejected():
     with tempfile.TemporaryDirectory() as tmp:
         conn = _seeded_conn(Path(tmp))
         cash_id, service_id = _cash_and_service(conn)
+        # PLAN 15.1: pending is the point of this test, so it names a customer.
+        customer = create_customer(CustomerCreate(name="Test Customer"), conn)
 
         txn = create_transaction(
-            TransactionCreate(business_date="2026-08-04", service_id=service_id,
+            TransactionCreate(business_date="2026-08-04", customer_id=customer["id"],
+                               service_id=service_id,
                                fee_paise=100, account_id=cash_id),
             conn,
         )

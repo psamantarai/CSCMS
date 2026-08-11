@@ -1960,10 +1960,98 @@
     ]
   },
   {
-    "title": "Phase 14 — Deferred scope",
-    "status": "pending",
-    "updated": "2026-08-04",
+    "title": "14.1 — Inject the app version at build time",
+    "status": "completed",
+    "updated": "2026-08-11",
+    "seq": 169,
     "details": [
+      "vite.config.ts: imports ./package.json and adds define: { __APP_VERSION__: JSON.stringify(pkg.version) }. src/vite-env.d.ts declares __APP_VERSION__ as a string.",
+      "package.json's version is the single source: electron-builder already reads that same field to name the installer and to decide whether an update is newer (11.4-11.6), so a second hand-typed version could disagree with what electron-updater compares against. npm run dist and npm run release both run vite build immediately before electron-builder, so the baked constant and the packaged version come from one read of one file.",
+      "Deliberately NOT an IPC call to app.getVersion(): there is no preload script in electron/ today (main.cjs is the only entry), so that route means a new file, a contextBridge surface, and a renderer rendering a placeholder until the round-trip resolves — to read the same field Vite can inline as a constant.",
+      "Verify: npx tsc --noEmit clean (proves the declaration is picked up rather than the constant being an implicit any); npm run build clean; Select-String over dist/assets/*.js finds the literal 1.1.0 in the emitted bundle."
+    ]
+  },
+  {
+    "title": "14.2 — Render the version in the sidebar footer",
+    "status": "completed",
+    "updated": "2026-08-11",
+    "seq": 170,
+    "details": [
+      "src/App.tsx AppSidebar: one muted line, v{__APP_VERSION__}, added inside the existing SidebarFooter beneath the username/role/theme/logout row.",
+      "Sidebar footer rather than a new About dialog or Settings screen: on screen on every page, no navigation needed when reading it out over the phone, and it adds no route, no dialog and no new component.",
+      "Verified: tsc --noEmit and npm run build clean; the version constant is present in the built bundle.",
+      "NOT verified live in the running app: the dev server came up fine on 8443, but signing in requires typing a password, which I am not permitted to do — Chrome's autofilled value returned 'forbidden'. The plan's Verify line for 14.2 (read v1.1.0 in the sidebar footer and confirm it matches package.json) is still open and needs one manual login."
+    ]
+  },
+  {
+    "title": "15.1 — Tighten the server guard: an unpaid transaction must name a customer",
+    "status": "completed",
+    "updated": "2026-08-11",
+    "seq": 171,
+    "details": [
+      "backend/app/transactions.py create_transaction: H.50's check was `customer_id is None and 0 < amount_paid_paise < total_paise`, which deliberately let a fully unpaid walk-in through as 'pending'. Widened to `customer_id is None and amount_paid_paise < total_paise`, rejecting with 400 'a transaction left unpaid needs a customer — record the customer's details first'.",
+      "Why the old reading was wrong: a pending walk-in is the same defect at 100%, not a lighter version of a partial one. payments.customer_id is NOT NULL, so nothing can ever settle it, and it never appears in pending_credits_paise because that figure is derived per customer — silently invisible debt, reachable from the form's default state (service, account, fee, Save).",
+      "create_transaction holds the only INSERT INTO transactions in the codebase (confirmed by grep, not assumed), so this one guard covers every write path that can create the state.",
+      "correct_transaction deliberately left alone: rows created before this change can legitimately be pending walk-ins, and a correction is the operator's only route to fixing one. A post-condition there would lock the existing bad rows in permanently.",
+      "Verify: new test_walk_in_left_unpaid_is_rejected in backend/tests/test_transactions.py — paid=0 and paid=4000 of 10000 both rejected with 400 and leave zero rows; paid=10000 still creates a walk-in with status 'completed'; unpaid with a customer_id still creates status 'pending'. Passes."
+    ]
+  },
+  {
+    "title": "15.2 — Repair the test fixtures the old rule allowed",
+    "status": "completed",
+    "updated": "2026-08-11",
+    "seq": 172,
+    "details": [
+      "6 files carried unpaid walk-ins as incidental setup. Each row was re-read to decide whether it was meant to be a walk-in or meant to be unpaid — those two intents need opposite fixes, and picking wrong silently changes what the test asserts.",
+      "Given a customer (unpaid was the point): test_transactions.py test_total_computed_from_fee_charge_discount, test_unpaid_transaction_posts_nothing_to_ledger, and the H.31 concurrency test (its whole subject is the amount_paid_paise==0 path where insert_entry's own guard never runs); test_transaction_correction.py test_correction_of_unpaid_transaction_is_a_plain_update and test_correction_of_pending_transaction_on_closed_day_rejected (H.29).",
+      "Paid in full (walk-in was the point, or the row was incidental): test_transactions.py x4, test_audit.py, test_dashboard.py's 'walk-in is not a customer' row, test_transaction_list.py's pagination loop, test_transaction_correction.py x4, and test_business_days.py's closed-date row — that last one specifically so it reaches the 409 closed-day guard rather than being turned away earlier by the new 400.",
+      "test_transaction_list.py's 'pending' filter row got a second customer (Bob) rather than Alice, because the customer_id filter in the same test counts exactly Alice's two rows.",
+      "Verify: all 30 backend test files green (was 7 failing after 15.1). No assertion was weakened — the diff touches setup rows only. All 3 frontend *.test.ts self-checks still pass."
+    ]
+  },
+  {
+    "title": "15.3 — Match the guard in the transaction form",
+    "status": "completed",
+    "updated": "2026-08-11",
+    "seq": 173,
+    "details": [
+      "src/components/forms/TransactionForm.tsx submitTransaction: `customerId === null && paid > 0 && paid < formTotal` widened to `customerId === null && paid < formTotal`, wording mirroring the server.",
+      "The form is shared by Transactions.tsx and the Dashboard quick-action modal, so both inherit the guard from the one edit — which is why it lives in the component and not in either caller.",
+      "Verified: tsc --noEmit and npm run build clean. The plan's Verify line (Save rejected inline against the customer field on both screens with an empty request) is still open — same login blocker as 14.2."
+    ]
+  },
+  {
+    "title": "15.4 — Offer customer creation from where the block happens",
+    "status": "completed",
+    "updated": "2026-08-11",
+    "seq": 174,
+    "details": [
+      "A guard that says 'add a customer' on a screen with no way to add one just moves the dead end. Two entry points, both routing to the existing Customers.tsx create form — no new screen, no duplicated form.",
+      "TransactionForm.tsx: the customer search dropdown now renders whenever a query is typed (previously only when matches existed) and shows a `+ Add \"<query>\" as a new customer` row when nothing matched; the validation Alert gained an 'Add a customer' button when the failure is the customer field.",
+      "Both call navigate('/customers', { state: { create: true, name } }) and close the Dashboard modal via the existing onCancel. Router state rather than a query string so a refresh doesn't re-trigger the create form.",
+      "Customers.tsx: reads location.state in the useState initialisers for formMode and form (not in an effect), so the create panel is open with the name prefilled on the first paint and a later re-render can't yank it back open after the operator cancels.",
+      "Accepted tradeoff: the in-progress transaction is lost on that navigation. The alternative is a nested create-customer form inside a modal that is already a tab strip, and the transaction has three fields in it at that point.",
+      "Verified: tsc --noEmit and npm run build clean. The plan's click-through Verify is still open — same login blocker as 14.2."
+    ]
+  },
+  {
+    "title": "15.5 — New Customer in Quick Actions",
+    "status": "completed",
+    "updated": "2026-08-11",
+    "seq": 175,
+    "details": [
+      "src/pages/Dashboard.tsx: fourth entry in the Quick Actions card, navigating to /customers with the same { create: true } router state 15.4 uses.",
+      "It navigates rather than opening a modal tab because Customers.tsx is a list/detail page, not a single form like the three tabbed actions (transaction, banking, expense) — same reasoning that already keeps 'Close Business Day' a navigation.",
+      "The button-variant logic keyed off the array index i === 3; switched to keying off a.path === '/closing' so inserting an entry doesn't silently repaint the wrong button.",
+      "Verified: tsc --noEmit and npm run build clean. The plan's click-through Verify is still open — same login blocker as 14.2."
+    ]
+  },
+  {
+    "title": "Phase 16 — Deferred scope",
+    "status": "pending",
+    "updated": "2026-08-11",
+    "details": [
+      "Renumbered from Phase 14 when the version-display and unpaid-transaction phases were inserted ahead of it, so PLAN.md's document order still matches its phase order.",
       "Left unbroken deliberately. NEW Printing.tsx screen, attachments, receipt printing, and PRD section 11 future work (multi-user, cloud sync, GST, mobile)."
     ]
   },

@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { useNavigate } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "../../lib/api"
 import { queryKeys } from "../../lib/queries"
@@ -43,6 +44,16 @@ export default function TransactionForm({ onSuccess, onCancel }: { onSuccess: ()
   // clear this and fall back to the form-level Alert only.
   const [invalidField, setInvalidField] = useState<string | null>(null)
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
+
+  // PLAN 15.4: the 15.3 guard sends the operator to find a customer, so every
+  // place it fires needs a route to creating one. Customers.tsx owns that form
+  // — router state (not a query string) so a refresh doesn't reopen it. The
+  // in-progress transaction is lost; onCancel also closes the Dashboard modal.
+  function goCreateCustomer(name: string) {
+    onCancel()
+    navigate("/customers", { state: { create: true, name } })
+  }
 
   const { data: services = [] } = useQuery({
     queryKey: queryKeys.services,
@@ -116,12 +127,13 @@ export default function TransactionForm({ onSuccess, onCancel }: { onSuccess: ()
     if (!form.accountId) { fail("accountId", "Select an account"); return }
     if (!(fee >= 0)) { fail("fee", "Fee cannot be negative"); return }
     if (paid > formTotal) { fail("paid", "Payment cannot exceed the total"); return }
-    // H.50: a walk-in (no customer_id) has no customer row to carry an
-    // unpaid remainder as outstanding, so it can't be left partially paid —
-    // prompt to register/select a customer via the search field above
-    // instead. Fully unpaid (paid = 0, pending) is still fine.
-    if (form.customerId === null && paid > 0 && paid < formTotal) {
-      fail("customer", "Walk-in transactions can't be partially paid — select or register a customer to allow partial payment")
+    // H.50 / PLAN 15.3: a walk-in (no customer_id) has no customer row to
+    // carry an unpaid amount as outstanding, so nothing can ever collect it —
+    // that's true of a partly paid walk-in and just as true of a wholly
+    // unpaid one, which is the form's default state. Mirrors the server guard
+    // in create_transaction.
+    if (form.customerId === null && paid < formTotal) {
+      fail("customer", "A transaction left unpaid needs a customer — select or add one, or record the full payment")
       return
     }
     setInvalidField(null)
@@ -153,13 +165,23 @@ export default function TransactionForm({ onSuccess, onCancel }: { onSuccess: ()
               aria-invalid={invalidField === "customer"}
             />
           )}
-          {form.customerSearch && !form.customerId && customerMatches.length > 0 && (
+          {form.customerSearch && !form.customerId && (
             <div className="absolute top-full right-0 left-0 z-10 mt-0.5 max-h-40 overflow-y-auto rounded-lg border border-input bg-popover shadow-md">
               {customerMatches.map(c => (
                 <div key={c.id} onClick={() => selectCustomer(c)} className="cursor-pointer border-b border-border px-2.5 py-2 text-sm last:border-b-0 hover:bg-muted">
                   {c.name} {c.phone && <span className="text-muted-foreground">· {c.phone}</span>}
                 </div>
               ))}
+              {/* PLAN 15.4: a search that finds nobody is exactly the moment
+                  the operator needs to create somebody. */}
+              {customerMatches.length === 0 && (
+                <div
+                  onClick={() => goCreateCustomer(form.customerSearch)}
+                  className="cursor-pointer px-2.5 py-2 text-sm font-medium text-ring hover:bg-muted"
+                >
+                  + Add "{form.customerSearch}" as a new customer
+                </div>
+              )}
             </div>
           )}
         </Field>
@@ -220,7 +242,14 @@ export default function TransactionForm({ onSuccess, onCancel }: { onSuccess: ()
       <div className="flex flex-col gap-2.5">
         {formError && (
           <Alert variant="destructive">
-            <AlertDescription>{formError}</AlertDescription>
+            <AlertDescription className="flex flex-wrap items-center gap-2">
+              <span>{formError}</span>
+              {invalidField === "customer" && (
+                <Button size="sm" variant="outline" onClick={() => goCreateCustomer(form.customerSearch)}>
+                  Add a customer
+                </Button>
+              )}
+            </AlertDescription>
           </Alert>
         )}
         <div className="flex items-center gap-2.5">

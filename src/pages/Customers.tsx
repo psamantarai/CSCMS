@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { useLocation } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Search, Users } from "lucide-react"
 import { api } from "../lib/api"
@@ -164,10 +165,16 @@ function CustomerOutstanding({ id }: { id: number }) {
 }
 
 export default function Customers() {
+  // PLAN 15.4/15.5: TransactionForm and the Dashboard's Quick Actions send
+  // the operator here to create a customer, optionally with the name they had
+  // already typed. Read once as the initial state rather than in an effect, so
+  // the create panel is open on the first paint and a later re-render can't
+  // yank it back open after they cancel.
+  const { state } = useLocation() as { state?: { create?: boolean; name?: string } }
   const [search, setSearch] = useState("")
   const [selected, setSelected] = useState<number | null>(null)
-  const [formMode, setFormMode] = useState<"view" | "create" | "edit">("view")
-  const [form, setForm] = useState(emptyForm)
+  const [formMode, setFormMode] = useState<"view" | "create" | "edit">(state?.create ? "create" : "view")
+  const [form, setForm] = useState(() => (state?.create ? { ...emptyForm, name: state.name ?? "" } : emptyForm))
   const [showSettle, setShowSettle] = useState(false)
   const [settleForm, setSettleForm] = useState(emptySettleForm)
   const [settleError, setSettleError] = useState("")

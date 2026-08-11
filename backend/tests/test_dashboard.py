@@ -112,8 +112,9 @@ def test_todays_customers_counts_distinct_customers_not_walkins():
         # Alice transacts twice today -> counted once.
         create_transaction(TransactionCreate(business_date="2026-09-01", customer_id=alice["id"], service_id=service["id"], fee_paise=1000, account_id=cash_id), conn)
         create_transaction(TransactionCreate(business_date="2026-09-01", customer_id=alice["id"], service_id=service["id"], fee_paise=1000, account_id=cash_id), conn)
-        # A walk-in transacts too -> not a "customer".
-        create_transaction(TransactionCreate(business_date="2026-09-01", service_id=service["id"], fee_paise=1000, account_id=cash_id), conn)
+        # A walk-in transacts too -> not a "customer". Paid in full: PLAN
+        # 15.1 leaves a walk-in no way to owe anything.
+        create_transaction(TransactionCreate(business_date="2026-09-01", service_id=service["id"], fee_paise=1000, account_id=cash_id, amount_paid_paise=1000), conn)
 
         dash = get_dashboard("2026-09-01", conn)
         assert dash["today_customers"] == 1

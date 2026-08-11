@@ -211,15 +211,23 @@ def create_transaction(body: TransactionCreate, conn: sqlite3.Connection = Depen
     # why the server must too, since that's the side that can be bypassed.
     if body.amount_paid_paise > total_paise:
         raise HTTPException(status_code=400, detail="amount paid exceeds the transaction total")
-    # H.50: a walk-in has no customer row to carry an unpaid remainder as
-    # outstanding (see recompute_status above) — leaving one *partially*
-    # paid makes that remainder permanently uncollectable. An unpaid walk-in
-    # (amount_paid_paise == 0, status "pending") is left alone — that's the
-    # normal "record now, collect at the counter" state. Same H.12
-    # reasoning: the frontend guard alone isn't enough since this endpoint
-    # is reachable directly.
-    if body.customer_id is None and 0 < body.amount_paid_paise < total_paise:
-        raise HTTPException(status_code=400, detail="a walk-in transaction cannot be left partially paid")
+    # H.50 / PLAN 15.1: a walk-in has no customer row to carry an unpaid
+    # remainder as outstanding (see recompute_status above), so *any* unpaid
+    # amount on one is permanently uncollectable — H.50's original guard let
+    # amount_paid_paise == 0 through as "record now, collect at the counter",
+    # but that state is the same defect at 100%: the whole bill is
+    # uncollectable through any UI path and never shows up in
+    # pending_credits_paise, which is derived per customer. Money may be left
+    # owing only when there is a customer to owe it. Same H.12 reasoning: the
+    # frontend guard alone isn't enough since this endpoint is reachable
+    # directly. correct_transaction is deliberately not guarded this way —
+    # rows created before 15.1 can be pending walk-ins, and a correction is
+    # the operator's only route to fixing one.
+    if body.customer_id is None and body.amount_paid_paise < total_paise:
+        raise HTTPException(
+            status_code=400,
+            detail="a transaction left unpaid needs a customer — record the customer's details first",
+        )
 
     # H.31: begin_write must wrap the closed-day check *and* the INSERT
     # below, not just precede it — an unpaid transaction (amount_paid_paise

@@ -234,20 +234,28 @@ export default function Dashboard() {
               <CardTitle className="text-xs tracking-wide text-primary-foreground/70 uppercase">Quick Actions</CardTitle>
             </CardHeader>
             <CardContent className="flex flex-col gap-2">
+              {/* PLAN 15.5: "New Customer" navigates rather than opening a
+                  modal tab — Customers.tsx is a list/detail page, not a single
+                  form like the three tabbed actions. It carries the same
+                  router state TransactionForm's suggestion uses. */}
               {[
                 { label: "New Transaction", tab: "transaction" as QuickTab | null, path: null as string | null },
                 { label: "New Banking Entry", tab: "banking" as QuickTab | null, path: null as string | null },
                 { label: "Record Expense", tab: "expense" as QuickTab | null, path: null as string | null },
+                { label: "New Customer", tab: null as QuickTab | null, path: "/customers" as string | null },
                 { label: "Close Business Day", tab: null as QuickTab | null, path: "/closing" as string | null },
-              ].map((a, i) => (
+              ].map(a => (
                 <Button
                   key={a.label}
-                  variant={i === 3 ? "default" : "ghost"}
+                  variant={a.path === "/closing" ? "default" : "ghost"}
                   className={cn(
                     "justify-start",
-                    i === 3 ? "bg-warning text-warning-foreground hover:bg-warning/90" : "bg-white/10 text-primary-foreground hover:bg-white/15"
+                    a.path === "/closing" ? "bg-warning text-warning-foreground hover:bg-warning/90" : "bg-white/10 text-primary-foreground hover:bg-white/15"
                   )}
-                  onClick={() => { if (a.tab) { setActiveTab(a.tab); setModalOpen(true) } else navigate(a.path!) }}
+                  onClick={() => {
+                    if (a.tab) { setActiveTab(a.tab); setModalOpen(true) }
+                    else navigate(a.path!, a.path === "/customers" ? { state: { create: true } } : undefined)
+                  }}
                 >
                   {a.label}
                 </Button>

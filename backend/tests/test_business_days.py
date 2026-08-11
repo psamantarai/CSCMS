@@ -129,8 +129,11 @@ def test_closed_date_rejects_every_create_endpoint():
 
         try:
             create_transaction(TransactionCreate(
+                # PLAN 15.1: paid in full, so this reaches the closed-day
+                # guard rather than being turned away earlier as an unpaid
+                # walk-in — the 409 below is what's under test.
                 business_date="2026-09-10", customer_id=None, service_id=service_id,
-                fee_paise=1000, charge_paise=0, discount_paise=0, account_id=cash_id, amount_paid_paise=0,
+                fee_paise=1000, charge_paise=0, discount_paise=0, account_id=cash_id, amount_paid_paise=1000,
             ), conn)
             assert False, "transaction on a closed date must be rejected"
         except Exception as e:

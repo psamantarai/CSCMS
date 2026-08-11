@@ -37,12 +37,16 @@ def _cash_and_service(conn):
 
 
 def test_total_computed_from_fee_charge_discount():
+    # PLAN 15.1: left unpaid (status "pending" below), so it needs a customer
+    # to carry the outstanding — a walk-in must be settled in full.
     with tempfile.TemporaryDirectory() as tmp:
         conn = _seeded_conn(Path(tmp))
         cash_id, service_id = _cash_and_service(conn)
+        customer = create_customer(CustomerCreate(name="Test Customer"), conn)
 
         txn = create_transaction(
-            TransactionCreate(business_date="2026-08-04", service_id=service_id,
+            TransactionCreate(business_date="2026-08-04", customer_id=customer["id"],
+                               service_id=service_id,
                                fee_paise=10000, charge_paise=2000, discount_paise=500,
                                account_id=cash_id),
             conn,
@@ -63,7 +67,7 @@ def test_client_supplied_total_is_never_trusted():
         body = TransactionCreate.model_validate({
             "business_date": "2026-08-04", "service_id": service_id,
             "fee_paise": 100, "charge_paise": 0, "discount_paise": 0,
-            "account_id": cash_id, "total_paise": 999999999,
+            "account_id": cash_id, "amount_paid_paise": 100, "total_paise": 999999999,
         })
         txn = create_transaction(body, conn)
         assert txn["total_paise"] == 100
@@ -108,16 +112,61 @@ def test_unknown_account_rejected():
 
 
 def test_walk_in_customer_allowed():
+    # PLAN 15.1: a walk-in is still allowed — it just has to be settled in
+    # full at creation, since there is no customer to owe the remainder.
     with tempfile.TemporaryDirectory() as tmp:
         conn = _seeded_conn(Path(tmp))
         cash_id, service_id = _cash_and_service(conn)
 
         txn = create_transaction(
             TransactionCreate(business_date="2026-08-04", service_id=service_id,
-                               fee_paise=100, account_id=cash_id),
+                               fee_paise=100, account_id=cash_id, amount_paid_paise=100),
             conn,
         )
         assert txn["customer_id"] is None
+
+        conn.close()
+
+
+def test_walk_in_left_unpaid_is_rejected():
+    # PLAN 15.1: H.50's guard only caught 0 < paid < total, so a walk-in with
+    # paid == 0 slipped through as "pending" — the same defect at 100%, since
+    # payments.customer_id is NOT NULL and nothing can ever settle it. Money
+    # may be left owing only when there is a customer to owe it.
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id, service_id = _cash_and_service(conn)
+
+        for paid in (0, 4000):
+            try:
+                create_transaction(
+                    TransactionCreate(business_date="2026-08-04", service_id=service_id,
+                                       fee_paise=10000, account_id=cash_id, amount_paid_paise=paid),
+                    conn,
+                )
+                assert False, f"a walk-in paid {paid} of 10000 must be rejected"
+            except HTTPException as e:
+                assert e.status_code == 400, f"expected 400 for paid={paid}, got {e.status_code}"
+
+        assert conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0] == 0
+
+        # settled in full: still fine as a walk-in
+        walk_in = create_transaction(
+            TransactionCreate(business_date="2026-08-04", service_id=service_id,
+                               fee_paise=10000, account_id=cash_id, amount_paid_paise=10000),
+            conn,
+        )
+        assert walk_in["customer_id"] is None
+        assert walk_in["status"] == "completed"
+
+        # unpaid, but with a customer to carry it: still fine
+        customer = create_customer(CustomerCreate(name="Credit Customer"), conn)
+        billed = create_transaction(
+            TransactionCreate(business_date="2026-08-04", customer_id=customer["id"],
+                               service_id=service_id, fee_paise=10000, account_id=cash_id),
+            conn,
+        )
+        assert billed["status"] == "pending"
 
         conn.close()
 
@@ -170,13 +219,16 @@ def test_partial_payment_posts_only_the_amount_paid():
 
 
 def test_unpaid_transaction_posts_nothing_to_ledger():
+    # PLAN 15.1: an unpaid bill is a customer's outstanding, so it names one.
     with tempfile.TemporaryDirectory() as tmp:
         conn = _seeded_conn(Path(tmp))
         cash_id, service_id = _cash_and_service(conn)
+        customer = create_customer(CustomerCreate(name="Test Customer"), conn)
         balance_before = account_balance(conn, cash_id)
 
         txn = create_transaction(
-            TransactionCreate(business_date="2026-08-04", service_id=service_id,
+            TransactionCreate(business_date="2026-08-04", customer_id=customer["id"],
+                               service_id=service_id,
                                fee_paise=200, account_id=cash_id),
             conn,
         )
@@ -353,7 +405,7 @@ def test_fee_and_discount_equal_with_nonzero_charge_still_succeeds():
         txn = create_transaction(
             TransactionCreate(business_date="2026-08-04", service_id=service_id,
                                fee_paise=10000, discount_paise=10000, charge_paise=500,
-                               account_id=cash_id),
+                               account_id=cash_id, amount_paid_paise=500),
             conn,
         )
         assert txn["total_paise"] == 500
@@ -420,6 +472,10 @@ def test_concurrent_close_never_lets_an_unpaid_create_slip_through():
             run_seed(setup)
             seed_admin_user(setup)
             cash_id, service_id = _cash_and_service(setup)
+            # PLAN 15.1: the unpaid path is the whole point of this test
+            # (insert_entry is skipped, so its re-verified guard never runs),
+            # and an unpaid bill now has to name a customer.
+            customer_id = create_customer(CustomerCreate(name="Credit Customer"), setup)["id"]
             setup.close()
 
             business_date = "2026-08-05"
@@ -456,7 +512,8 @@ def test_concurrent_close_never_lets_an_unpaid_create_slip_through():
                 conn = get_connection(db_path)
                 try:
                     create_transaction(
-                        TransactionCreate(business_date=business_date, service_id=service_id,
+                        TransactionCreate(business_date=business_date, customer_id=customer_id,
+                                           service_id=service_id,
                                            fee_paise=100, account_id=cash_id),
                         conn,
                     )
@@ -497,6 +554,7 @@ if __name__ == "__main__":
     test_unknown_service_rejected()
     test_unknown_account_rejected()
     test_walk_in_customer_allowed()
+    test_walk_in_left_unpaid_is_rejected()
     test_full_payment_raises_cash_by_exact_amount_and_completes()
     test_partial_payment_posts_only_the_amount_paid()
     test_unpaid_transaction_posts_nothing_to_ledger()

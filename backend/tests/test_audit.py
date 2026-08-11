@@ -53,7 +53,7 @@ def test_editing_a_transaction_leaves_a_complete_before_after_audit_row():
 
         txn = create_transaction(
             TransactionCreate(business_date="2026-08-05", service_id=service["id"],
-                               fee_paise=10000, account_id=cash_id, amount_paid_paise=0),
+                               fee_paise=10000, account_id=cash_id, amount_paid_paise=10000),
             conn,
         )
         correct_transaction(txn["id"], TransactionCorrection(remarks="corrected"), conn)

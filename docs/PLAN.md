@@ -2098,7 +2098,163 @@ ships.
 
 ---
 
-## Phase 14 — Deferred
+## Phase 14 — Build version visible in the UI
+
+The operator, and anyone helping them over the phone, currently has no way to
+answer "which build is this?" — Phase 11 ships auto-update, so the running
+version genuinely varies between machines and changes underneath the operator
+without them doing anything. Every bug report and every "did the update
+apply?" question needs that number readable from the app itself.
+
+**The number must come from `package.json`.** `electron-builder` reads its
+`version` field to name the installer, stamp the Add/Remove Programs entry and
+decide whether an update is newer (11.4–11.6). Any second place a version is
+typed is a place it can disagree with the one electron-updater is comparing
+against, and a version display that can lie is worse than none — it turns a
+support call into a wrong diagnosis.
+
+**14.1 Inject the version at build time** — add
+`define: { __APP_VERSION__: JSON.stringify(pkg.version) }` to `vite.config.ts`,
+reading `pkg` from `./package.json`, and declare
+`declare const __APP_VERSION__: string` in `src/vite-env.d.ts`.
+
+Deliberately *not* an IPC call to `app.getVersion()`: there is no preload
+script in `electron/` today (`main.cjs` is the only entry), so that route means
+a new file, a `contextBridge` surface and a renderer that has to render a
+placeholder until the round-trip resolves — all to read the same
+`package.json` field Vite can bake in as a string constant. `npm run dist` and
+`npm run release` both run `vite build` immediately before `electron-builder`,
+so the baked constant and the packaged version are produced from one read of
+one file in one command.
+*Verify:* `npm run build` succeeds and the emitted bundle contains the literal
+version string (`Select-String -Path dist/assets/*.js -Pattern '1\.1\.0'`
+matches); `npx tsc --noEmit` passes, proving the declaration is picked up
+rather than the constant being an implicit `any`.
+
+**14.2 Render it in the sidebar footer** — `AppSidebar` in `src/App.tsx`
+already owns the persistent bottom block (username, role, theme toggle,
+logout). Add a single muted line beneath it reading `v{__APP_VERSION__}`.
+
+Sidebar footer rather than a new About dialog or a Settings screen: it is on
+screen on every page, costs no navigation to reach when someone is reading it
+out over the phone, and adds no route, no dialog and no new component. It must
+not be inside the collapsible nav groups — a version the operator has to
+expand something to find fails the one job it has.
+*Verify:* run the app and read `v1.1.0` in the sidebar footer with it matching
+`package.json`'s `version` exactly; bump `package.json` to a throwaway value,
+rebuild, confirm the UI follows, and restore it.
+
+*Verify (phase):* the version shown in the running app is the same string
+`electron-builder` stamped on the installer that produced it, on both a dev run
+and a packaged build.
+
+---
+
+## Phase 15 — An unpaid transaction must name a customer
+
+H.50 established that a **partially** paid walk-in strands money that can never
+be collected: `payments.customer_id` is `NOT NULL`, so a walk-in has no row to
+carry a remainder as outstanding, and `recompute_status` documents that it "can
+never be settled against again after creation". The guard shipped for that case
+checks `0 < amount_paid_paise < total_paise` — it deliberately let a *fully*
+unpaid walk-in (`amount_paid_paise == 0`, status `pending`) through, on the
+reading that it is the normal "record now, collect at the counter" state.
+
+**That reading was wrong, and it is wrong for exactly the reason H.50 already
+gave.** A pending walk-in is not a lighter version of a partial one, it is the
+same defect at 100%: the bill exists, the whole of it is uncollectable through
+any UI path, and it never appears in `pending_credits_paise` because that
+figure is derived per customer. It is silently invisible debt, and it is
+reachable from the form's default state — service, account, fee, Save, with
+`Payment Received` left at its `0` default and the customer field left blank.
+The correct invariant is the simpler one H.50 should have landed on:
+
+> **A transaction may be left unpaid, in whole or in part, only if it names a
+> customer.** A walk-in must be settled in full at creation.
+
+**15.1 Tighten the server guard to the real invariant** — in
+`create_transaction` (`backend/app/transactions.py`), replace the H.50 check
+with `if body.customer_id is None and body.amount_paid_paise < total_paise`,
+rejecting with a message that names the fix ("record the customer's details
+first"), not just the rule.
+
+`create_transaction` holds the only `INSERT INTO transactions` in the codebase
+— confirmed by grep, not assumed — so this one guard covers every write path
+that can create the state, which is the whole reason it belongs here and not in
+the form. `correct_transaction` is deliberately **left alone**: rows created
+before this phase can legitimately be pending walk-ins, and a correction is the
+operator's only route to fixing one. A post-condition there would lock the
+existing bad rows into place permanently, which is the opposite of the point.
+*Verify:* `POST /transactions` with `customer_id: null`,
+`fee_paise: 10000`, `amount_paid_paise: 0` returns `400`; the same body with
+`amount_paid_paise: 10000` returns `201` with `status: "completed"`; the same
+body with a `customer_id` and `amount_paid_paise: 0` returns `201` with
+`status: "pending"`. Added to `backend/tests/test_transactions.py`.
+
+**15.2 Repair the fixtures the old rule allowed** — several existing tests
+create unpaid walk-ins as incidental setup
+(`test_transaction_list.py`, `test_reports.py`, `test_reconciliation.py`,
+`test_dashboard.py`, `test_transaction_status.py`, `test_edge_cases.py` are the
+candidates). Each has to be re-read to decide whether the row was meant to be a
+walk-in or meant to be unpaid — those two intents now require opposite fixes
+(pay it in full, or give it a customer), and picking the wrong one silently
+changes what the test asserts about income, outstanding or status.
+*Verify:* every file under `backend/tests/` runs green (`python tests/<f>.py`
+for each), and no test was made to pass by weakening an assertion — the diff
+touches setup rows only.
+
+**15.3 Match the guard in the transaction form** — `submitTransaction` in
+`src/components/forms/TransactionForm.tsx` currently rejects only
+`customerId === null && paid > 0 && paid < formTotal`. Widen it to
+`customerId === null && paid < formTotal` with the same wording as the server.
+The form is shared by `Transactions.tsx` and the Dashboard quick-action modal,
+so both inherit it from the one edit — which is why the guard lives in the
+component and not in either caller.
+*Verify:* with the customer field blank and `Payment Received` at its `0`
+default, Save is rejected inline against the customer field on both the
+Transactions page and the Dashboard modal, and the request never leaves the
+browser (empty Network tab).
+
+**15.4 Offer customer creation from where the block happens** — a guard that
+tells the operator to add a customer, on a screen with no way to add one, just
+moves the dead end. Two entry points, both leading to the existing
+`Customers.tsx` create form (no new screen, no duplicated form):
+
+- In the form's customer search dropdown, when the typed query matches nothing,
+  render a `+ Add "<query>" as a new customer` row.
+- In the validation Alert itself, an `Add a customer` action.
+
+Both call `navigate("/customers", { state: { create: true, name } })` and close
+the modal via the existing `onCancel`. `Customers.tsx` reads that
+`location.state` once on mount and calls its existing `openCreate()` with the
+name prefilled — router state rather than a query string so a refresh doesn't
+re-trigger the create form, and `useState` initialiser rather than an effect so
+the panel is already open on first paint.
+
+The in-progress transaction is lost on that navigation. Accepted: the
+alternative is a nested create-customer form inside a modal that is already a
+tab strip, and the transaction has three fields in it at that point.
+*Verify:* from the Dashboard quick-action modal, type an unknown name, click
+the suggestion, and land on Customers with the create form open and the name
+filled; save the customer; reopen the modal and confirm the new customer is
+findable in the search. Repeat from the Transactions page.
+
+**15.5 New Customer in Quick Actions** — add a fourth entry to the Dashboard's
+Quick Actions card. It navigates, like `Close Business Day` already does,
+rather than opening a tab in the modal: customer creation is a page with a
+list/detail split, not a single form, and the modal's three tabs are all
+single-form actions.
+*Verify:* the Quick Actions card shows `New Customer`; clicking it lands on
+`/customers` with the create form open and empty.
+
+*Verify (phase):* a transaction can no longer be saved with money outstanding
+and nobody to collect it from, through the form or through a direct API call;
+and every point where that block is hit offers a one-click route to creating
+the customer that unblocks it.
+
+---
+
+## Phase 16 — Deferred
 
 Genuinely useful, genuinely not blocking. Pulled forward on request. Left
 unbroken deliberately — breaking down work this far out is speculation.

@@ -34,10 +34,13 @@ def test_filter_combinations_return_consistent_counts_and_totals():
         pan = create_service(ServiceCreate(name="PAN Card", category="PAN", default_fee_paise=10000), conn)
         aadhaar = create_service(ServiceCreate(name="Aadhaar Update", category="Aadhaar", default_fee_paise=5000), conn)
         alice = create_customer(CustomerCreate(name="Alice"), conn)
+        # PLAN 15.1: a pending row needs a customer, and it must not be Alice
+        # — the customer_id filter below counts exactly her two rows.
+        bob = create_customer(CustomerCreate(name="Bob"), conn)
 
-        # pending, walk-in, PAN
+        # pending, Bob, PAN
         create_transaction(TransactionCreate(business_date="2026-08-01", service_id=pan["id"],
-                                              fee_paise=100, account_id=cash_id), conn)
+                                              customer_id=bob["id"], fee_paise=100, account_id=cash_id), conn)
         # completed, Alice, PAN
         create_transaction(TransactionCreate(business_date="2026-08-02", service_id=pan["id"],
                                               customer_id=alice["id"], fee_paise=100, account_id=cash_id,
@@ -106,7 +109,8 @@ def test_pagination_limit_and_offset():
 
         for i in range(5):
             create_transaction(TransactionCreate(business_date="2026-08-01", service_id=service["id"],
-                                                   fee_paise=100 + i, account_id=cash_id), conn)
+                                                   fee_paise=100 + i, account_id=cash_id,
+                                                   amount_paid_paise=100 + i), conn)
 
         page1 = list_transactions(limit=2, offset=0, conn=conn)
         assert page1["total"] == 5
