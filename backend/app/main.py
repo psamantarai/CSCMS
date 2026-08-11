@@ -17,6 +17,7 @@ from app.dashboard import router as dashboard_router
 from app.db import get_connection, run_migrations
 from app.expenses import router as expenses_router
 from app.ledger import router as ledger_router
+from app.logging_setup import setup_logging, sweep_old_logs
 from app.payments import router as payments_router
 from app.reports import router as reports_router
 from app.seed import run_seed
@@ -61,6 +62,10 @@ app.include_router(backup_router, dependencies=_guard)
 
 @app.on_event("startup")
 def on_startup():
+    # PLAN 12.1: first, before anything else — a migration failing on a
+    # customer's machine is exactly the failure this phase exists to catch.
+    setup_logging(settings.log_dir)
+    sweep_old_logs(settings.log_dir)
     conn = get_connection(settings.db_path)
     run_migrations(conn, settings.migrations_dir)
     run_seed(conn)

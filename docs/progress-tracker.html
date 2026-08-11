@@ -1810,28 +1810,26 @@
   },
   {
     "title": "11.6 — Upgrade-with-data acceptance",
-    "status": "pending",
+    "status": "completed",
     "updated": "2026-08-11",
+    "seq": 156,
     "details": [
-      "Distinct from 10.3 (installer-over-installer); this covers the auto-update path specifically.",
-      "Install published v1.0.0, enter a day of real transactions, publish v1.0.1, let the app update itself.",
-      "Verify: same DB file and rows in %APPDATA%\\CSCMS, new migrations ran, the pre-update day's closing report is unchanged, and 11.1's gate is still enforced in the updated build.",
-      "Note: no downgrade path exists — migrations only run forward, so recovery from a bad publish is a fixed higher version, not a rollback.",
-      "v1.0.0 is now published live on GitHub (see 11.4) — that prerequisite is cleared. Still needed: an installer run from that release, live data entry through the UI, a v1.0.1 publish, and waiting for a real auto-update to land.",
-      "BLOCKED on manual execution outside this session: not something a coding session can drive headlessly."
+      "Verified manually by the user outside this session (installer-over-installer auto-update, real data, upgraded build)."
     ]
   },
   {
     "title": "12.1 — Backend file logging with 5-day retention",
-    "status": "pending",
+    "status": "completed",
     "updated": "2026-08-11",
+    "seq": 158,
     "details": [
-      "Problem this phase solves: a prod failure currently leaves zero trace. Backend stdout goes to a console the packaged app doesn't have (windowsHide: true), main.cjs's console.error calls go nowhere, and there's no React error boundary — a render crash is a silent white screen.",
-      "New app/logging_setup.py: stdlib TimedRotatingFileHandler (when=midnight, backupCount=LOG_RETENTION_DAYS) on settings.log_dir / 'backend.log', attached to root + uvicorn/uvicorn.error/uvicorn.access. No new dependency.",
-      "Plus a ~3-line sweep_old_logs() deleting backend.log.* older than 5 days by mtime. This, NOT backupCount, is what makes retention age-based: backupCount counts FILES not DAYS, so a shop closed Sunday writes no Sunday file and 5 files can span 8 calendar days; a machine left off for a week rotates nothing at all, since rollover only fires when a running process emits a record.",
-      "settings.py gains log_dir, derived as db_path.parent / 'logs' — Electron already sets CSCMS_DB_PATH to userData, so this needs NO change to main.cjs's env block.",
-      "Both run first thing in on_startup(), before run_migrations — a migration failing on a customer machine is exactly what this phase exists to catch.",
-      "Verify: log file exists at the derived path after a request; restart appends rather than truncates. For retention, os.utime() fake backend.log.* files to 2/4/6/30 days old, restart, and only 2- and 4-day survive; the exactly-5-days boundary must resolve consistently, and the live backend.log must never be swept regardless of mtime."
+      "backend/app/logging_setup.py (new): setup_logging(log_dir) — TimedRotatingFileHandler (when=midnight, backupCount=5) on backend.log, format '%(asctime)s %(levelname)s %(name)s %(message)s'; sweep_old_logs(log_dir) — deletes backend.log.* older than LOG_RETENTION_DAYS=5 by mtime (the actual age-based enforcement, since backupCount only counts files). No new dependency.",
+      "settings.py: added log_dir property = db_path.parent / 'logs' (not a field default, since dataclass field defaults can't reference sibling fields) — needs no change to main.cjs's env block.",
+      "main.py on_startup(): setup_logging() + sweep_old_logs() run first, before run_migrations/run_seed.",
+      "Found and fixed a real bug while wiring this up: attaching the handler to both 'uvicorn' and 'uvicorn.error' double-writes every uvicorn startup/shutdown line, because uvicorn.error propagates up to its parent 'uvicorn' before uvicorn's own propagate=False stops it. Handler now goes on '', 'uvicorn', and 'uvicorn.access' only — uvicorn.error's lines are still captured once, via propagation.",
+      "backend/tests/test_logging_setup.py (new, plain-assert): append-not-truncate across a simulated restart, uvicorn.access reachability (propagate=False), the uvicorn.error double-write regression (reproduced against uvicorn's real LOGGING_CONFIG via dictConfig), sweep boundary stability at exactly 5 days, and the 2/4/6/30-day sweep selecting exactly 2d+4d.",
+      "Verified live end-to-end against a scratch DB/port, not just the self-check: started the real backend, hit /api/health, confirmed backend.log had the startup+access lines with no duplicates; restarted and confirmed the file was appended to; dropped in backdated backend.log.{2d,4d,6d,30d} files and restarted — only 2d and 4d survived, backend.log itself untouched.",
+      "All 29 backend/tests/test_*.py files pass."
     ]
   },
   {

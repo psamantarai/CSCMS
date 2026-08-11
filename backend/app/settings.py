@@ -29,5 +29,12 @@ class Settings:
     # run dev` default) disables the gate entirely.
     app_secret: str = os.environ.get("CSCMS_APP_SECRET", "")
 
+    @property
+    def log_dir(self) -> Path:
+        # PLAN 12.1: derived from db_path, not a new env var — Electron
+        # already points CSCMS_DB_PATH at userData, so the packaged app lands
+        # here with no change to main.cjs's env block.
+        return self.db_path.parent / "logs"
+
 
 settings = Settings()
