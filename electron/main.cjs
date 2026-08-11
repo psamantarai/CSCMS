@@ -10,6 +10,7 @@ const http = require("node:http")
 const path = require("node:path")
 const { log: logTo, sweepOldLogs: sweepOldLogsIn } = require("./logger.cjs")
 const { isWritable } = require("./writability.cjs")
+const { migrateOldData } = require("./migrate.cjs")
 
 // PLAN 10.3: must run before any app.getPath() call — it's what makes
 // getPath("userData") resolve to %APPDATA%\CSCMS instead of the package.json
@@ -47,6 +48,28 @@ function checkDataDirWritable() {
       "per-user install path works for everyone), or run CSCMS as an administrator.",
   )
   return false
+}
+
+// PLAN 13.4: v1.0.0 is already published with its ledger at the old default
+// userData location (%APPDATA%\CSCMS -- app.getPath("appData") is untouched
+// by the setPath() override above). Runs after the writability probe so a
+// migration is never attempted into a folder we already know we can't write
+// to, and before anything else touches DATA_DIR.
+function runMigration() {
+  const oldDir = path.join(app.getPath("appData"), "CSCMS")
+  try {
+    migrateOldData(oldDir, DATA_DIR)
+    return true
+  } catch (err) {
+    console.error("migration from", oldDir, "failed:", err.message)
+    dialog.showErrorBox(
+      "CSCMS cannot start",
+      `CSCMS could not migrate its existing data from:\n${oldDir}\n\n` +
+        `to:\n${DATA_DIR}\n\n${err.message}\n\n` +
+        "Your original data has not been modified. Restart CSCMS to retry.",
+    )
+    return false
+  }
 }
 
 const REPO_ROOT = path.join(__dirname, "..")
@@ -194,6 +217,10 @@ if (!app.requestSingleInstanceLock()) {
 
   app.whenReady().then(() => {
     if (!checkDataDirWritable()) {
+      app.exit(1)
+      return
+    }
+    if (!runMigration()) {
       app.exit(1)
       return
     }
