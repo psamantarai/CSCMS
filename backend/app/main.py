@@ -1,6 +1,9 @@
 import hmac
+import json
+import logging
+import traceback
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -37,6 +40,47 @@ async def app_secret_gate(request, call_next):
     if settings.app_secret and not hmac.compare_digest(request.headers.get("x-cscms-app", ""), settings.app_secret):
         return JSONResponse(status_code=403, content={"detail": "forbidden"})
     return await call_next(request)
+
+
+# PLAN 12.2: bodies pass through this denylist before they ever reach the log
+# file — an operator can read backend.log without it becoming a plaintext
+# dump of customer PII.
+_REDACT_KEYS = ("password", "phone", "aadhaar", "account_number", "token")
+
+
+def _redact(value):
+    if isinstance(value, dict):
+        return {k: ("***" if any(bad in k.lower() for bad in _REDACT_KEYS) else _redact(v)) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_redact(v) for v in value]
+    return value
+
+
+async def _log_request(request: Request, level: int, message: str) -> None:
+    # Request.body() caches the raw bytes on first read (Starlette), so this
+    # never starves a route — by the time an exception handler runs, the
+    # route (or its pydantic body model) has already done that first read.
+    raw = await request.body()
+    try:
+        body = _redact(json.loads(raw)) if raw else None
+    except ValueError:
+        body = None
+    logging.getLogger("app.main").log(level, "%s %s | %s | body=%s", request.method, request.url.path, message, body)
+
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    # A 409 "business day is closed" rejection is precisely what an operator
+    # phones about — every 4xx gets logged, not just 5xx.
+    if 400 <= exc.status_code < 500:
+        await _log_request(request, logging.WARNING, f"{exc.status_code} {exc.detail}")
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail}, headers=exc.headers)
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    await _log_request(request, logging.ERROR, f"unhandled exception\n{traceback.format_exc()}")
+    return JSONResponse(status_code=500, content={"detail": "internal server error", "code": "internal_error"})
 
 
 app.include_router(auth_router)
