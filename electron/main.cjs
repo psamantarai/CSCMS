@@ -8,6 +8,7 @@ const { spawn } = require("node:child_process")
 const crypto = require("node:crypto")
 const http = require("node:http")
 const path = require("node:path")
+const { log: logTo, sweepOldLogs: sweepOldLogsIn } = require("./logger.cjs")
 
 // PLAN 10.3: must run before any app.getPath() call — it's what makes
 // getPath("userData") resolve to %APPDATA%\CSCMS instead of the package.json
@@ -21,6 +22,21 @@ const HEALTH_URL = `http://127.0.0.1:${PORT}/api/health`
 // CSCMS_APP_SECRET and echoed back on every outgoing request via
 // X-CSCMS-App so 11.1's gate lets this app (and only this app) through.
 const APP_SECRET = crypto.randomUUID()
+
+// PLAN 12.3: replaces the console.error/stdout.write calls below, which go
+// nowhere in a packaged build (spawned with windowsHide: true, no console
+// attached). logDir() is a function, not a constant, so the path is resolved
+// on each call rather than at module load — Phase 13 will move userData via
+// app.setPath() before this code runs, and this must not cache the old path.
+function logDir() {
+  return path.join(app.getPath("userData"), "logs")
+}
+function log(...args) {
+  logTo(logDir(), ...args)
+}
+function sweepOldLogs() {
+  sweepOldLogsIn(logDir())
+}
 
 // PLAN 11.5: no dialog, no interruption — download in the background and
 // apply on the next natural quit. Explicit even though they're
@@ -37,7 +53,7 @@ autoUpdater.on("update-downloaded", () => {
 // safe to call unconditionally.
 const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000 // 4 hours
 function checkForUpdates() {
-  autoUpdater.checkForUpdates().catch((err) => console.error("[electron] update check failed:", err.message))
+  autoUpdater.checkForUpdates().catch((err) => log("update check failed:", err.message))
 }
 
 let backendProcess = null
@@ -78,9 +94,9 @@ function startBackend() {
       ...(app.isPackaged ? { CSCMS_FRONTEND_DIST: path.join(process.resourcesPath, "frontend") } : {}),
     },
   })
-  backendProcess.on("error", (err) => console.error("[electron] backend failed to start:", err))
-  backendProcess.stdout?.on("data", (d) => process.stdout.write(`[backend] ${d}`))
-  backendProcess.stderr?.on("data", (d) => process.stderr.write(`[backend] ${d}`))
+  backendProcess.on("error", (err) => log("backend failed to start:", err.message))
+  backendProcess.stdout?.on("data", (d) => log(`[backend] ${d}`.trimEnd()))
+  backendProcess.stderr?.on("data", (d) => log(`[backend] ${d}`.trimEnd()))
 }
 
 function waitForBackend(timeoutMs = 20000) {
@@ -123,7 +139,7 @@ async function createWindow() {
   try {
     await waitForBackend()
   } catch (err) {
-    console.error("[electron]", err.message)
+    log(err.message)
   }
   mainWindow.loadURL(`http://127.0.0.1:${PORT}/`)
 }
@@ -143,12 +159,23 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   app.whenReady().then(() => {
+    sweepOldLogs()
+    log(`CSCMS v${app.getVersion()} starting`)
     startBackend()
     createWindow()
     checkForUpdates()
     setInterval(checkForUpdates, UPDATE_CHECK_INTERVAL_MS)
   })
 }
+
+// PLAN 12.3: without this, an uncaught error in the main process prints to a
+// console that doesn't exist in a packaged build and vanishes; app.exit(1)
+// preserves Node's default crash-on-uncaught behavior instead of leaving a
+// window open with no backend supervisor.
+process.on("uncaughtException", (err) => {
+  log("uncaughtException:", err.stack || err.message)
+  app.exit(1)
+})
 
 app.on("window-all-closed", () => {
   stopBackend()
@@ -158,3 +185,4 @@ app.on("window-all-closed", () => {
 // Belt-and-braces: window-all-closed already stops it, but app.quit() can
 // also be triggered directly (Cmd+Q on macOS, external quit).
 app.on("before-quit", stopBackend)
+app.on("before-quit", () => log("quitting"))

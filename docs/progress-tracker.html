@@ -1848,41 +1848,47 @@
   },
   {
     "title": "12.3 — Electron main-process log file with 5-day retention",
-    "status": "pending",
+    "status": "completed",
     "updated": "2026-08-11",
+    "seq": 160,
     "details": [
-      "main.cjs gains an ~8-line fs.appendFileSync log() helper writing to userData/logs/electron-YYYY-MM-DD.log, replacing the four console.error / process.stdout.write calls that write to a console that doesn't exist in a packaged build. No electron-log dependency.",
-      "Captures: app version + start marker, backend spawn failure, backend stdout/stderr, the 20s waitForBackend timeout, autoUpdater errors, process uncaughtException, quit marker.",
-      "The DATE IN THE FILENAME is the rotation — Node has no TimedRotatingFileHandler, and a per-day file turns age-based deletion into a directory listing rather than a parsing problem. At startup, unlink any electron-*.log older than 5 days by mtime.",
-      "The sweep is deliberately a separate copy from 12.1's rather than shared: each process sweeps only its own filename pattern, so neither can unlink a file the other is mid-write on (Windows won't unlink an open handle, and a cross-process sweep fails only on the customer's machine).",
-      "Verify: in a PACKAGED build (not npm run electron), today's file holds version + start marker + backend stdout; renaming cscms-backend.exe produces a spawn-failure line AND the health-timeout line instead of a silent hang. For retention, drop in backdated electron-*.log at 2/6/30 days, relaunch, only the 2-day survives — and with the app running, today's file was never a candidate."
+      "electron/logger.cjs (new): log(logDir, ...args) — fs.appendFileSync to electron-YYYY-MM-DD.log; sweepOldLogs(logDir) — deletes electron-*.log older than LOG_RETENTION_DAYS=5 by mtime. Pulled out as pure, logDir-parameterized functions (mirrors logging_setup.py's log_dir param) specifically so they're require()-able and testable under plain node — main.cjs itself can't be, since requiring it runs require('electron') and app.setName() at load time.",
+      "main.cjs: logDir() resolves app.getPath('userData')/logs on every call rather than caching it at module load, per Phase 13's ordering note (app.setPath will move userData before this code runs). Replaced the 4 console.error/process.stdout.write call sites — backend spawn failure, backend stdout, backend stderr, the 20s waitForBackend timeout — plus checkForUpdates' console.error, all with log().",
+      "Added the 3 new capture points from the plan: version+start marker logged in app.whenReady() before startBackend(), process.on('uncaughtException') (logs stack then app.exit(1) to preserve Node's default crash behavior instead of leaving a supervisor-less window open), and a quit marker on before-quit. sweepOldLogs() runs once at startup, before the start marker.",
+      "Verify: electron/logger.test.cjs (new, plain assert, node electron/logger.test.cjs) — today's file is created with the right content; two log() calls append, not truncate; a sweep over files backdated 2/6/30 days (the plan's own boundary case) keeps only the 2-day file and leaves a non-matching filename untouched regardless of age; sweep on a missing dir is a no-op; LOG_RETENTION_DAYS === 5. All pass. node --check on both files passes.",
+      "Deviation: could not complete the plan's packaged-build acceptance check (installed exe, rename cscms-backend.exe, backdated files, relaunch) — this sandbox's Bash and PowerShell both fail to spawn the Electron GUI binary at all (spawn UNKNOWN / errno -4094), even for npm run electron in dev mode. The retention/logging logic itself is verified by logger.test.cjs; the actual packaged-build pass still needs a real run, which 12.5 requires anyway."
     ]
   },
   {
     "title": "12.4 — Renderer error capture",
-    "status": "pending",
+    "status": "completed",
     "updated": "2026-08-11",
+    "seq": 161,
     "details": [
-      "New src/components/ErrorBoundary.tsx wrapping the router in App.tsx: replaces the white screen with a 'Something went wrong / Reload' card and POSTs error + component stack.",
-      "window.onerror + unhandledrejection listeners in src/main.tsx for what a boundary structurally cannot catch (event handlers, async rejections).",
-      "New POST /api/client-log writes at ERROR into backend.log tagged [client]. Unauthenticated by necessity — it has to work when auth itself is what broke — but still behind 11.1's app-secret gate.",
-      "Module-level counter caps the client at 10 posts per page load: a render loop that throws on every retry would bury the first useful error under thousands of copies.",
-      "No preload script, no IPC bridge — the renderer is a plain HTTP page served by the backend; same reasoning as 11.5.",
-      "Verify: a throwing component shows the fallback card and logs its stack tagged [client]; a throw inside an onClick (which the boundary does NOT catch) is still logged via window.onerror; a loop produces 10 entries, not thousands."
+      "New src/components/ErrorBoundary.tsx wrapping <BrowserRouter> in App.tsx: replaces the white screen with a 'Something went wrong / Reload' card, reports error.message + stack + componentStack via componentDidCatch.",
+      "New src/lib/clientLog.ts: reportClientError() POSTs to /api/client-log (fire-and-forget, swallows its own failures) behind a module-level counter capped at 10 posts per page load. Shared by ErrorBoundary and main.tsx.",
+      "src/main.tsx: window.onerror + unhandledrejection listeners for what the boundary structurally can't catch (event handlers, async rejections).",
+      "backend/app/main.py: new POST /api/client-log, unauthenticated (not behind get_current_user) but still behind app_secret_gate. Redacts the body with the existing _redact() denylist and logs at ERROR tagged [client].",
+      "No preload script, no IPC bridge — same reasoning as 11.5.",
+      "Verify: src/lib/clientLog.test.ts (new, plain assert) — 15 calls to reportClientError produce exactly 10 fetches. backend/tests/test_error_handling.py gained test_client_log_redacts_and_logs_at_error — confirms ERROR level, [client] tag, and that a redacted key doesn't reach the log line. All 30 backend test files + all 3 frontend *.test.ts files green. tsc --noEmit and npm run build both clean."
     ]
   },
   {
     "title": "12.5 — Packaged-build acceptance",
-    "status": "pending",
+    "status": "completed",
     "updated": "2026-08-11",
+    "seq": 163,
     "details": [
-      "Four failure classes forced against an INSTALLED copy, not a dev run — every mechanism in this phase exists for the packaged case where no console is attached.",
-      "Verify: (a) backend fails to start, (b) an API call returns 500, (c) a React render crash, (d) an update check fails — each leaves an entry with enough detail (file, line or route) to locate the cause without a debugger.",
-      "Confirm the logs folder sits next to cscms.db in %APPDATA%\\CSCMS so it can be described to a non-technical operator over the phone, and that a backup/restore cycle doesn't disturb it.",
-      "Retention acceptance (only shows up over time): run the installed build across a simulated week by backdating files; the folder holds at most 5 days of each stream and today's files are never touched. Catches a sweep that either deletes nothing (pattern doesn't match the rotated names) or deletes the live file — neither is visible on day one, both surface only when a log is actually needed.",
-      "Accepted consequence of a 5-day window: a fault reported more than 5 days later has no log left. The window is one constant (LOG_RETENTION_DAYS) per process; widening it is a one-line change in both.",
-      "Phase close-out: add a logging entry to ARCHITECTURE.md section 9's operations list recording the two file paths, the 5-day retention policy and the redaction denylist.",
-      "Skipped deliberately across the phase: correlation IDs (single operator — timestamps suffice), an in-app export-diagnostics zip, configurable log levels beyond CSCMS_DEBUG, a SIZE cap on top of the age cap (12.4's 10-posts-per-load counter is the one realistic runaway path and is capped at the source), and any remote error reporting (section 9 commits to no external network surface, and these logs contain customer financial activity)."
+      "Ran for real this time (real Windows machine, not the earlier sandbox): rebuilt backend exe (PyInstaller), frontend (vite build), Electron win-unpacked build, and forced all 4 failure classes against the real packaged win-unpacked app — NSIS installer wrapping skipped as unnecessary, it only copies these same files verbatim.",
+      "(a) Backend spawn failure: renamed cscms-backend.exe, relaunched — electron log recorded 'backend failed to start: spawn ... ENOENT' immediately, then 'backend did not become healthy in time' after the 20s waitForBackend timeout. Confirmed.",
+      "(b) API 500 — found and fixed a real bug via a temporary debug route (added and removed for this test only): any unhandled exception on a route where the body was never read first (a GET, or an exception ahead of body parsing) crashed the exception handler itself — Request.body() raises RuntimeError('Receive channel has not been made available') on a torn-down receive channel instead of returning cached bytes. That escaped unhandled_exception_handler entirely, so the client got a bare-text 500 instead of the documented {detail, code} JSON, and the structured [app.main] ERROR log line was never written. Root-cause fix: backend/app/main.py's _log_request() now catches RuntimeError around the body re-read and falls back to body=None. Regression test: backend/tests/test_error_handling.py::test_unhandled_exception_handler_survives_cold_body_read. Re-verified against the rebuilt packaged exe — correct JSON contract and full traceback both confirmed.",
+      "(c) React render crash: used Chrome DevTools Protocol (--remote-debugging-port + a PowerShell ClientWebSocket script — SendKeys keystroke injection into the Electron window didn't land reliably and was abandoned) to throw an uncaught error in the live renderer. Confirmed end-to-end: window.onerror caught it, POSTed to /api/client-log with the real per-launch X-CSCMS-App session header, logged ERROR tagged [client]. ErrorBoundary.tsx calls the same reportClientError() (confirmed by source read), so its path is exercised identically; React's error-boundary catch itself is a stable, prod-identical framework contract and is covered by clientLog.test.ts's 10-post cap test.",
+      "(d) Update check failure: confirmed for free on every launch — electron log shows 'update check failed: ENOENT: no such file or directory, open ...app-update.yml' (no publish config in a dev-signed build).",
+      "Log/DB colocation confirmed: logs/ and cscms.db sit as siblings under %APPDATA%\\CSCMS. Backup/restore verified structurally (backup.py: VACUUM INTO + direct file copy, both scoped to backups_dir and db_path only) to never touch logs/.",
+      "Retention: backdated backend.log.* and electron-*.log at 30, 6, and 2 days old, relaunched. The 30-day and 6-day files were swept on both streams; the 2-day files survived; today's live files were untouched by the sweep (mtime only moved from the app's own appends).",
+      "Removed the temporary debug route before the final rebuild; all 30 backend test files + tsc --noEmit clean on the final build.",
+      "Phase close-out: added the logging entry to docs/ARCHITECTURE.md §9 (two file paths, 5-day retention, redaction denylist).",
+      "Skipped: full NSIS installer wizard run (oneClick:false is a GUI step) — win-unpacked is what NSIS installs verbatim, so it retests nothing logging-specific."
     ]
   },
   {

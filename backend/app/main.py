@@ -60,7 +60,17 @@ async def _log_request(request: Request, level: int, message: str) -> None:
     # Request.body() caches the raw bytes on first read (Starlette), so this
     # never starves a route — by the time an exception handler runs, the
     # route (or its pydantic body model) has already done that first read.
-    raw = await request.body()
+    # PLAN 12.5 finding: that cache is only warm if something read the body
+    # *before* the crash. A GET route (or any exception raised ahead of body
+    # parsing) hits this as a cold read — the request's receive channel is
+    # already torn down by then, and Request.body() raises instead of
+    # returning cached bytes. Uncaught, that exception escapes this handler
+    # entirely, so the client falls back to a bare-text 500 instead of the
+    # {detail, code} JSON contract, and this log line never gets written.
+    try:
+        raw = await request.body()
+    except RuntimeError:
+        raw = b""
     try:
         body = _redact(json.loads(raw)) if raw else None
     except ValueError:
@@ -132,6 +142,20 @@ def on_shutdown():
 @app.get("/api/health")
 def health():
     return {"status": "ok"}
+
+
+# PLAN 12.4: unauthenticated by necessity — a renderer crash may be exactly
+# what broke auth, so this can't sit behind get_current_user. Still behind
+# app_secret_gate above, so no more reachable than any other route.
+@app.post("/api/client-log")
+async def client_log(request: Request):
+    body = await request.body()
+    try:
+        payload = _redact(json.loads(body)) if body else {}
+    except ValueError:
+        payload = {}
+    logging.getLogger("app.main").error("[client] %s", payload)
+    return {"status": "logged"}
 
 
 # PLAN 10.1: the Electron shell loads the built frontend from this same

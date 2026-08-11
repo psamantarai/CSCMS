@@ -10,6 +10,7 @@ import { queryKeys } from "./lib/queries"
 import { formatDate, localDateISO } from "./lib/format"
 import { useAuth } from "./lib/auth"
 import { BlockState } from "@/components/QueryState"
+import { ErrorBoundary } from "@/components/ErrorBoundary"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
@@ -80,9 +81,11 @@ export default function App() {
   }, [dark])
 
   return (
-    <BrowserRouter>
-      <AppShell dark={dark} onToggleDark={() => setDark(d => !d)} />
-    </BrowserRouter>
+    <ErrorBoundary>
+      <BrowserRouter>
+        <AppShell dark={dark} onToggleDark={() => setDark(d => !d)} />
+      </BrowserRouter>
+    </ErrorBoundary>
   )
 }
 

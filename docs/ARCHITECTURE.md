@@ -362,3 +362,13 @@ rest is covered by the API tests.
   last N (setting). SQLite's `VACUUM INTO` gives a consistent copy without
   stopping the app.
 - Restore is an explicit, confirmed action that backs up the current DB first.
+- Logging (Phase 12): `<userData>/logs/backend.log` (Python `logging`, rotated
+  at midnight, 5-day retention swept by mtime at every startup) and
+  `<userData>/logs/electron-YYYY-MM-DD.log` (one file per day, same 5-day
+  sweep) — both siblings of `cscms.db`, so they travel with the install
+  directory (Phase 13) and are never touched by backup/restore. Every 4xx and
+  every unhandled 500 is logged with a full traceback; request/response
+  bodies pass through a redaction denylist (`password`, `phone`, `aadhaar`,
+  `account_number`, `token` → `***`) first. Renderer crashes (`ErrorBoundary`,
+  `window.onerror`, `unhandledrejection`) POST to `/api/client-log`, logged
+  `[client]`, capped at 10 posts per page load.
