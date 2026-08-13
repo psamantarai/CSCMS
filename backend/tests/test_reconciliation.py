@@ -114,8 +114,11 @@ def test_reconciliation_suite_scripted_month():
         assert all(g["total"] == 0 for g in transfer_groups)
 
         # ---- true net November income/expenses, corrections netted by hand:
-        # txn1 10000 + txn2 (500 - 500 + 750) + txn3 10700 + commission (1500 + (800-800+1200))
-        expected_income = 10000 + 750 + 10700 + 1500 + 1200
+        # txn1 10000 + txn2 (500 - 500 + 750) + txn3 10700 + Bob's later
+        # settlement 24300 (PLAN 16.5.5: settling old dues now posts
+        # service_income instead of the excluded customer_payment, so it
+        # counts here too) + commission (1500 + (800-800+1200))
+        expected_income = 10000 + 750 + 10700 + 24300 + 1500 + 1200
         # expense1 4000 + paper (500 - 500 + 300)
         expected_expenses = 4000 + 300
         income_paise, expenses_paise = income_expenses(conn, START, END)
@@ -129,7 +132,7 @@ def test_reconciliation_suite_scripted_month():
 
         # ---- profit & loss splits income/expenses but must total the same.
         pl = profit_loss_report(start_date=START, end_date=END, conn=conn)
-        assert pl["service_income_paise"] == 10000 + 750 + 10700
+        assert pl["service_income_paise"] == 10000 + 750 + 10700 + 24300
         assert pl["commission_paise"] == 1500 + 1200
         assert pl["total_income_paise"] == expected_income == monthly["income_paise"]
         assert {r["category"]: r["amount_paise"] for r in pl["expenses_by_category"]} == {"Rent": 4000, "Paper": 300}
@@ -147,7 +150,9 @@ def test_reconciliation_suite_scripted_month():
         service_rows = {r["service_id"]: r for r in service_wise_report(start_date=START, end_date=END, conn=conn)}
         assert service_rows[pan["id"]]["income_paise"] == 10000
         assert service_rows[pan["id"]]["billed_paise"] == 10000
-        assert service_rows[cert["id"]]["income_paise"] == 10700
+        # PLAN 16.5.5: Bob's later settlement now posts service_income too,
+        # so cert's income catches up to fully-billed once it's fully paid.
+        assert service_rows[cert["id"]]["income_paise"] == 10700 + 24300 == 35000
         assert service_rows[cert["id"]]["billed_paise"] == 35000
         assert service_rows[printing["id"]]["income_paise"] == 750
         assert service_rows[printing["id"]]["billed_paise"] == 750  # transactions.total_paise reflects the correction

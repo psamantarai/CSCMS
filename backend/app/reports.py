@@ -56,7 +56,8 @@ def service_wise_report(start_date: str | None = None, end_date: str | None = No
     billed_params: list = []
     billed_clauses = ["deleted_at IS NULL"] + _date_filters("business_date", start_date, end_date, billed_params)
     billed = {r["service_id"]: r for r in conn.execute(
-        f"SELECT service_id, COUNT(*) AS transaction_count, COALESCE(SUM(total_paise), 0) AS billed_paise "
+        f"SELECT service_id, COUNT(*) AS transaction_count, COALESCE(SUM(total_paise), 0) AS billed_paise, "
+        f"COALESCE(SUM(outlay_paise), 0) AS outlay_paise "
         f"FROM transactions WHERE {' AND '.join(billed_clauses)} GROUP BY service_id", billed_params
     ).fetchall()}
 
@@ -73,6 +74,7 @@ def service_wise_report(start_date: str | None = None, end_date: str | None = No
             "service_id": s["id"], "service_name": s["name"], "is_active": bool(s["is_active"]),
             "transaction_count": billed[s["id"]]["transaction_count"] if s["id"] in billed else 0,
             "billed_paise": billed[s["id"]]["billed_paise"] if s["id"] in billed else 0,
+            "outlay_paise": billed[s["id"]]["outlay_paise"] if s["id"] in billed else 0,
             "income_paise": income.get(s["id"], 0),
         }
         for s in services
@@ -150,7 +152,8 @@ def customer_wise_report(start_date: str | None = None, end_date: str | None = N
     billed_params: list = []
     billed_clauses = ["customer_id IS NOT NULL", "deleted_at IS NULL"] + _date_filters("business_date", start_date, end_date, billed_params)
     billed = {r["customer_id"]: r for r in conn.execute(
-        f"SELECT customer_id, COUNT(*) AS transaction_count, COALESCE(SUM(total_paise), 0) AS billed_paise "
+        f"SELECT customer_id, COUNT(*) AS transaction_count, COALESCE(SUM(total_paise), 0) AS billed_paise, "
+        f"COALESCE(SUM(outlay_paise), 0) AS outlay_paise "
         f"FROM transactions WHERE {' AND '.join(billed_clauses)} GROUP BY customer_id", billed_params
     ).fetchall()}
 
@@ -176,6 +179,7 @@ def customer_wise_report(start_date: str | None = None, end_date: str | None = N
             "customer_id": c["id"], "customer_name": c["name"],
             "transaction_count": billed[c["id"]]["transaction_count"] if c["id"] in billed else 0,
             "billed_paise": billed[c["id"]]["billed_paise"] if c["id"] in billed else 0,
+            "outlay_paise": billed[c["id"]]["outlay_paise"] if c["id"] in billed else 0,
             "collected_paise": txn_income.get(c["id"], 0) + settled.get(c["id"], 0),
         }
         for c in customers

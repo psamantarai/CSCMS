@@ -108,7 +108,8 @@ these rows, and each group must sum correctly.
 |---|---|
 | Service transaction, paid in full | `+total` to the receiving account, `entry_type=service_income` |
 | Service transaction, partly paid | `+amount_paid` to account. Unpaid remainder is **not** a ledger row — it is customer outstanding (§4.4). |
-| Customer settles old dues | `+amount` to account, `entry_type=customer_payment` |
+| Service transaction with an outlay (premium/govt fee paid by the operator first) | **Three rows**: `-outlay` from `outlay_account_id` (`entry_type=transfer`), `+min(paid, outlay)` to `account_id` (`entry_type=transfer`, the recovery), `+(paid - recovery)` to `account_id` (`entry_type=service_income`, the margin). Outlay recovers before any of the payment counts as income (PLAN.md 16.5.2). The outlay is **not** added to `total_paise` — `fee` is the whole ₹5,050 charged and the ₹5,000 outlay is the operator's own money inside it, exactly as an AEPS principal is (row below). An outlay above `total_paise` is rejected. |
+| Customer settles old dues | Same split as the outlay row above, re-run per bill (PLAN.md 16.5.5): `+recovery` to account (`entry_type=transfer`) while the bill still has outlay to recover, `+remainder` to account (`entry_type=service_income`). A no-outlay bill's whole settlement is `entry_type=service_income` — this is what makes credit sales count as income once actually collected. |
 | Expense | `-amount` from the paying account, `entry_type=expense` |
 | Internal transfer | **Two rows**: `-amount` from source, `+amount` to destination. Must sum to zero. |
 | AEPS / cash withdrawal by customer | `-amount` from settlement account, `+amount` to cash drawer, **plus** `+commission` to cash drawer as `entry_type=commission`. The ₹5,000 the customer withdraws is not income; only the ₹50 fee is. |

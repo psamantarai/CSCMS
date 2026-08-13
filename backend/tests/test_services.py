@@ -123,7 +123,7 @@ def test_null_and_blank_name_and_category_rejected():
 
 def test_null_fee_and_is_active_rejected_on_update():
     # H.4: same NOT NULL trap for the other optional-but-required Update fields.
-    for kwargs in ({"default_fee_paise": None}, {"default_charge_paise": None}, {"is_active": None}):
+    for kwargs in ({"default_fee_paise": None}, {"default_charge_paise": None}, {"is_active": None}, {"has_outlay": None}):
         try:
             ServiceUpdate(**kwargs)
             assert False, f"{kwargs} must be rejected"
@@ -141,6 +141,26 @@ def test_fee_overflow_rejected():
         pass
 
 
+def test_has_outlay_flag_round_trips():
+    # PLAN 16.5.7: defaults to false; settable at creation and via PATCH.
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+
+        plain = create_service(ServiceCreate(name="Photocopy", category="Printing"), conn)
+        assert plain["has_outlay"] == 0
+
+        insurance = create_service(
+            ServiceCreate(name="Insurance Premium", category="Insurance", has_outlay=True), conn
+        )
+        assert insurance["has_outlay"] == 1
+        assert get_service(insurance["id"], conn)["has_outlay"] == 1
+
+        update_service(plain["id"], ServiceUpdate(has_outlay=True), conn)
+        assert get_service(plain["id"], conn)["has_outlay"] == 1
+
+        conn.close()
+
+
 if __name__ == "__main__":
     test_seeded_services_are_listable()
     test_create_and_get_service()
@@ -149,4 +169,5 @@ if __name__ == "__main__":
     test_null_and_blank_name_and_category_rejected()
     test_null_fee_and_is_active_rejected_on_update()
     test_fee_overflow_rejected()
+    test_has_outlay_flag_round_trips()
     print("OK")

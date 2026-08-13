@@ -1,6 +1,6 @@
 # CSCMS — Implementation Plan
 
-22 phases, 154 steps. Phases run in order; each depends on the one before.
+37 phases, 198 steps. Phases run in order; each depends on the one before.
 (Phase 2.5 was inserted after an edge-case audit of the shipped Phase 0–2
 code — see that phase for what it found and why it blocks Phase 3. Phase 3.5
 came from the same pass repeated over the shipped Phase 3 code. Phase 4.5
@@ -8,9 +8,14 @@ repeated it again over the shipped Phase 4 code. Phase 7.9 repeated it once
 more over the shipped Phase 5, 6 and 7 code — three phases shipped back to
 back with no hardening pass in between. Phase 8.8 repeated it over the shipped
 Phase 8 code. Phase 8.9 repeated it once more, from three user-reported
-symptoms, over the already-hardened Dashboard and Transactions code. Phase 9.5
-is the one inserted phase that is **not** a hardening pass — the `.5` there
-means only "between 9 and 10".)
+symptoms, over the already-hardened Dashboard and Transactions code. Phases 9.5
+and 16.5 are the two inserted phases that are **not** hardening passes — the
+`.5` there means only "between 9 and 10" and "between 16 and 17". Phases 16–23
+came from an operator request list after the 1.2.0 release; Deferred was
+renumbered 16 → 24 to keep document order matching phase order, as it was once
+before. Phase 16.5 was inserted rather than appended because it is the
+highest-priority work outstanding: Phase 16 is the last phase built, so 16.5
+is next in the queue without renumbering anything.)
 
 **A step is the unit of work.** Each is one sitting, independently verifiable,
 and leaves the app in a working state. Per `CLAUDE.md`, work stops after each
@@ -2254,7 +2259,856 @@ the customer that unblocks it.
 
 ---
 
-## Phase 16 — Deferred
+## Phase 16 — Surviving a deleted data folder
+
+Phase 13 put the ledger in `$INSTDIR\data` and 13.3's NSIS carve-out stops the
+*installer* from removing it. Nothing stops a human with Explorer. And
+`data\backups\` sits inside the same folder — this plan's own risk note already
+says the backups live "inside the blast radius of the very failure it would
+need to survive".
+
+**16.1 Hide and mark the data directory** — after `checkDataDirWritable()` in
+`electron/main.cjs`, set the hidden+system attributes on `DATA_DIR`
+(`execFile("attrib", ["+h", "+s", DATA_DIR])` — Node has no attribute API, and
+this is one shell-out against writing a native binding). Idempotent, and a
+failure is logged, not fatal: the app must still start on a filesystem that
+refuses the call. Alongside it, write a `data\DO NOT DELETE.txt` naming what is
+in the folder, for whoever turns hidden files back on.
+*Verify:* after launch `attrib` reports `SH` on the folder and it is invisible
+in Explorer at default settings; the app reads and writes the DB normally;
+deleting the notice file and relaunching recreates it. **And** a full
+install→update→uninstall cycle still behaves as 13.3 requires — NSIS `FindFirst`
+enumerates hidden entries, so the carve-out should be unaffected, but "should
+be" is not what 13.3's risk note accepts.
+
+**16.2 Mirror every backup outside the install directory** — `create_backup` in
+`backend/app/backup.py` writes only to `BACKUPS_DIR = db_path.parent/"backups"`.
+Add a second destination, defaulting to `%LOCALAPPDATA%\CSCMS\backups`:
+`shutil.copy2` the file just produced, inside the same `_backup_lock` that
+already guards the write and the retention sweep (H.46 — a mirror with its own
+unsynchronised sweep re-opens exactly that bug), with its own retention count.
+A failed mirror write must not fail the backup: log it, return it in the
+response, keep the primary.
+*Verify:* trigger a backup — the same file exists in both locations. Stop the
+app, delete `data\` outright, relaunch: the app rebuilds an empty DB *and* the
+mirror still holds the last N backups to restore from. Make the mirror
+directory read-only → the backup still returns 201 and the response reports the
+mirror failure rather than swallowing it.
+
+**16.3 Surface the mirror's health** — the backup screen shows the mirror path,
+its last successful write, and whether it is currently healthy. A silent mirror
+is a mirror nobody notices has been broken for six months, which is the same
+failure as having no mirror with none of the warning.
+*Verify:* rename the mirror directory away; the next backup leaves the screen in
+a visible failed state, not a green tick and not an unchanged timestamp.
+
+**16.4 Operator-chosen mirror location** — a folder picker so the mirror can
+point at a second drive, a USB stick, or an existing OneDrive/Google Drive
+folder. Stored in `settings`, read at backup time. No sync client and no cloud
+API: the operator's own sync folder does the off-site half, which is the whole
+answer to the ransomware/disk-loss case without this app growing a network
+dependency.
+*Verify:* point the mirror at a synced cloud folder; a backup appears there and
+the sync client uploads it. Point it at a disconnected USB drive → 16.3 goes red
+and the primary backup still succeeds.
+
+*Verify (phase):* with `$INSTDIR\data` deleted outright, the operator can
+reinstall CSCMS and restore the previous day's ledger from the mirror without
+ever touching the install directory.
+
+---
+
+## Phase 16.5 — Money the operator lays out on the customer's behalf
+
+**The `.5` here means only "between 16 and 17", not a hardening pass** — the
+same exception this document's header already records for Phase 9.5. It is
+inserted rather than appended because it is the highest-priority work
+outstanding, and this is the position that says so: Phase 16 is the last phase
+built, Phases 17–23 are planned but unbuilt, so 16.5 is next in the queue and
+nothing needs renumbering. Phase 16 has steps 16.1–16.4 only, so unlike Phase
+9.5 this number collides with no step.
+
+### The gap
+
+An operator filing an insurance premium, a government form fee or an
+application charge **pays that money first, out of their own portal wallet or
+bank account**, and recovers it from the customer afterwards — in cash, or by
+transfer, or on credit. Today `create_transaction` records only the recovery:
+one `service_income` row for `amount_paid_paise` into `account_id`. There is
+no outflow leg, and no column to hold one — `transactions` carries
+`fee/charge/discount/total` and a single `account_id`.
+
+So there is no correct way to enter the ₹5,000-premium-plus-₹50-fee case at
+all. Put ₹5,050 in `fee` and the day's income is overstated a hundredfold —
+the exact failure ARCHITECTURE.md §3 names as "the ones most often modelled
+wrong", which `banking.py` was built to avoid and which `transactions.py` is
+still open to. Put ₹50 in `fee` and the wallet's balance in the app silently
+drifts from the real portal balance by every premium ever paid.
+
+`banking.py` already solves this shape. `insert_banking_entries` moves a
+withdrawal's principal out of the settlement account and into the cash drawer
+as `entry_type='transfer'`, and books only the commission as income. What is
+missing is not a mechanism — it is that mechanism reaching the transactions
+module, where `service_id`, customer outstanding and partial settlement live.
+`banking_transactions` cannot host it: no `service_id`, no `status`, no link
+to `payments`, and credit is normal for this work.
+
+**This is not scoped to a category.** Any service may carry an outlay and most
+do not; the source account varies between wallet, current and savings even for
+the same service. So the flag lives on the service, and the amount and account
+live on the transaction.
+
+### The second defect this exposes
+
+`income_expenses()` (`ledger.py:143`) counts `service_income + commission` and
+**deliberately excludes `customer_payment`**, reasoning that "settling an old
+bill is debt collection, not new revenue". That reasoning assumes income was
+recognised when the bill was raised. **It never is** — nothing posts a
+`service_income` row for an unpaid portion, only for money taken at creation.
+
+A bill created unpaid and settled later therefore contributes **₹0 to reported
+income, permanently.** That is already true of every ordinary credit sale.
+Since credit is the normal case for outlay work, shipping the outlay leg on
+top of it would leave the fee on every such bill invisible to profit — which
+defeats the point of the phase. It is fixed here, not deferred.
+
+### The model
+
+`total_paise` stays `fee + charge − discount`. **The outlay is not added to
+the fee** — `fee` is the whole amount charged to the customer, and the outlay
+is the operator's own money passing through that amount: ₹5,050 billed, of
+which ₹5,000 was laid out and ₹50 is the margin. `dashboard.py`'s
+`pending_credits_paise` and `customers.py`'s outstanding both derive from
+`total_paise` and so recover the outlay with no change, because the customer
+is billed for it inside the fee.
+
+This is banking's model, not a variation on it. `insert_banking_entries`
+moves a withdrawal's principal between the operator's own accounts and books
+only the commission as income; the principal inflates nothing. The outlay leg
+here is the same shape.
+
+> **Revised after the phase shipped.** The original model above read
+> `total_paise = outlay + fee + charge − discount`, with `fee` meaning the
+> margin alone. In practice operators enter the fee as the full amount they
+> charge — the number on the receipt — so the outlay was added to money that
+> already contained it and a ₹100 service costing ₹100 to provide billed the
+> customer ₹200. One guard is new alongside the change: **an outlay above
+> `total_paise` is rejected with a 400.** Under the additive model that state
+> was unreachable; here it is money the customer is never billed for and so
+> can never repay — a silent permanent loss no screen surfaces.
+> `split_receipt` caps recovery at what actually arrives, so nothing goes
+> negative, which is exactly why nothing else would catch it. `banking.py`
+> needs no equivalent guard because its principal leg is symmetric (out of
+> settlement, into cash).
+>
+> **Migration `006_outlay_inside_fee.sql`** re-expresses rows already written
+> under the additive model: `UPDATE transactions SET fee_paise = fee_paise +
+> outlay_paise WHERE outlay_paise > 0`. `total_paise` is deliberately not
+> touched, so the bill, every ledger row posted against it, customer
+> outstanding and every report are bit-identical before and after — this is
+> arithmetic on a column's meaning, not a restatement of anything owed. It is
+> not optional: without it `_compute_total` re-derives a legacy row's total as
+> the ₹50 margin alone on the next correction and the new guard rejects it,
+> leaving every existing outlay transaction permanently uneditable, and
+> `fee_paise` would mean two different things depending on when the row was
+> written — the exact silent drift this phase exists to remove.
+> *Verify:* `test_migration_006_re_expresses_legacy_outlay_rows_without_moving_money`
+> in `backend/tests/test_transactions.py` builds a v5 row with its three real
+> ledger legs, snapshots balances/status/profit-loss either side of the
+> migration and asserts they are unchanged, then corrects the row (which 400s
+> without 006) and re-runs migrations to confirm the fee is not doubled.
+
+Ledger rows, at creation:
+
+| Row | Account | Amount | `entry_type` |
+|---|---|---|---|
+| Outlay | `outlay_account_id` | `−outlay` | `transfer` |
+| Recovery | `account_id` | `+min(paid, outlay)` | `transfer` |
+| Fee income | `account_id` | `+(paid − recovery)` | `service_income` |
+
+**`transfer` is reused rather than a new `outlay` type added, deliberately.**
+`ledger.entry_type` carries a `CHECK` constraint in `001_init.sql`, and SQLite
+cannot `ALTER` one — a new type means a full table rebuild of the append-only
+ledger, preserving ids for `reverses_id` and re-creating both immutability
+triggers from `002`, against live operator data. That is the riskiest
+migration available, bought for a label. Reuse is also the established
+precedent: `insert_banking_entries` books principal movement as `transfer` for
+the identical reason. Outlay legs stay distinguishable for free —
+`source_type='transaction'`, which `account_transfers` never writes, and the
+sign separates the outflow from its recovery.
+
+The one behavioural difference from banking is that the two legs may fall on
+different days when the customer pays late. The closing identity is
+per-account and per-day and holds regardless.
+
+**16.5.1 Schema** — `backend/migrations/005_transaction_outlay.sql`, three
+additive columns, no table rebuild:
+
+```sql
+ALTER TABLE services     ADD COLUMN has_outlay        INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE transactions ADD COLUMN outlay_paise      INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE transactions ADD COLUMN outlay_account_id INTEGER REFERENCES accounts(id);
+```
+
+Defaults make every existing row a no-outlay transaction, which is what they
+all are. Update ARCHITECTURE.md §3's event→ledger mapping table with the three
+rows above — that table is described in the document as "the specification",
+so a mapping that only exists in code is a drift the next phase inherits.
+*Verify:* migrations run clean on a copy of a real database;
+`PRAGMA user_version` advances to 5; `SELECT has_outlay FROM services` returns
+0 for every seeded row and existing transactions still list unchanged.
+
+**16.5.2 The allocation rule, as one pure function** — in
+`backend/app/transactions.py`, the single place that decides what any incoming
+money against a bill is:
+
+```python
+def split_receipt(outlay_paise: int, already_paid: int, amount: int) -> tuple[int, int]:
+    """Money in against a bill recovers the operator's outlay before any of it
+    becomes income — made whole first, profit last."""
+    recovery = min(amount, max(0, outlay_paise - already_paid))
+    return recovery, amount - recovery
+```
+
+Outlay-first is the conservative reading and the one that cannot overstate
+profit: a part-paid bill shows income only once the operator's own money is
+back. It must be one function because creation (16.5.3) and later settlement
+(16.5.5) both allocate, and two copies of an allocation rule drift into
+disagreeing about the same bill.
+*Verify:* an `assert`-based `test_split_receipt.py` in `backend/tests/`
+covering outlay fully recovered, partially recovered, already recovered
+(`already_paid > outlay`), zero outlay (every paise is income — the ordinary
+transaction path), and `amount` exceeding the whole remaining bill.
+
+**16.5.3 Post the outlay leg on create** — in `create_transaction`, accept
+`outlay_paise` and `outlay_account_id` and post the three rows above via
+`insert_entry`. `_compute_total` does not add the outlay to the total (see the
+revision note under *The model*); it takes it only to reject an outlay above
+the total.
+
+Guards, all inside the existing `begin_write` block so they hold under the
+parallel access H.1 established is real:
+
+- a non-zero `outlay_paise` requires an `outlay_account_id` (400);
+- `outlay_account_id` must be an active account, and must differ from
+  `account_id` — recovering money into the account it was paid from is a
+  no-op pair that would misreport as a transfer to itself, the same guard
+  `create_banking` applies to settlement vs cash;
+- `account_balance(conn, outlay_account_id) < outlay_paise` is rejected —
+  you cannot pay ₹5,000 from a wallet holding ₹300. The balance is read
+  *after* `begin_write`, the H.11 pattern, or N concurrent outlays all pass
+  the same pre-state check;
+- a service with `has_outlay = 0` rejects a non-zero `outlay_paise`, so the
+  catalog flag is enforced server-side and not only in the form;
+- `outlay_paise > total_paise` is rejected (400) — added with the revision
+  under *The model*. This one lives in `_compute_total` rather than here,
+  because that is the single function both create and correct route through.
+
+*Verify:* `POST /transactions` for a `has_outlay` service with
+`outlay_paise: 500000`, `fee_paise: 505000`, `amount_paid_paise: 505000`
+returns 201 with `total_paise: 505000`; the ledger shows `−500000` against the
+wallet, `+500000` `transfer` and `+5000` `service_income` against the cash
+account; `GET /reports/profit-loss` for that day reports
+`service_income_paise: 5000`, not `505000`; the wallet's balance has fallen by
+exactly the premium. An outlay exceeding the wallet balance returns 400 and
+writes nothing, and so does an outlay exceeding the total. Added to
+`backend/tests/test_transactions.py`.
+
+**16.5.4 Fix the two paid-amount derivations** — `recompute_status` and
+`list_transactions` both compute a walk-in's paid figure by summing
+`entry_type='service_income'` rows for the transaction. With the receipt split
+that undercounts by the recovery portion, so a fully paid walk-in with an
+outlay would derive as `partial` and a correct bill would show as underpaid on
+the page.
+
+Both must also count the recovery rows: `entry_type='transfer' AND
+source_type='transaction' AND source_id = ? AND amount_paise > 0`. The
+`amount_paise > 0` is what separates a recovery from the outflow leg, which
+shares the other three predicates.
+
+These two derivations are the same rule written twice and must change
+together — this is exactly the divergence 16.5.2 exists to prevent, and the
+reason this is one step rather than two.
+*Verify:* a walk-in with an outlay, paid in full at creation, derives
+`status: "completed"` and `paid_paise == total_paise` in `GET /transactions`.
+A customer transaction with an outlay and a part payment derives `partial`
+with `paid_paise` equal to the amount actually taken. Added to
+`backend/tests/test_transaction_status.py`.
+
+**16.5.5 Split later settlement, and close the income gap** — `create_payment`
+(`backend/app/payments.py`) posts the whole settled amount as a single
+`entry_type='customer_payment'` row. It already loops the customer's open
+bills oldest-first and applies `min(due, remaining)` per bill, so the
+per-transaction attribution needed for the split is already computed there —
+what is missing is that the ledger row is written once, outside the loop,
+against no particular bill.
+
+Move the posting inside the loop and split each bill's applied amount through
+`split_receipt`: the recovery portion posts as `transfer` into the receiving
+account with `source_type='transaction'` and that bill's id (matching what
+creation writes, so 16.5.4's derivation counts it), and the remainder posts as
+`service_income`. `closing.py` buckets `service_income` and `customer_payment`
+into the same `received_paise` column, so the closing identity is unaffected
+by the type change.
+
+This is where the credit-income defect above is actually fixed: the fee on a
+bill settled later now reaches `income_expenses()`. Ordinary transactions with
+no outlay are the `outlay_paise = 0` case — every paise becomes
+`service_income`, which is the behaviour that should always have applied.
+*Verify:* a customer bill of ₹5,050 (₹5,000 outlay) created wholly unpaid
+posts only the `−500000` outlay row. Settling ₹2,000 posts `+200000`
+`transfer` and no income. Settling the remaining ₹3,050 posts `+300000`
+`transfer` and `+5000` `service_income`. `GET /reports/profit-loss` over the
+whole period reports exactly ₹50 of service income, and the wallet plus cash
+across both days nets to +₹50. A no-outlay bill settled later now reports its
+full fee as income where it previously reported zero — assert that explicitly,
+since it is a deliberate change to existing behaviour. Added to
+`backend/tests/test_payments.py`.
+
+**16.5.6 Correction** — `correct_transaction` finds the single live
+`service_income` entry and reverses-and-replaces it when the account, date or
+total changes. A transaction can now have up to three live entries, and the
+outlay leg sits on a *different account* from the other two.
+
+Extend the live-entry lookup to all rows for the transaction (the
+`_live_ledger_entries` shape `banking.py` already uses, which excludes
+`entry_type='reversal'` so a second correction cannot re-reverse a reversal
+and trip `reverse_entry`'s H.9 guard). When `outlay_paise`,
+`outlay_account_id`, the account or the date changes, reverse every live row
+and re-post all three from the corrected figures, re-running `split_receipt`
+because a changed outlay re-allocates money already received. Re-check the
+source account's balance *after* the reversals, so the guard sees the true
+post-reversal balance — the ordering `update_banking` already established.
+
+`ensure_business_day_open` must be called on the transaction's *current*
+business_date unconditionally, not only when the date moves — H.29 and H.30
+are the same defect found twice, and this step adds a third path that would
+reproduce it.
+*Verify:* correcting an outlay from ₹5,000 to ₹4,500 reverses all three
+entries and posts three replacements; the wallet balance reflects ₹4,500; no
+ledger row was ever `UPDATE`d (the `002` trigger enforces this — assert the
+reversal rows exist rather than trusting it). Correcting the outlay account
+moves the outflow between accounts and leaves the recovery rows on the
+receiving account. A correction on a closed day returns 409. Added to
+`backend/tests/test_transaction_correction.py`.
+
+**16.5.7 The catalog flag** — add a `Requires an outlay` checkbox to the
+create/edit form in `src/pages/Services.tsx`, and `has_outlay` to
+`ServiceCreate`/`ServiceUpdate` in `backend/app/services.py` (with the
+`_not_null` validator the other non-null fields use, and the
+`int(fields[...])` coercion `is_active` already needs). Show it as a column in
+the services table so an operator can see at a glance which services carry
+one.
+*Verify:* ticking the box on a service and saving round-trips through
+`GET /services`; the transaction form (16.5.8) then shows the outlay fields
+for that service and not for an unticked one.
+
+**16.5.8 The transaction form** — in
+`src/components/forms/TransactionForm.tsx`, when the selected service has
+`has_outlay`, render `Paid out by you` and `Paid from` fields and require
+them. `0` is a valid, explicit answer — a customer who already paid the
+government fee themselves is a real case — but it must be *typed*, not left
+blank, because a field an operator tabs past is the silent drift this phase
+exists to remove. Unticked services render neither field.
+
+The running total shown above the Save button is `fee + charge − discount` —
+the outlay is **not** added, because the fee already contains it (see the
+revision under *The model*). The fee and outlay fields each carry a
+`FieldDescription` saying so, since the label alone is what misled operators
+into entering the margin. Mirror the server's guards inline (source account
+required when the amount is non-zero, source account must differ from the
+receiving account, outlay not above the total) with the same wording, the way
+15.3 mirrors `create_transaction`.
+
+The form is shared by `Transactions.tsx` and the Dashboard quick-action modal,
+so both inherit this from the one edit.
+*Verify:* selecting a `has_outlay` service reveals both fields; leaving the
+amount blank blocks Save inline with an empty Network tab; the displayed total
+equals fee + charge − discount and does not move when the outlay changes;
+an outlay above that total blocks Save inline; selecting an unticked service hides
+the fields and clears any value already typed, so a stale outlay cannot be
+submitted against a service that has none. Confirmed on both the Transactions
+page and the Dashboard modal.
+
+**16.5.9 Make the reports say what they mean** — `billed_paise` in the
+service-wise (`reports.py:59`) and customer-wise (`reports.py:153`) reports
+sums `total_paise`, which contains the outlay inside the fee. That is
+literally correct — the customer was billed it — but a service-wise revenue
+table where ₹5,050 of
+"billed" is ₹50 of actual earnings invites exactly the misreading this phase
+is about. Add `outlay_paise` alongside `billed_paise` in both, and surface it
+as its own column in `src/pages/Reports.tsx`.
+
+The Ledger screen labels rows by `entry_type`, so outlay legs read as
+"Transfer". Label rows with `source_type='transaction'` as `Outlay` or
+`Outlay recovery` by sign — a display-layer rename only, no ledger change.
+*Verify:* the service-wise report for a day with one ₹5,000-outlay insurance
+transaction shows `billed 5050 / outlay 5000`, and `GET /reports/profit-loss`
+for the same day still reports ₹50. The Ledger screen shows the wallet row as
+`Outlay` and the cash row as `Outlay recovery`, and a genuine account transfer
+still reads `Transfer`.
+
+*Verify (phase):* an insurance premium paid from the portal wallet and
+collected from the customer — in full at the counter, or on credit and settled
+days later — leaves the wallet balance in the app matching the real portal
+balance to the paise, the customer's outstanding equal to what they actually
+owe, and the day's reported income equal to the fee alone. Run
+`backend/tests/test_reconciliation.py`'s scripted month with outlay
+transactions added to it: every account must still reconcile, and
+`opening + received − paid + transfer_in − transfer_out + adjustment = closing`
+must hold per account and in total.
+
+---
+
+## Phase 17 — Shell lockdown & manual update check
+
+Three requests that all land in `electron/main.cjs`, so they ship as one phase.
+
+**17.1 No full screen** — `fullscreenable: false` on the `BrowserWindow`, and
+`Menu.setApplicationMenu(null)` before the window is created. The default menu
+is what binds F11 (View → Toggle Full Screen) as well as F12 and
+Ctrl+Shift+I; dropping it removes all three accelerators at once. Maximise,
+minimise and resize are untouched — this removes a mode the operator can get
+stuck in, not the ability to size the window. Dev runs lose the menu too, and
+get DevTools opened programmatically instead (`!app.isPackaged`), because a
+shortcut that only exists in dev is a shortcut nobody tests.
+*Verify:* in the packaged app F11 does nothing, there is no menu bar, and
+`mainWindow.isFullScreen()` stays false; `npm run electron` still opens with
+DevTools.
+
+**17.2 No developer tools in a packaged build** —
+`webPreferences: { devTools: !app.isPackaged }`. This is the hard switch, not
+just the accelerator: `webContents.openDevTools()` and the right-click Inspect
+route both become no-ops. Together with 17.1 the packaged build has no way in.
+
+No escape hatch, deliberately. If a packaged build ever needs inspecting,
+Phase 12's file log under `data\logs\` is the diagnostic channel and was built
+for exactly this — adding a hidden key combination back would undo the step
+while looking like it hadn't.
+*Verify:* in the packaged app F12, Ctrl+Shift+I and right-click → Inspect all do
+nothing, and a `webContents.openDevTools()` call from the main process opens
+nothing. `npm run electron` is unaffected.
+
+**17.3 A preload bridge** — the renderer has no channel to the main process
+today: there is no preload script, and Electron 43 has `contextIsolation` on and
+`nodeIntegration` off by default. Add `electron/preload.cjs` exposing exactly one
+object over `contextBridge`: `window.cscms.checkForUpdates()` and
+`window.cscms.onUpdateState(cb)`. Nothing else goes on that bridge — every extra
+method is another route from renderer to main, and 11.1's threat model assumes
+the renderer is the untrusted side.
+*Verify:* `window.cscms` exists in the renderer and `window.require` does not;
+the bridge survives a reload; `npm run build` and `tsc --noEmit` clean with the
+new global typed in `src/vite-env.d.ts`.
+
+**17.4 Check for updates button** — in the sidebar footer, beside the version
+string Phase 14 already put there. It calls `autoUpdater.checkForUpdates()`
+through 17.3's bridge and reports back off the `autoUpdater` events that already
+fire today for the 4-hourly background check: `checking-for-update`,
+`update-available`, `update-not-available`, `download-progress`,
+`update-downloaded`, `error`. Five states in the UI — idle, checking, up to
+date, downloading %, ready.
+
+"Ready" is the honest wording. 11.5 sets `autoInstallOnAppQuit`, so a downloaded
+update applies on the next close; a button that says "Updated" would be lying
+about the thing the operator most needs to know.
+*Verify:* with a higher version published, the button moves checking →
+downloading → "Update ready — applies when you close CSCMS", and closing then
+reopening lands on the new version. With no update it says "You are on the
+latest version" and stops. Offline, it reports the failure rather than spinning
+on "checking" forever. In an unpacked dev run (no `app-update.yml`) it reports
+that updates are unavailable instead of throwing.
+
+**17.5 Restart & install now** — once `update-downloaded` has fired the same
+button becomes `Restart & install`, calling `autoUpdater.quitAndInstall()`.
+
+The one thing this must not break is the shutdown backup. `main.py`'s shutdown
+hook writes the day's automatic backup on quit (PLAN 8.5), and this plan's risk
+note on 11.5 already flags that the updater's restart can pre-empt it — that
+note was written about the passive path, and this step adds a button that
+triggers it on demand, mid-day, at the operator's choosing. `quitAndInstall()`
+has to run through the same `before-quit` path that calls `stopBackend()`, with
+the backend given time to finish its shutdown hook before the installer runs.
+*Verify:* click `Restart & install` mid-day. After the restart the app is on the
+new version **and** `data\backups\` — and 16.2's mirror — contain a backup
+timestamped at that restart. The version number alone does not pass this step.
+
+---
+
+## Phase 18 — Editable account balances
+
+The operator needs to correct a balance that has drifted from physical reality.
+`ARCHITECTURE.md` §2 forbids a writable balance column, so "editing" a balance
+means posting the difference to the ledger: the operator types the correct
+figure, the system computes the delta and writes one `adjustment` entry. The
+balance moves because the ledger moved, which is the only way it can move and
+still reconcile.
+
+**18.1 Adjustment endpoint** — `POST /api/accounts/{id}/adjust`, body
+`{ target_balance_paise, business_date, reason }`. Computes
+`delta = target - account_balance(conn, id)` and writes exactly one ledger row:
+`entry_type='adjustment'`, `source_type='manual'`, `source_id=account_id`,
+`description=reason`, `amount_paise=delta`. No new column, no `UPDATE` of
+anything.
+
+Every guard below is one this codebase has already had to learn the hard way:
+
+- `begin_write(conn)` **before** reading the current balance, with the read,
+  the delta computation and the insert all inside that transaction. Without it
+  two concurrent adjusts both read pre-state and both post a full delta,
+  doubling the correction — H.11's exact failure, and H.21/H.23 are the record
+  of new endpoints forgetting it.
+- `ensure_business_day_open(conn, business_date)` called **unconditionally**,
+  not `if delta != 0`. H.29–H.31 are three separate instances of that guard
+  being skipped from derived state.
+- `validate_business_date` at the boundary, per H.13.
+- `delta == 0` → 400, not a silent success. A zero-delta row is a ledger entry
+  that records nothing.
+- `reason` required and non-blank — the entire point of an adjustment is that
+  someone said why.
+- The same `ge`/`le` int64 bound on `target_balance_paise` that every other
+  money field carries (H.32).
+- Deactivated account → 400, via the existing `_get_active_or_404` (H.15).
+
+*Verify:* a test in `backend/tests/` posts an adjust and asserts one new ledger
+row with the right delta and a balance now equal to the target; a **parallel
+probe** fires 8 concurrent adjusts at the same target and asserts exactly one
+row was written and the balance equals the target, not a multiple of the delta;
+adjusting on a closed day returns 409; a blank reason returns 400; a zero delta
+returns 400.
+
+**18.2 Audit the adjustment** — `write_audit(..., action="adjust")` in the same
+transaction, carrying the before and after balance plus the reason. The audit
+row is what turns "the balance changed" into "who changed it, when, and why",
+which is the difference between an adjustment and an unexplained discrepancy.
+*Verify:* the Audit Log page shows the adjustment with both balances and the
+reason. Force a failure after `insert_entry` and assert neither the ledger row
+nor the audit row survives — they commit together or not at all.
+
+**18.3 Adjust in the Accounts UI** — an `Adjust` button per row in
+`src/pages/Accounts.tsx`, beside the existing Edit/deactivate pair, opening a
+dialog showing the current derived balance, taking the new balance and a reason,
+and previewing the computed difference live before save. The preview is the
+point: an operator typing `12650` should see `+₹250` and not have to trust that
+the system read it the way they meant.
+*Verify:* adjust Cash Drawer up by ₹250; the account row, the Dashboard's Cash
+in Hand card and the Ledger page all reflect it after refetch, and the Ledger
+row reads as an adjustment carrying the reason. Save stays disabled while the
+difference is zero or the reason is blank.
+
+**18.4 Adjustments land in the closing report without polluting cash variance**
+— `_BREAKDOWN_SQL` already buckets `entry_type='adjustment'` into
+`adjustment_paise`, so a manual adjust appears in the day report with no change
+at all. But `_cash_variance_paise` deliberately filters to
+`source_type='closing'` (H.38) so unrelated rows stay out of the physical-count
+variance, and `source_type='manual'` is exactly such a row. This step is
+confirmation, not new code — and if it turns out code is needed, that is a bug
+18.1 introduced.
+*Verify:* post a manual cash adjustment, then open the day report:
+`adjustment_paise` for that account includes it, `cash_variance_paise` does not,
+and opening + received − paid + transfers + adjustment still equals closing.
+
+---
+
+## Phase 19 — Close yesterday before trading today; verify bank balances at close
+
+Two requests, one subject: the closing workflow.
+
+### Part A — The unclosed previous day (19.1–19.3)
+
+**19.1 An endpoint that names the oldest unclosed day** — `GET /api/day/unclosed`
+returning the earliest `business_date` strictly before today that has ledger
+activity and is not `closed`, or null.
+
+Derived from dates that actually have entries, not from every date on the
+calendar. A day the shop was shut is not an unclosed day, and prompting about it
+would train the operator to dismiss the prompt without reading it — which is the
+failure mode that makes the whole feature worthless.
+*Verify:* with yesterday left open and carrying transactions, the endpoint names
+yesterday. With yesterday closed it returns null. With a gap — traded and closed
+Saturday, shut Sunday — it returns null, not Sunday.
+
+**19.2 A dismissible banner, not a block** — on the Dashboard above the stat
+grid, when 19.1 returns a date: *"Business day 11 Aug 2026 was never closed"*,
+with `Close it now` and `Continue with today`.
+
+Explicitly **not** a modal and **not** a write block. The stated requirement is
+that today's work proceeds regardless, and a shop till that refuses to record a
+sale over yesterday's paperwork is a till the operator works around on paper —
+at which point the ledger stops being the record of what happened, which is the
+one property the entire architecture is built to protect.
+
+`DailyClosing.tsx` currently hardcodes `localDateISO()` as the date it closes.
+Accepting a date from the query string is the real work in this step; the banner
+is the easy half.
+*Verify:* with yesterday unclosed the banner appears **and** a new transaction
+still saves normally from the Quick Actions modal. `Close it now` opens the
+wizard on *yesterday's* date showing yesterday's figures. Dismissing hides it
+for the session; it returns on the next launch, because a day does not stop
+being unclosed by being dismissed once.
+
+**19.3 The same notice where money is entered** — a banner on a dashboard nobody
+looked at is not a prompt. Repeat it as one line at the top of the Quick Actions
+modal.
+*Verify:* open the Quick Actions modal with yesterday unclosed — the notice is
+present and every form still submits.
+
+### Part B — Bank balance verification at close (19.4–19.6)
+
+Step 3 of the closing wizard is already labelled *"Verify Bank Balances — Match
+all accounts"* and today only displays them. Cash already has the full
+treatment: a physical count, a computed variance, a mandatory remark, an
+adjustment entry. Bank accounts get the same shape.
+
+**19.4 Per-account declared balances on close** — extend `CloseDayRequest` from
+a single `physical_cash_paise` to
+`account_balances: list[{account_id, declared_balance_paise, remarks}]`, keeping
+`physical_cash_paise` accepted so nothing already calling it breaks. Per entry,
+`variance = declared - closing_balance(conn, account_id, business_date)`; a
+non-zero variance requires a remark and posts one `adjustment` /
+`source_type='closing'` entry.
+
+This must **generalise the existing cash path over accounts**, not add a second
+copy of it beside it. Two code paths writing closing adjustments is how
+`cash_variance_paise` and the per-account figures start disagreeing.
+*Verify:* close a day declaring a bank balance ₹500 above the system figure with
+a remark — a single adjustment entry appears against that account, the report's
+`adjustment_paise` reflects it, and the account's closing balance now equals the
+declared figure. A variance with no remark returns 400. Declaring exactly the
+system figure writes no entry at all. A parallel probe of two concurrent closes
+on the same date still produces one close and one set of entries (`begin_write`
+already wraps `close_day`; this step must not move work outside it).
+
+**19.5 Variance becomes per-account** — `_cash_variance_paise` returns one scalar
+for the primary cash account. With bank variances now possible the report needs a
+per-account variance and `ClosedReport` in `DailyClosing.tsx` needs a column for
+it. Keep `cash_variance_paise` in the response — the printed report and the
+summary card both read it — and add the per-account figure alongside rather than
+replacing it.
+*Verify:* close a day with both a cash variance and a bank variance; the printed
+report shows each against its own account, and opening + received − paid +
+transfer_in − transfer_out + adjustment = closing still holds per account and in
+total.
+
+**19.6 Wizard step 3 becomes an input step** — every active non-cash account gets
+a "current balance" field in step 3, left **blank**, not prefilled with the
+system figure. A prefilled field is a field the operator tabs past, and the
+entire purpose of this step is an independent second reading. Show the system
+figure beside it with the difference computed live, the same shape as 18.3.
+
+A blank field means "not verified" and posts nothing, so a shop that reconciles
+its bank monthly is not blocked from closing daily.
+*Verify:* close a day entering one bank balance and leaving another blank — only
+the entered one produces an adjustment. Entering a differing figure with no
+remark blocks the wizard's final step inline, before the request leaves the
+browser (empty Network tab).
+
+*Verify (phase):* an operator opening the app on a day when yesterday was never
+closed is told so without being blocked from trading, and closing any day
+records an independently declared balance for cash and for every bank account
+they chose to verify, with every variance carrying a reason.
+
+---
+
+## Phase 20 — New Customer inside the Quick Actions modal
+
+**This reverses 15.5's decision, deliberately.** 15.5 made New Customer a
+*navigation* to `/customers`, reasoning that customer creation is a list/detail
+page rather than a single form. That reasoning was about the page; the operator's
+need is about the form. 15.4 exists precisely because a blocked transaction sends
+them off to create a customer, and 15.4's own note accepted that "the in-progress
+transaction is lost on that navigation". This phase is what stops accepting it.
+
+**20.1 Extract the customer form** — `src/pages/Customers.tsx` holds the
+create/edit form inline (`formMode`, `form`, `emptyForm`, `openCreate`,
+`submitForm`). Lift it into `src/components/forms/CustomerForm.tsx` with the same
+`onSuccess`/`onCancel` contract the other three forms already use, and have
+`Customers.tsx` render that component instead of its own copy.
+
+A move, not a rewrite. The modal and the page must not become two customer forms
+that drift apart — which is the same reasoning that put the transaction guard in
+`TransactionForm.tsx` rather than in each of its two callers (15.3).
+*Verify:* the Customers page creates and edits exactly as before; `tsc --noEmit`
+and `npm run build` clean; the diff adds no validation and removes none. Per the
+Phase 9.5 risk note, a refactor is the easiest place to lose a rule quietly.
+
+**20.2 Fourth tab** — add `customer` to `QuickTab` and a fourth
+`TabsTrigger`/`TabsContent` in `Dashboard.tsx` rendering `CustomerForm`. The
+Quick Actions card's `New Customer` entry switches from `path: "/customers"` to
+`tab: "customer"`. The `a.path === "/closing"` variant check 15.5 introduced
+already survives the change — that is why it was written that way.
+*Verify:* Quick Actions → New Customer opens the modal on the customer tab;
+saving creates the customer, closes the modal, and invalidates the customer list
+query so the new name is immediately findable in the transaction form's search.
+
+**20.3 Create a customer without losing the transaction** — with the form now
+inside the same modal, 15.4's suggestion row (`+ Add "<query>" as a new
+customer`) and its Alert action switch tabs instead of navigating.
+`TabsContent keepMounted` is already in place, so the half-filled transaction
+survives the switch. On save, switch back to the transaction tab with the new
+customer selected.
+*Verify:* in the modal, fill a transaction, type an unknown customer name, click
+the suggestion, create the customer, and land back on the transaction tab with
+the service, amounts and paid figure still filled and the new customer selected.
+A transaction that survives the round trip is this phase's entire justification;
+if it does not survive, the phase has not shipped.
+
+**20.4 Retire the navigation path** — `Customers.tsx`'s `location.state`
+handling (`{ create: true, name }`) now has no caller from the Dashboard. Confirm
+nothing else navigates with it, then remove the state handling and the `useState`
+initialisers reading it. Per `CLAUDE.md` §3 this removes orphans *this* change
+created — not a general tidy of `Customers.tsx`.
+*Verify:* `grep -rn "create: true" src/` returns only `Customers.tsx` before the
+removal and nothing after; the page's own `+ Add New Customer` button still
+opens the form.
+
+---
+
+## Phase 21 — Dashboard charts
+
+shadcn's chart component (`npx shadcn@latest add chart`), which wraps Recharts
+and reads the theme tokens the rest of the UI already uses. Chosen over
+hand-rolled SVG because axes, tooltips and resize handling are the parts that
+are actually work, and this project already carries shadcn.
+
+**21.1 Install the chart component** — `npx shadcn@latest add chart` into
+`src/components/ui/chart.tsx`; it pulls `recharts`. The wiring risk is not the
+library but the palette: `ChartContainer`'s CSS-variable scheme has to be pointed
+at `index.css`'s existing tokens rather than shadcn's defaults, or the charts
+arrive in a second colour language beside the app's own.
+*Verify:* a throwaway chart renders on the Dashboard in the app's palette;
+`npm run build` clean with the bundle-size delta recorded; printing the closing
+report is unchanged (the chart component injects its own `<style>`, and
+`index.css`'s `@media print` block is the undeclared coupling this plan's risk
+notes already flagged once).
+
+**21.2 A trend endpoint** — `GET /api/dashboard/trend?days=7`, returning
+per-business-date income, expenses and profit derived from the ledger the same
+way `get_dashboard` derives today's figures. One request, not seven — the
+Dashboard already fires five parallel queries and H.1's finding applies to every
+one of them.
+*Verify:* seed 7 days of known transactions and expenses; each date's figures
+match what `/api/dashboard` reports for that date individually. A date with no
+activity returns a **zero row, not a missing row** — a gap in a line chart reads
+as missing data, and here it means a quiet day.
+
+**21.3 Income vs expenses trend** — a chart over 21.2's range, full width above
+the existing two-column layout, with a range control.
+*Verify:* the rightmost point matches today's stat cards exactly; changing the
+range refetches rather than re-slicing stale data.
+
+**21.4 Service mix chart** — the Service Breakdown card already computes
+`serviceBreakdown` from the transaction list it fetched. Give it a donut or
+horizontal bar on that same data: no new endpoint, no new query.
+*Verify:* the segments sum to today's income figure on the stat card; with no
+transactions the card keeps its existing empty state rather than rendering a
+zero-slice chart.
+
+**21.5 Charts obey the error states H.8 established** — `QueryState.tsx` exists
+because `data = []` turning a failed fetch into a confident "₹0" is a wrong
+number, and an empty chart is the most confident zero in the application. Route
+every chart through `BlockState`.
+*Verify:* with the trend endpoint returning 500 the chart area shows the failure
+state; with it returning genuinely empty data it shows an empty state that
+cannot be mistaken for either the failure state or a real run of zero-income
+days.
+
+---
+
+## Phase 22 — Encryption at rest
+
+Anyone who reaches `data\cscms.db` can open it in a free SQLite viewer and read
+every customer name, phone number and outstanding balance. This plan's own risk
+note on 11.1 already named this step: *"do not let a future step spend effort
+hardening the secret without first raising the DB's own protection, or the work
+buys nothing."*
+
+**This phase opens with a go/no-go and must not proceed past it on assumption.**
+SQLCipher through Python is the standard answer and is genuinely awkward on
+Windows: `pysqlcipher3`/`sqlcipher3` want a compiled OpenSSL + SQLCipher
+toolchain, prebuilt wheels for current CPython on Windows are unreliable, and
+PyInstaller then has to bundle the resulting native extension into
+`backend/build_exe.bat`'s `--onedir` output. A half-answer here is worse than
+none.
+
+**22.1 Spike — can SQLCipher be built and packaged here?** Timeboxed. Build it
+against the backend's Python, open an encrypted DB, run the existing suite in
+`backend/tests/` against it, then run `build_exe.bat` and confirm the packaged
+`cscms-backend.exe` starts and opens the encrypted file. The deliverable is a
+written yes or no; the spike code is not kept.
+*Verify:* either a packaged exe demonstrably opening an encrypted DB, or a
+written no naming the specific failure. Phase branches on this answer — 22.2/22.3
+on yes, 22.4 on no.
+
+**22.2 (on yes) Key storage** — the key cannot live in the source, and it cannot
+live beside the DB in plaintext, which would make the encryption theatre.
+Windows DPAPI (`CryptProtectData`, bound to the operator's Windows account) is
+the native option and matches the actual threat: another Windows user cannot
+decrypt it. Electron holds the key and hands it to the backend exactly the way
+it already hands over `CSCMS_APP_SECRET` (11.2) — that path exists, is
+understood, and does not need inventing.
+*Verify:* `cscms.db` copied to another machine, or opened from another Windows
+account, is unreadable; the app opens it normally on the machine and account
+that created it.
+
+**22.3 (on yes) Migrate existing installs** — every shipped install carries a
+plaintext DB. First launch after the update must back it up **to Phase 16's
+mirror** (so the safety copy is outside the folder being rewritten), encrypt in
+place via `sqlcipher_export`, and be interruptible without data loss. A
+half-migrated ledger is worse than an unencrypted one, and 11.6's risk note
+already establishes there is no downgrade path to fall back to.
+*Verify:* an install carrying a real plaintext DB updates to the encrypted build
+with all data intact and `PRAGMA integrity_check` clean; killing the process
+mid-migration and relaunching either completes the migration or leaves the
+original readable — never neither.
+
+**22.4 (on no) Windows EFS fallback** — `cipher /e` on `data\`: a native Windows
+feature, no dependency, no packaging risk, no migration. It encrypts the folder
+against every *other* Windows account on the machine, which covers the
+family-member case exactly. It does **not** protect against someone using the
+operator's own logged-in session. Say that limit plainly in the release notes
+rather than letting "encrypted" imply more than it does.
+*Verify:* a second Windows account on the same machine cannot read `cscms.db`;
+the operator's account opens the app normally; an uninstall/reinstall cycle
+leaves no undecryptable orphan.
+
+*Verify (phase):* the ledger cannot be read by opening the file in a SQLite
+viewer from another Windows account, and no existing install lost data getting
+there.
+
+---
+
+## Phase 23 — Motion polish (optional)
+
+Marked optional by the operator. Nothing depends on it and it can be dropped
+without consequence — it is listed so it does not get done by accident inside
+another phase.
+
+`tw-animate-css` is already a dependency and shadcn's Dialog, Tabs, AlertDialog
+and Sheet already animate through it. The gap is not a missing animation
+library; it is that route changes, stat cards and table rows appear instantly.
+
+**23.1 Route transitions** — a short fade on the routed outlet in `App.tsx`. CSS
+only, through utilities already present. No new animation dependency.
+*Verify:* navigating between pages fades rather than snaps; browser back is
+unaffected; no layout shift.
+
+**23.2 Number and card transitions** — stat cards animate on mount and a changed
+figure transitions rather than jumping. H.8's constraint holds and is the real
+risk here: a number in motion must still read unambiguously as a settled number,
+and a loading skeleton must never animate into something readable as a real zero.
+*Verify:* refetching the dashboard after a transaction transitions the income
+figure smoothly; a failed refetch shows the error state immediately, with no
+animation covering or delaying it.
+
+**23.3 Respect `prefers-reduced-motion`** — every animation added in this phase
+sits inside the media query. Not a nicety: this is a till operated for eight
+hours a day, and it is the accessibility basic that polish work routinely skips.
+*Verify:* with reduced motion set in Windows, every animation from 23.1–23.2 is
+off and the app remains fully functional.
+
+---
+
+## Phase 24 — Deferred
 
 Genuinely useful, genuinely not blocking. Pulled forward on request. Left
 unbroken deliberately — breaking down work this far out is speculation.
@@ -2278,6 +3132,22 @@ explicit rebuild command, never as a second writable source.
 **Banking commission modelling (5.1, 5.5) is the most common correctness bug**
 in this class of application. Booking the ₹5,000 principal of an AEPS
 withdrawal as income overstates daily profit by a hundredfold.
+
+**The same bug has a second front, and Phase 16.5 is only half a guard against
+it.** An outlay on a service transaction — an insurance premium, a government
+fee — is the identical hundredfold overstatement if it lands in `fee_paise`
+instead of `outlay_paise`. 16.5 makes the right path available and enforces it
+for services flagged `has_outlay`, but nothing stops an operator entering a
+premium as a fee on an *unflagged* service, and no report would look wrong: a
+₹5,050 fee is arithmetically consistent everywhere. The catalog flag is
+therefore load-bearing, and a service that should carry an outlay but was
+never ticked is the failure mode to watch. **The 16.5 revision sharpens this:**
+now that the fee is the whole ₹5,050 either way, the outlay field is the *only*
+thing distinguishing a correctly recorded premium from one booked entirely as
+income — leaving it at 0 on a flagged service is the same overstatement, with a
+fee figure that is now identical to the correct entry's. Phase 19's per-account balance
+verification at close is the backstop that would surface it, because the
+wallet balance is the one figure that cannot be made to agree by mistake.
 
 **Phase 13 puts the ledger inside a directory the installer clears (13.3).**
 Data lives in `$INSTDIR\data`, and NSIS removes the install directory on every
@@ -2402,6 +3272,60 @@ a lower version, and if forced, the older code meets a DB schema it does not
 know. The recovery route is a fixed *higher* version, not a rollback. This makes
 the 11.6 acceptance test the real gate on the release process: a bad publish is
 expensive in a way a bad local build is not.
+
+**Encrypting the DB while mirroring it in the clear buys nothing (16.2 vs
+22.x).** Phase 16 copies every backup to a second location — by 16.4 possibly a
+cloud-synced folder — and Phase 22 then encrypts the live DB. If the mirror
+keeps writing plaintext `VACUUM INTO` output, the ledger is readable in the
+easiest-to-reach copy and the encryption protects only the file nobody was going
+to open anyway. Whichever branch 22.1 takes, the mirrored copies have to be
+covered by it, and 22.3's own safety backup is the first place this bites: it is
+written *before* encryption, deliberately, and has to be cleaned up after.
+
+**Phase 20 reverses a decision Phase 15 made on purpose.** 15.5 chose navigation
+over a modal tab, and 15.4 explicitly accepted losing the in-progress
+transaction. That was a defensible call at the time; it is being overturned
+because the operator hit the cost. The risk is 20.1: extracting `CustomerForm`
+out of `Customers.tsx` is exactly the shape of refactor the Phase 9.5 risk note
+warns about — all the validation moves, none of it should change, and "the page
+still looks right" will not catch a rule that quietly stopped firing.
+
+**17.2 removes the only interactive way to inspect a packaged build.** That is
+the point of the step, and it means Phase 12's file logging becomes the sole
+diagnostic channel for every bug reported from an installed copy from then on.
+Any future step that would have been debugged by opening DevTools on the
+operator's machine now has to be debugged from `data\logs\` — which is an
+argument for logging more at the point a feature ships, not for putting a hidden
+key combination back.
+
+**17.5 arms the 11.5 hazard on demand.** The note below says the updater's
+restart can pre-empt `main.py`'s shutdown backup. Until now that only happened
+on a natural quit after a background download; 17.5 gives the operator a button
+that triggers it mid-day, whenever they like. The step's *Verify* asserts the
+backup landed, not just that the version changed, for exactly this reason.
+
+**Hiding `data\` (16.1) makes it harder to find, not harder to delete.** The
+attribute stops an idle browse; it does nothing against a deliberate delete, a
+cleanup utility, or a drive failure. 16.2's off-install mirror is the step that
+actually makes the loss survivable, and 16.1 must not be allowed to read as
+having solved the problem on its own. The same reasoning applies to 13.3's
+carve-out, which has now been mistaken for a data-safety measure once already.
+
+**18.1 is the next `begin_write`/`ensure_business_day_open` regression waiting to
+happen.** H.21/H.23 record the last two endpoints added after H.11 that forgot
+the write lock, and H.29–H.31 record three call sites that decided *whether* to
+check the closed-day rule from derived state. `POST /accounts/{id}/adjust` is a
+read-then-write against a balance, on a business date, from a new file — the
+exact shape both defects took. Its *Verify* carries a parallel probe because a
+sequentially-verified guard here is decorative (H.11).
+
+**19.4 generalises the one function H.38 already had to correct.**
+`_cash_variance_paise` filters to `source_type='closing'` precisely so unrelated
+adjustment and reversal rows stay out of the physical-count variance. Widening
+close-day variance from one cash account to every account rewrites the code
+around that filter, and 18.1 simultaneously introduces a *new* adjustment source
+(`source_type='manual'`) that must not leak into it. Those two phases can each be
+correct alone and wrong together; 18.4's *Verify* is the check that catches it.
 
 **A shell-only phase still touches the money path (11.5).** `autoInstallOnAppQuit`
 fires during the same quit that `main.py`'s shutdown hook uses to write the

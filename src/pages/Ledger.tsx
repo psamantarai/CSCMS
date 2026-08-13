@@ -23,6 +23,7 @@ type LedgerEntry = {
   account_id: number
   amount_paise: number
   entry_type: string
+  source_type: string
   description: string | null
   created_at: string
   running_balance: number
@@ -44,6 +45,18 @@ const typeClass: Record<string, string> = {
   commission: "bg-ring/15 text-ring",
   expense: "bg-destructive/15 text-destructive",
   transfer: "bg-purple-500/15 text-purple-600",
+}
+
+// PLAN 16.5.9: the outlay/recovery legs are booked as entry_type='transfer'
+// (see docs/PLAN.md 16.5's ledger-row table — CHECK constraint reuse, not a
+// new type), which reads as plain "Transfer" — display-layer-only rename by
+// sign, no ledger change.
+function isOutlayLeg(e: LedgerEntry): boolean {
+  return e.entry_type === "transfer" && e.source_type === "transaction"
+}
+function entryLabel(e: LedgerEntry): string {
+  if (isOutlayLeg(e)) return e.amount_paise < 0 ? "Outlay" : "Outlay recovery"
+  return typeLabel[e.entry_type] ?? e.entry_type
 }
 
 const columns = ["Entry", "Date", "Time", "Description", "Type", "Account", "Debit", "Credit", "Running Balance"]
@@ -83,7 +96,7 @@ export default function Ledger() {
     date: e => e.business_date,
     time: e => e.created_at,
     description: e => e.description ?? "",
-    type: e => typeLabel[e.entry_type] ?? e.entry_type,
+    type: e => entryLabel(e),
     account: e => accountName(e.account_id),
     debit: e => (e.amount_paise < 0 ? -e.amount_paise : 0),
     credit: e => (e.amount_paise > 0 ? e.amount_paise : 0),
@@ -204,7 +217,7 @@ export default function Ledger() {
                   <TableCell className="text-muted-foreground/70">{formatTime(e.created_at)}</TableCell>
                   <TableCell>{e.description || "—"}</TableCell>
                   <TableCell>
-                    <Badge className={typeClass[e.entry_type] ?? "bg-muted text-muted-foreground"}>{typeLabel[e.entry_type] ?? e.entry_type}</Badge>
+                    <Badge className={typeClass[e.entry_type] ?? "bg-muted text-muted-foreground"}>{entryLabel(e)}</Badge>
                   </TableCell>
                   <TableCell className="text-muted-foreground">{accountName(e.account_id)}</TableCell>
                   <TableCell className={cn("font-mono tabular-nums", debit > 0 ? "text-destructive" : "text-muted-foreground")}>

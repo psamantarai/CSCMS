@@ -15,9 +15,10 @@ from app.closing import CloseDayRequest, close_day
 from app.customers import CustomerCreate, create_customer
 from app.db import get_connection, run_migrations
 from app.ledger import account_balance
+from app.reports import profit_loss_report
 from app.seed import run_seed, seed_admin_user
 from app.services import ServiceCreate, ServiceUpdate, create_service, update_service
-from app.transactions import TransactionCreate, create_transaction
+from app.transactions import TransactionCorrection, TransactionCreate, correct_transaction, create_transaction
 
 MIGRATIONS_DIR = Path(__file__).resolve().parent.parent / "migrations"
 
@@ -34,6 +35,19 @@ def _cash_and_service(conn):
     cash_id = conn.execute("SELECT id FROM accounts WHERE name = 'Cash Drawer'").fetchone()[0]
     service = create_service(ServiceCreate(name="PAN Card", category="PAN", default_fee_paise=10000), conn)
     return cash_id, service["id"]
+
+
+def _cash_wallet_and_outlay_service(conn, wallet_balance_paise=1000000):
+    # ServiceCreate doesn't expose has_outlay yet (that's PLAN 16.5.7) — set
+    # it directly, same as any other pre-catalog-UI test setup in this file.
+    cash_id = conn.execute("SELECT id FROM accounts WHERE name = 'Cash Drawer'").fetchone()[0]
+    wallet = create_account(
+        AccountCreate(name="Portal Wallet", account_type="wallet", opening_balance_paise=wallet_balance_paise), conn
+    )
+    service = create_service(ServiceCreate(name="Insurance Premium", category="Insurance", default_fee_paise=5000), conn)
+    conn.execute("UPDATE services SET has_outlay = 1 WHERE id = ?", (service["id"],))
+    conn.commit()  # raw DML auto-begins a transaction; create_transaction's begin_write needs none open
+    return cash_id, wallet["id"], service["id"]
 
 
 def test_total_computed_from_fee_charge_discount():
@@ -454,6 +468,213 @@ def test_deactivated_service_rejected_at_create():
         conn.close()
 
 
+def test_outlay_leg_posted_and_profit_loss_excludes_it():
+    # PLAN 16.5.3: a premium paid from the portal wallet and collected in
+    # full from the customer — the ledger carries the outlay, its recovery
+    # and the fee as three separate rows, and only the fee is income.
+    # PLAN 16.5 revised: fee_paise is the ₹5,050 charged to the customer, not
+    # the ₹50 margin — the ₹5,000 outlay is recovered out of it, never added
+    # on top, so the total stays ₹5,050 and income is still ₹50.
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id, wallet_id, service_id = _cash_wallet_and_outlay_service(conn)
+        wallet_before = account_balance(conn, wallet_id)
+        cash_before = account_balance(conn, cash_id)
+
+        txn = create_transaction(
+            TransactionCreate(business_date="2026-08-04", service_id=service_id,
+                               fee_paise=505000, account_id=cash_id,
+                               outlay_paise=500000, outlay_account_id=wallet_id,
+                               amount_paid_paise=505000),
+            conn,
+        )
+        assert txn["total_paise"] == 505000
+
+        rows = conn.execute(
+            "SELECT * FROM ledger WHERE source_type = 'transaction' AND source_id = ? ORDER BY id", (txn["id"],)
+        ).fetchall()
+        assert [(r["account_id"], r["amount_paise"], r["entry_type"]) for r in rows] == [
+            (wallet_id, -500000, "transfer"),
+            (cash_id, 500000, "transfer"),
+            (cash_id, 5000, "service_income"),
+        ]
+
+        assert account_balance(conn, wallet_id) == wallet_before - 500000
+        assert account_balance(conn, cash_id) == cash_before + 505000
+
+        report = profit_loss_report(start_date="2026-08-04", end_date="2026-08-04", conn=conn)
+        assert report["service_income_paise"] == 5000
+
+        conn.close()
+
+
+def test_outlay_exceeding_wallet_balance_rejected_writes_nothing():
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id, wallet_id, service_id = _cash_wallet_and_outlay_service(conn, wallet_balance_paise=30000)
+
+        try:
+            create_transaction(
+                TransactionCreate(business_date="2026-08-04", service_id=service_id,
+                                   fee_paise=505000, account_id=cash_id,
+                                   outlay_paise=500000, outlay_account_id=wallet_id,
+                                   amount_paid_paise=505000),
+                conn,
+            )
+            assert False, "an outlay exceeding the wallet balance must be rejected"
+        except HTTPException as e:
+            assert e.status_code == 400
+
+        assert conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0] == 0
+        assert conn.execute("SELECT COUNT(*) FROM ledger WHERE source_type = 'transaction'").fetchone()[0] == 0
+
+        conn.close()
+
+
+def test_outlay_guards():
+    # PLAN 16.5.3's other three guards: a non-zero outlay needs an account,
+    # the account must differ from the receiving one, and the catalog flag
+    # is enforced server-side, not only in the form.
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id, wallet_id, service_id = _cash_wallet_and_outlay_service(conn)
+        plain_service = create_service(ServiceCreate(name="Photocopy", category="Printing", default_fee_paise=1000), conn)
+
+        try:
+            create_transaction(
+                TransactionCreate(business_date="2026-08-04", service_id=service_id,
+                                   fee_paise=505000, account_id=cash_id, outlay_paise=500000,
+                                   amount_paid_paise=505000),
+                conn,
+            )
+            assert False, "outlay_paise without an outlay_account_id must be rejected"
+        except HTTPException as e:
+            assert e.status_code == 400
+
+        try:
+            create_transaction(
+                TransactionCreate(business_date="2026-08-04", service_id=service_id,
+                                   fee_paise=505000, account_id=cash_id,
+                                   outlay_paise=500000, outlay_account_id=cash_id,
+                                   amount_paid_paise=505000),
+                conn,
+            )
+            assert False, "an outlay account equal to the receiving account must be rejected"
+        except HTTPException as e:
+            assert e.status_code == 400
+
+        try:
+            create_transaction(
+                TransactionCreate(business_date="2026-08-04", service_id=plain_service["id"],
+                                   fee_paise=501000, account_id=cash_id,
+                                   outlay_paise=500000, outlay_account_id=wallet_id,
+                                   amount_paid_paise=501000),
+                conn,
+            )
+            assert False, "a non-zero outlay against a service without has_outlay must be rejected"
+        except HTTPException as e:
+            assert e.status_code == 400
+
+        assert conn.execute("SELECT COUNT(*) FROM transactions").fetchone()[0] == 0
+
+        conn.close()
+
+
+def test_outlay_exceeding_the_total_rejected():
+    # PLAN 16.5 revised: the outlay is recovered out of the fee, so an outlay
+    # above the total is money the customer is never billed for and can never
+    # repay — a silent permanent loss no other screen would surface.
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id, wallet_id, service_id = _cash_wallet_and_outlay_service(conn)
+
+        try:
+            create_transaction(
+                TransactionCreate(business_date="2026-08-04", service_id=service_id,
+                                   fee_paise=10000, account_id=cash_id,
+                                   outlay_paise=500000, outlay_account_id=wallet_id,
+                                   amount_paid_paise=10000),
+                conn,
+            )
+            assert False, "an outlay exceeding the transaction total must be rejected"
+        except HTTPException as e:
+            assert e.status_code == 400
+
+        # An outlay exactly equal to the total is the break-even case and is
+        # allowed — the operator recovers their money and books zero income.
+        txn = create_transaction(
+            TransactionCreate(business_date="2026-08-04", service_id=service_id,
+                               fee_paise=500000, account_id=cash_id,
+                               outlay_paise=500000, outlay_account_id=wallet_id,
+                               amount_paid_paise=500000),
+            conn,
+        )
+        assert txn["total_paise"] == 500000
+        assert txn["status"] == "completed"
+        rows = conn.execute(
+            "SELECT * FROM ledger WHERE source_type = 'transaction' AND source_id = ? ORDER BY id", (txn["id"],)
+        ).fetchall()
+        assert [(r["account_id"], r["amount_paise"], r["entry_type"]) for r in rows] == [
+            (wallet_id, -500000, "transfer"),
+            (cash_id, 500000, "transfer"),
+        ]
+        assert profit_loss_report(start_date="2026-08-04", end_date="2026-08-04", conn=conn)["service_income_paise"] == 0
+
+        conn.close()
+
+
+def test_migration_006_re_expresses_legacy_outlay_rows_without_moving_money():
+    # PLAN 16.5 revision: rows written under the original additive model hold
+    # the ₹50 margin in fee_paise. 006 folds the outlay into it so the column
+    # means one thing everywhere — total_paise is deliberately untouched, so
+    # nothing derived from it can move. Without 006 those rows are permanently
+    # uneditable: _compute_total re-derives the total as the margin alone and
+    # the new outlay-above-total guard rejects every correction.
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id, wallet_id, service_id = _cash_wallet_and_outlay_service(conn)
+
+        # Wind the DB back to the pre-revision schema version and write a row
+        # exactly as the old _compute_total would have, with its three legs.
+        conn.execute("PRAGMA user_version = 5")
+        conn.execute(
+            "INSERT INTO transactions (business_date, service_id, fee_paise, charge_paise, discount_paise, "
+            "outlay_paise, outlay_account_id, total_paise, account_id, operator_id, status) "
+            "VALUES ('2026-08-04', ?, 5000, 0, 0, 500000, ?, 505000, ?, 1, 'completed')",
+            (service_id, wallet_id, cash_id),
+        )
+        txn_id = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        for acct, amt, kind in ((wallet_id, -500000, "transfer"), (cash_id, 500000, "transfer"),
+                                (cash_id, 5000, "service_income")):
+            conn.execute(
+                "INSERT INTO ledger (business_date, account_id, amount_paise, entry_type, source_type, "
+                "source_id, created_by) VALUES ('2026-08-04', ?, ?, ?, 'transaction', ?, 1)",
+                (acct, amt, kind, txn_id),
+            )
+        conn.commit()
+
+        def snapshot():
+            row = conn.execute("SELECT total_paise, outlay_paise, status FROM transactions WHERE id = ?",
+                               (txn_id,)).fetchone()
+            return (tuple(row), account_balance(conn, wallet_id), account_balance(conn, cash_id),
+                    profit_loss_report(start_date="2026-08-04", end_date="2026-08-04", conn=conn)["service_income_paise"])
+
+        before = snapshot()
+        run_migrations(conn, MIGRATIONS_DIR)
+        assert conn.execute("PRAGMA user_version").fetchone()[0] == 6
+        assert snapshot() == before, "006 must not move a single paise"
+        assert conn.execute("SELECT fee_paise FROM transactions WHERE id = ?", (txn_id,)).fetchone()[0] == 505000
+
+        # Editable again — a remarks-only correction no longer trips the guard.
+        assert correct_transaction(txn_id, TransactionCorrection(remarks="tweak"), conn)["total_paise"] == 505000
+
+        # Idempotent: a second run must not double the fee.
+        run_migrations(conn, MIGRATIONS_DIR)
+        assert conn.execute("SELECT fee_paise FROM transactions WHERE id = ?", (txn_id,)).fetchone()[0] == 505000
+
+        conn.close()
+
+
 def test_concurrent_close_never_lets_an_unpaid_create_slip_through():
     # H.31: ensure_business_day_open ran once, early, with no begin_write
     # around it — for amount_paid_paise=0, insert_entry (the only place a
@@ -568,5 +789,10 @@ if __name__ == "__main__":
     test_total_overflow_rejected_with_400_not_500()
     test_deactivated_account_rejected_at_create()
     test_deactivated_service_rejected_at_create()
+    test_outlay_leg_posted_and_profit_loss_excludes_it()
+    test_outlay_exceeding_wallet_balance_rejected_writes_nothing()
+    test_outlay_guards()
+    test_outlay_exceeding_the_total_rejected()
+    test_migration_006_re_expresses_legacy_outlay_rows_without_moving_money()
     test_concurrent_close_never_lets_an_unpaid_create_slip_through()
     print("OK")

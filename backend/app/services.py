@@ -33,6 +33,7 @@ class ServiceCreate(BaseModel):
     category: str
     default_fee_paise: int = Field(0, ge=_INT64_MIN, le=_INT64_MAX)
     default_charge_paise: int = Field(0, ge=_INT64_MIN, le=_INT64_MAX)
+    has_outlay: bool = False  # PLAN 16.5.7
 
     _v_name = field_validator("name")(_required_str)
     _v_category = field_validator("category")(_required_str)
@@ -44,12 +45,14 @@ class ServiceUpdate(BaseModel):
     default_fee_paise: int | None = Field(default=None, ge=_INT64_MIN, le=_INT64_MAX)
     default_charge_paise: int | None = Field(default=None, ge=_INT64_MIN, le=_INT64_MAX)
     is_active: bool | None = None
+    has_outlay: bool | None = None  # PLAN 16.5.7
 
     _v_name = field_validator("name")(_required_str)
     _v_category = field_validator("category")(_required_str)
     _v_default_fee_paise = field_validator("default_fee_paise")(_not_null)
     _v_default_charge_paise = field_validator("default_charge_paise")(_not_null)
     _v_is_active = field_validator("is_active")(_not_null)
+    _v_has_outlay = field_validator("has_outlay")(_not_null)
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict:
@@ -89,9 +92,9 @@ def list_services(active_only: bool = False, conn: sqlite3.Connection = Depends(
 @router.post("", status_code=201)
 def create_service(body: ServiceCreate, conn: sqlite3.Connection = Depends(get_db)):
     cur = conn.execute(
-        "INSERT INTO services (name, category, default_fee_paise, default_charge_paise) "
-        "VALUES (?, ?, ?, ?)",
-        (body.name, body.category, body.default_fee_paise, body.default_charge_paise),
+        "INSERT INTO services (name, category, default_fee_paise, default_charge_paise, has_outlay) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (body.name, body.category, body.default_fee_paise, body.default_charge_paise, int(body.has_outlay)),
     )
     conn.commit()
     return _row_to_dict(_get_or_404(conn, cur.lastrowid))
@@ -109,6 +112,8 @@ def update_service(service_id: int, body: ServiceUpdate, conn: sqlite3.Connectio
     if fields:
         if "is_active" in fields:
             fields["is_active"] = int(fields["is_active"])
+        if "has_outlay" in fields:
+            fields["has_outlay"] = int(fields["has_outlay"])
         set_clause = ", ".join(f"{k} = ?" for k in fields)
         conn.execute(
             f"UPDATE services SET {set_clause}, updated_at = datetime('now') WHERE id = ?",

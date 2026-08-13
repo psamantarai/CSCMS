@@ -35,6 +35,19 @@ def _cash_and_service(conn):
     return cash_id, service["id"]
 
 
+def _cash_wallet_outlay_service(conn, wallet_balance_paise=1000000, wallet_name="Portal Wallet"):
+    # ServiceCreate doesn't expose has_outlay yet (PLAN 16.5.7) — set it
+    # directly, same as test_transactions.py's sibling helper.
+    cash_id = conn.execute("SELECT id FROM accounts WHERE name = 'Cash Drawer'").fetchone()[0]
+    wallet = create_account(
+        AccountCreate(name=wallet_name, account_type="wallet", opening_balance_paise=wallet_balance_paise), conn
+    )
+    service = create_service(ServiceCreate(name="Insurance Premium", category="Insurance", default_fee_paise=5000), conn)
+    conn.execute("UPDATE services SET has_outlay = 1 WHERE id = ?", (service["id"],))
+    conn.commit()
+    return cash_id, wallet["id"], service["id"]
+
+
 def test_account_correction_moves_the_ledger_entry_via_reversal_and_replacement():
     with tempfile.TemporaryDirectory() as tmp:
         conn = _seeded_conn(Path(tmp))
@@ -475,6 +488,131 @@ def test_concurrent_account_corrections_never_double_reverse_the_same_entry():
         check.close()
 
 
+def test_outlay_correction_reverses_and_reposts_all_three_entries():
+    # PLAN 16.5.6: correcting the outlay figure reverses every live row
+    # (outlay, recovery, income) and reposts all three from the corrected
+    # split — never an UPDATE, the 002 trigger would reject it regardless.
+    # PLAN 16.5 revised: the outlay is recovered out of the fee, so correcting
+    # it down leaves the ₹5,050 bill alone and turns the ₹500 the operator
+    # didn't have to lay out into income instead.
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id, wallet_id, service_id = _cash_wallet_outlay_service(conn)
+        wallet_before = account_balance(conn, wallet_id)
+        cash_before = account_balance(conn, cash_id)
+
+        txn = create_transaction(
+            TransactionCreate(business_date="2026-08-04", service_id=service_id,
+                               fee_paise=505000, account_id=cash_id,
+                               outlay_paise=500000, outlay_account_id=wallet_id,
+                               amount_paid_paise=505000),
+            conn,
+        )
+        original = conn.execute(
+            "SELECT * FROM ledger WHERE source_type = 'transaction' AND source_id = ? ORDER BY id", (txn["id"],)
+        ).fetchall()
+        assert len(original) == 3
+
+        corrected = correct_transaction(txn["id"], TransactionCorrection(outlay_paise=450000), conn)
+        assert corrected["total_paise"] == 505000  # the bill is the fee; the outlay never moved it
+
+        rows = conn.execute(
+            "SELECT * FROM ledger WHERE source_type = 'transaction' AND source_id = ? ORDER BY id", (txn["id"],)
+        ).fetchall()
+        assert len(rows) == 9  # 3 original + 3 reversals + 3 replacements
+
+        # the original 3 rows are still there, untouched — a correction
+        # never UPDATEs a ledger row.
+        for before, after in zip(original, rows[:3]):
+            assert dict(before) == dict(after)
+
+        reversals = [r for r in rows if r["entry_type"] == "reversal"]
+        assert len(reversals) == 3
+        assert {r["reverses_id"] for r in reversals} == {r["id"] for r in original}
+
+        reversed_ids = {r["reverses_id"] for r in reversals}
+        live = [r for r in rows if r["entry_type"] != "reversal" and r["id"] not in reversed_ids]
+        assert {(r["account_id"], r["amount_paise"], r["entry_type"]) for r in live} == {
+            (wallet_id, -450000, "transfer"),
+            (cash_id, 450000, "transfer"),
+            (cash_id, 55000, "service_income"),  # ₹500 less laid out is ₹500 more income
+        }
+
+        assert account_balance(conn, wallet_id) == wallet_before - 450000
+        # cash still rises by the whole ₹5,050 collected — only the split
+        # between recovery and income moved.
+        assert account_balance(conn, cash_id) == cash_before + 505000
+        conn.close()
+
+
+def test_outlay_account_correction_moves_only_the_outflow():
+    # Correcting outlay_account_id moves the outflow leg between accounts
+    # and leaves the recovery/income rows on the (unchanged) receiving
+    # account.
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id, wallet1_id, service_id = _cash_wallet_outlay_service(conn, wallet_name="Wallet A")
+        wallet2_id = create_account(
+            AccountCreate(name="Wallet B", account_type="wallet", opening_balance_paise=1000000), conn
+        )["id"]
+        wallet1_before = account_balance(conn, wallet1_id)
+        wallet2_before = account_balance(conn, wallet2_id)
+
+        txn = create_transaction(
+            TransactionCreate(business_date="2026-08-04", service_id=service_id,
+                               fee_paise=505000, account_id=cash_id,
+                               outlay_paise=500000, outlay_account_id=wallet1_id,
+                               amount_paid_paise=505000),
+            conn,
+        )
+        cash_before_correction = account_balance(conn, cash_id)
+
+        correct_transaction(txn["id"], TransactionCorrection(outlay_account_id=wallet2_id), conn)
+
+        assert account_balance(conn, wallet1_id) == wallet1_before
+        assert account_balance(conn, wallet2_id) == wallet2_before - 500000
+        assert account_balance(conn, cash_id) == cash_before_correction
+
+        rows = conn.execute(
+            "SELECT * FROM ledger WHERE source_type = 'transaction' AND source_id = ? "
+            "AND entry_type != 'reversal' AND id NOT IN (SELECT reverses_id FROM ledger WHERE reverses_id IS NOT NULL) "
+            "ORDER BY id",
+            (txn["id"],),
+        ).fetchall()
+        assert {(r["account_id"], r["amount_paise"], r["entry_type"]) for r in rows} == {
+            (wallet2_id, -500000, "transfer"),
+            (cash_id, 500000, "transfer"),
+            (cash_id, 5000, "service_income"),
+        }
+        conn.close()
+
+
+def test_outlay_correction_on_closed_day_rejected():
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id, wallet_id, service_id = _cash_wallet_outlay_service(conn)
+
+        txn = create_transaction(
+            TransactionCreate(business_date="2026-08-04", service_id=service_id,
+                               fee_paise=505000, account_id=cash_id,
+                               outlay_paise=500000, outlay_account_id=wallet_id,
+                               amount_paid_paise=505000),
+            conn,
+        )
+        close_day("2026-08-04", CloseDayRequest(), conn)
+
+        try:
+            correct_transaction(txn["id"], TransactionCorrection(outlay_paise=450000), conn)
+            assert False, "correcting an outlay on a closed day must be rejected"
+        except HTTPException as e:
+            assert e.status_code == 409
+
+        unchanged = conn.execute("SELECT outlay_paise FROM transactions WHERE id = ?", (txn["id"],)).fetchone()
+        assert unchanged["outlay_paise"] == 500000
+
+        conn.close()
+
+
 if __name__ == "__main__":
     test_account_correction_moves_the_ledger_entry_via_reversal_and_replacement()
     test_customer_bill_correction_does_not_touch_ledger()
@@ -492,4 +630,7 @@ if __name__ == "__main__":
     test_correction_of_partially_paid_transaction_on_closed_day_rejected()
     test_correction_moving_a_transaction_off_a_closed_date_rejected()
     test_concurrent_account_corrections_never_double_reverse_the_same_entry()
+    test_outlay_correction_reverses_and_reposts_all_three_entries()
+    test_outlay_account_correction_moves_only_the_outflow()
+    test_outlay_correction_on_closed_day_rejected()
     print("OK")

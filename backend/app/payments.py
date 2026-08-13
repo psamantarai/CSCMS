@@ -1,10 +1,13 @@
 """Payments API (PLAN 3.3): settles a customer's outstanding transactions —
 oldest first — with a single amount. Each bill it touches gets its own
-payments row (a row's transaction_id can only point at one bill), and the
-whole amount posts as a single entry_type=customer_payment ledger row
-(ARCHITECTURE.md §3) — separate from the service_income row a transaction may
-already have picked up at creation (transactions.py, 3.2). Status (3.4) is
-recomputed via transactions.recompute_status rather than set here by hand."""
+payments row (a row's transaction_id can only point at one bill). PLAN 16.5.5:
+each bill's applied amount is split through split_receipt the same way
+creation does — recovery of any outstanding outlay posts as a transfer,
+the remainder as service_income (ARCHITECTURE.md §3) — rather than one
+customer_payment row for the whole payment. This is what makes a bill settled
+later actually count as income: income_expenses() counts service_income but
+deliberately excludes customer_payment. closing.py's received_paise bucket
+already includes service_income, so the closing identity is unaffected."""
 import sqlite3
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -16,7 +19,7 @@ from app.audit import write_audit
 from app.customers import _get_or_404 as _get_customer_or_404
 from app.db import begin_write, get_db
 from app.ledger import insert_entry
-from app.transactions import recompute_status
+from app.transactions import recompute_status, split_receipt
 
 router = APIRouter(prefix="/api/payments", tags=["payments"])
 
@@ -64,6 +67,7 @@ def create_payment(body: PaymentCreate, conn: sqlite3.Connection = Depends(get_d
         if body.amount_paise > sum(due for _, due in dues):
             raise HTTPException(status_code=400, detail="amount exceeds the customer's outstanding balance")
 
+        user_id = _system_user_id(conn)
         remaining = body.amount_paise
         created_ids = []
         for txn, due in dues:
@@ -76,15 +80,31 @@ def create_payment(body: PaymentCreate, conn: sqlite3.Connection = Depends(get_d
                 (body.business_date, body.customer_id, applied, body.account_id, txn["id"], body.remarks),
             )
             created_ids.append(cur.lastrowid)
+
+            # 16.5.2: already_paid is what this bill had received before this
+            # payment (total_paise - due), so a bill settled across several
+            # payments still allocates outlay-first, correctly, across all
+            # of them. source_type='transaction'/source_id=txn.id matches
+            # what creation writes for the same two legs.
+            already_paid = txn["total_paise"] - due
+            recovery_paise, income_paise = split_receipt(txn["outlay_paise"], already_paid, applied)
+            if recovery_paise > 0:
+                insert_entry(
+                    conn, business_date=body.business_date, account_id=body.account_id,
+                    amount_paise=recovery_paise, entry_type="transfer",
+                    source_type="transaction", source_id=txn["id"],
+                    description=body.remarks, created_by=user_id,
+                )
+            if income_paise > 0:
+                insert_entry(
+                    conn, business_date=body.business_date, account_id=body.account_id,
+                    amount_paise=income_paise, entry_type="service_income",
+                    source_type="transaction", source_id=txn["id"],
+                    description=body.remarks, created_by=user_id,
+                )
+
             recompute_status(conn, txn["id"])
             remaining -= applied
-
-        insert_entry(
-            conn, business_date=body.business_date, account_id=body.account_id,
-            amount_paise=body.amount_paise, entry_type="customer_payment",
-            source_type="payment", source_id=created_ids[0] if created_ids else None,
-            description=body.remarks, created_by=_system_user_id(conn),
-        )
     except Exception:
         conn.rollback()
         raise

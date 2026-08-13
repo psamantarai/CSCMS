@@ -37,7 +37,7 @@ type DayReportAccount = { account_id: number; account_name: string; opening_pais
 type DayReport = { business_date: string; status: "open" | "closed"; accounts: DayReportAccount[] }
 type Transaction = { id: number; customer_name: string | null; service_name: string; fee_paise: number; charge_paise: number; paid_paise: number; status: "completed" | "partial" | "pending" }
 type MonthlyReport = { income_paise: number; expenses_paise: number; profit_paise: number }
-type ServiceRow = { service_id: number; service_name: string; transaction_count: number; billed_paise: number; income_paise: number }
+type ServiceRow = { service_id: number; service_name: string; transaction_count: number; billed_paise: number; outlay_paise: number; income_paise: number }
 type ProfitLoss = {
   service_income_paise: number; commission_paise: number; total_income_paise: number
   expenses_by_category: { category: string; amount_paise: number }[]; total_expenses_paise: number; profit_paise: number
@@ -115,6 +115,7 @@ export default function Reports() {
     service: s => s.service_name,
     transactions: s => s.transaction_count,
     billed: s => s.billed_paise,
+    outlay: s => s.outlay_paise,
     income: s => s.income_paise,
   })
 
@@ -181,8 +182,8 @@ export default function Reports() {
       ready: !serviceLoading && !serviceError && !!serviceRows,
       filename: `service-wise-report-${startDate}-to-${endDate}.csv`,
       rows: () => [
-        ["Service", "Transactions", "Billed", "Income Collected"],
-        ...(serviceRows ?? []).map(s => [s.service_name, s.transaction_count, fromPaise(s.billed_paise), fromPaise(s.income_paise)]),
+        ["Service", "Transactions", "Billed", "Outlay", "Income Collected"],
+        ...(serviceRows ?? []).map(s => [s.service_name, s.transaction_count, fromPaise(s.billed_paise), fromPaise(s.outlay_paise), fromPaise(s.income_paise)]),
       ],
     },
     pl: {
@@ -424,14 +425,15 @@ export default function Reports() {
                 <SortableTableHead sortKey="service" sort={serviceRowSort} onSort={toggleServiceRowSort}>Service</SortableTableHead>
                 <SortableTableHead sortKey="transactions" sort={serviceRowSort} onSort={toggleServiceRowSort}>Transactions</SortableTableHead>
                 <SortableTableHead sortKey="billed" sort={serviceRowSort} onSort={toggleServiceRowSort}>Billed</SortableTableHead>
+                <SortableTableHead sortKey="outlay" sort={serviceRowSort} onSort={toggleServiceRowSort}>Outlay</SortableTableHead>
                 <SortableTableHead sortKey="income" sort={serviceRowSort} onSort={toggleServiceRowSort}>Income Collected</SortableTableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              <TableRowState isLoading={serviceLoading} error={serviceError} colSpan={4} />
+              <TableRowState isLoading={serviceLoading} error={serviceError} colSpan={5} />
               {!serviceLoading && !serviceError && (serviceRows ?? []).length === 0 && (
                 <TableRow className="hover:bg-transparent">
-                  <TableCell colSpan={4}>
+                  <TableCell colSpan={5}>
                     <Empty>
                       <EmptyHeader>
                         <EmptyTitle>No services</EmptyTitle>
@@ -446,6 +448,7 @@ export default function Reports() {
                   <TableCell>{s.service_name}</TableCell>
                   <TableCell className="font-mono text-xs tabular-nums">{s.transaction_count}</TableCell>
                   <TableCell className="font-mono text-xs tabular-nums">{fmt(fromPaise(s.billed_paise))}</TableCell>
+                  <TableCell className="font-mono text-xs tabular-nums text-muted-foreground">{s.outlay_paise > 0 ? fmt(fromPaise(s.outlay_paise)) : "—"}</TableCell>
                   <TableCell className="font-mono text-xs font-bold tabular-nums text-success">{fmt(fromPaise(s.income_paise))}</TableCell>
                 </TableRow>
               ))}

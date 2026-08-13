@@ -4,13 +4,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { api } from "../../lib/api"
 import { queryKeys } from "../../lib/queries"
 import { fmt, fromPaise, localDateISO, toPaise } from "../../lib/format"
-import { Field, FieldLabel } from "@/components/ui/field"
+import { Field, FieldDescription, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Button } from "@/components/ui/button"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 
-type Service = { id: number; name: string; default_fee_paise: number; default_charge_paise: number; is_active: number }
+type Service = { id: number; name: string; default_fee_paise: number; default_charge_paise: number; is_active: number; has_outlay: number }
 type Account = { id: number; name: string; is_active: number }
 type Customer = { id: number; name: string; phone: string | null }
 
@@ -29,6 +29,11 @@ function emptyForm() {
     charge: "0",
     discount: "0",
     paid: "0",
+    // PLAN 16.5.8: blank, not "0" — a has_outlay service requires the
+    // operator to type an explicit answer (0 included) rather than tab past
+    // a pre-filled value.
+    outlay: "",
+    outlayAccountId: "",
     remarks: "",
   }
 }
@@ -60,6 +65,10 @@ export default function TransactionForm({ onSuccess, onCancel }: { onSuccess: ()
     queryFn: () => api.get<Service[]>("/services"),
   })
   const activeServices = services.filter(s => s.is_active)
+  // PLAN 16.5.8: the catalog flag (16.5.7) drives whether the outlay fields
+  // render at all.
+  const selectedService = services.find(s => String(s.id) === form.serviceId)
+  const showOutlay = !!selectedService?.has_outlay
 
   const { data: accounts = [] } = useQuery({
     queryKey: queryKeys.accounts,
@@ -76,6 +85,10 @@ export default function TransactionForm({ onSuccess, onCancel }: { onSuccess: ()
   const fee = Number(form.fee) || 0
   const charge = Number(form.charge) || 0
   const discount = Number(form.discount) || 0
+  const outlay = showOutlay ? Number(form.outlay) || 0 : 0
+  // PLAN 16.5 revised: the outlay is not added on top — the fee is already
+  // the whole amount charged to the customer, and the outlay is the
+  // operator's own money passing through it (see _compute_total).
   const formTotal = fee + charge - discount
   const paid = Number(form.paid) || 0
 
@@ -88,6 +101,8 @@ export default function TransactionForm({ onSuccess, onCancel }: { onSuccess: ()
         fee_paise: toPaise(fee),
         charge_paise: toPaise(charge),
         discount_paise: toPaise(discount),
+        outlay_paise: toPaise(outlay),
+        outlay_account_id: outlay > 0 ? Number(form.outlayAccountId) : null,
         account_id: Number(form.accountId),
         amount_paid_paise: toPaise(paid),
         remarks: form.remarks || null,
@@ -110,6 +125,11 @@ export default function TransactionForm({ onSuccess, onCancel }: { onSuccess: ()
       ...form, serviceId: id,
       fee: svc ? String(fromPaise(svc.default_fee_paise)) : form.fee,
       charge: svc ? String(fromPaise(svc.default_charge_paise)) : form.charge,
+      // PLAN 16.5.8: a stale outlay must never survive a service switch —
+      // hiding the fields for an unticked service isn't enough if the old
+      // value is still sitting in state to be submitted.
+      outlay: "",
+      outlayAccountId: "",
     })
   }
 
@@ -126,6 +146,17 @@ export default function TransactionForm({ onSuccess, onCancel }: { onSuccess: ()
     if (!form.serviceId) { fail("serviceId", "Select a service"); return }
     if (!form.accountId) { fail("accountId", "Select an account"); return }
     if (!(fee >= 0)) { fail("fee", "Fee cannot be negative"); return }
+    // PLAN 16.5.8: mirrors create_transaction's outlay guards — required,
+    // typed (not left blank), a source account when non-zero, and that
+    // account must differ from where the payment is received.
+    if (showOutlay) {
+      if (form.outlay.trim() === "") { fail("outlay", "Enter the amount paid out (0 if none)"); return }
+      if (outlay > 0) {
+        if (!form.outlayAccountId) { fail("outlayAccountId", "Select where the outlay was paid from"); return }
+        if (form.outlayAccountId === form.accountId) { fail("outlayAccountId", "Outlay account and receiving account must differ"); return }
+        if (outlay > formTotal) { fail("outlay", "Amount paid out cannot exceed the total — raise the fee to cover it"); return }
+      }
+    }
     if (paid > formTotal) { fail("paid", "Payment cannot exceed the total"); return }
     // H.50 / PLAN 15.3: a walk-in (no customer_id) has no customer row to
     // carry an unpaid amount as outstanding, so nothing can ever collect it —
@@ -218,9 +249,41 @@ export default function TransactionForm({ onSuccess, onCancel }: { onSuccess: ()
           </Select>
         </Field>
 
+        {showOutlay && (
+          <>
+            <Field data-invalid={invalidField === "outlay"}>
+              <FieldLabel htmlFor="txn-outlay">Paid out by you (₹)</FieldLabel>
+              <Input
+                id="txn-outlay"
+                type="number"
+                value={form.outlay}
+                onChange={e => setForm({ ...form, outlay: e.target.value })}
+                placeholder="0"
+                aria-invalid={invalidField === "outlay"}
+              />
+              <FieldDescription>Your own money, recovered out of the fee below — not added to it.</FieldDescription>
+            </Field>
+            <Field data-invalid={invalidField === "outlayAccountId"}>
+              <FieldLabel htmlFor="txn-outlay-account">Paid from</FieldLabel>
+              <Select
+                items={Object.fromEntries(activeAccounts.map(a => [String(a.id), a.name]))}
+                value={form.outlayAccountId || undefined}
+                onValueChange={v => setForm({ ...form, outlayAccountId: v as string })}
+              >
+                <SelectTrigger id="txn-outlay-account" className="w-full" aria-invalid={invalidField === "outlayAccountId"}>
+                  <SelectValue placeholder="Select account…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {activeAccounts.map(a => <SelectItem key={a.id} value={String(a.id)}>{a.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </Field>
+          </>
+        )}
         <Field data-invalid={invalidField === "fee"}>
           <FieldLabel htmlFor="txn-fee">Fee (₹)</FieldLabel>
           <Input id="txn-fee" type="number" value={form.fee} onChange={e => setForm({ ...form, fee: e.target.value })} aria-invalid={invalidField === "fee"} />
+          {showOutlay && <FieldDescription>The full amount you charge the customer, including the {outlay > 0 ? `₹${outlay} ` : ""}paid out above.</FieldDescription>}
         </Field>
         <Field>
           <FieldLabel htmlFor="txn-charge">Service Charge (₹)</FieldLabel>

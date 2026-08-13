@@ -124,6 +124,32 @@ def test_service_wise_report_reconciles_with_ledger():
         conn.close()
 
 
+def test_service_wise_report_separates_billed_from_outlay():
+    # PLAN 16.5.9: billed_paise is the whole ₹5,050 charged, of which ₹5,000
+    # is the operator's own money coming back -- it would misread as revenue,
+    # so outlay_paise must be surfaced alongside it and the two never
+    # conflated. billed - outlay == income is the identity this checks.
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id = conn.execute("SELECT id FROM accounts WHERE name = 'Cash Drawer'").fetchone()[0]
+        wallet = create_account(AccountCreate(name="Insurance Wallet", account_type="settlement", opening_balance_paise=1000000), conn)
+        insurance = create_service(ServiceCreate(name="Insurance Premium", category="Insurance", default_fee_paise=5000, has_outlay=True), conn)
+        create_transaction(
+            TransactionCreate(business_date="2026-09-15", service_id=insurance["id"], fee_paise=505000, account_id=cash_id,
+                               outlay_paise=500000, outlay_account_id=wallet["id"], amount_paid_paise=505000),
+            conn,
+        )
+
+        rows = {r["service_id"]: r for r in service_wise_report(conn=conn)}
+        assert rows[insurance["id"]]["billed_paise"] == 505000
+        assert rows[insurance["id"]]["outlay_paise"] == 500000
+        assert rows[insurance["id"]]["income_paise"] == 5000
+
+        pl = profit_loss_report(start_date="2026-09-15", end_date="2026-09-15", conn=conn)
+        assert pl["service_income_paise"] == 5000
+        conn.close()
+
+
 def test_customer_wise_report_includes_later_settlement():
     with tempfile.TemporaryDirectory() as tmp:
         conn = _seeded_conn(Path(tmp))
@@ -219,6 +245,7 @@ if __name__ == "__main__":
     test_monthly_report_rejects_bad_month()
     test_monthly_report_rejects_out_of_range_year()
     test_service_wise_report_reconciles_with_ledger()
+    test_service_wise_report_separates_billed_from_outlay()
     test_customer_wise_report_includes_later_settlement()
     test_banking_commission_report_reconciles_with_ledger()
     test_profit_loss_report_reconciles_with_ledger()

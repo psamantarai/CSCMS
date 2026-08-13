@@ -10,6 +10,7 @@ import { Field, FieldLabel } from "@/components/ui/field"
 import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Empty, EmptyHeader, EmptyTitle, EmptyDescription } from "@/components/ui/empty"
 import { cn } from "@/lib/utils"
@@ -21,11 +22,12 @@ type Service = {
   default_fee_paise: number
   default_charge_paise: number
   is_active: number
+  has_outlay: number
 }
 
-const emptyForm = { name: "", category: "", default_fee: "0", default_charge: "0" }
+const emptyForm = { name: "", category: "", default_fee: "0", default_charge: "0", has_outlay: false }
 
-const columns = ["Name", "Category", "Default Fee", "Default Charge", "Status", ""]
+const columns = ["Name", "Category", "Default Fee", "Default Charge", "Outlay", "Status", ""]
 
 export default function Services() {
   const [formOpen, setFormOpen] = useState(false)
@@ -54,6 +56,7 @@ export default function Services() {
         category: form.category,
         default_fee_paise: toPaise(Number(form.default_fee) || 0),
         default_charge_paise: toPaise(Number(form.default_charge) || 0),
+        has_outlay: form.has_outlay,
       }),
     onSuccess: () => { invalidate(); closeForm() },
   })
@@ -65,6 +68,7 @@ export default function Services() {
         category: form.category,
         default_fee_paise: toPaise(Number(form.default_fee) || 0),
         default_charge_paise: toPaise(Number(form.default_charge) || 0),
+        has_outlay: form.has_outlay,
       }),
     onSuccess: () => { invalidate(); closeForm() },
   })
@@ -94,6 +98,7 @@ export default function Services() {
       category: s.category,
       default_fee: String(fromPaise(s.default_fee_paise)),
       default_charge: String(fromPaise(s.default_charge_paise)),
+      has_outlay: !!s.has_outlay,
     })
     setFormOpen(true)
   }
@@ -140,6 +145,16 @@ export default function Services() {
                 <Input id="service-charge" type="number" value={form.default_charge} onChange={e => setForm({ ...form, default_charge: e.target.value })} />
               </Field>
             </div>
+            <div className="mt-3.5 flex items-center gap-2">
+              <Checkbox
+                id="service-has-outlay"
+                checked={form.has_outlay}
+                onCheckedChange={checked => setForm({ ...form, has_outlay: checked === true })}
+              />
+              <FieldLabel htmlFor="service-has-outlay" className="font-normal">
+                Requires an outlay (operator pays out first, recovers from the customer)
+              </FieldLabel>
+            </div>
             <div className="mt-3.5 flex gap-2.5">
               <Button onClick={submitForm}>{editingId ? "Save Changes" : "Create Service"}</Button>
               <Button variant="outline" onClick={closeForm}>Cancel</Button>
@@ -156,6 +171,7 @@ export default function Services() {
               <SortableTableHead sortKey="category" sort={sort} onSort={toggleSort}>Category</SortableTableHead>
               <SortableTableHead sortKey="fee" sort={sort} onSort={toggleSort}>Default Fee</SortableTableHead>
               <SortableTableHead sortKey="charge" sort={sort} onSort={toggleSort}>Default Charge</SortableTableHead>
+              <TableHead>Outlay</TableHead>
               <TableHead>Status</TableHead>
               <TableHead></TableHead>
             </TableRow>
@@ -168,6 +184,7 @@ export default function Services() {
                 <TableCell className="text-muted-foreground">{s.category}</TableCell>
                 <TableCell className="font-mono tabular-nums">{fmt(fromPaise(s.default_fee_paise))}</TableCell>
                 <TableCell className="font-mono tabular-nums">{fmt(fromPaise(s.default_charge_paise))}</TableCell>
+                <TableCell className="text-muted-foreground">{s.has_outlay ? "Yes" : "—"}</TableCell>
                 <TableCell>
                   <Badge className={s.is_active ? "bg-success/15 text-success" : "bg-destructive/15 text-destructive"}>
                     {s.is_active ? "Active" : "Inactive"}

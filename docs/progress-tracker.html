@@ -2047,11 +2047,295 @@
     ]
   },
   {
-    "title": "Phase 16 — Deferred scope",
-    "status": "pending",
-    "updated": "2026-08-11",
+    "title": "16.1 — Hide and mark the data directory",
+    "status": "completed",
+    "updated": "2026-08-12",
+    "seq": 176,
     "details": [
-      "Renumbered from Phase 14 when the version-display and unpaid-transaction phases were inserted ahead of it, so PLAN.md's document order still matches its phase order.",
+      "New electron/datadirmark.cjs (hideDataDir via attrib +h +s, writeNotice for DO NOT DELETE.txt) — pure functions, same require()-able shape as writability.cjs/migrate.cjs.",
+      "main.cjs calls markDataDir() right after checkDataDirWritable() succeeds; failure is caught and logged, never fatal.",
+      "Verified against the real dev data dir (backend/data): attrib reports SH, backend keeps serving normally with the folder hidden, deleting the notice and re-running recreates it, and re-running writeNotice never clobbers an operator-edited notice.",
+      "Reasoned (not run — needs a packaged install): NSIS's FindFirst/FindNext walk in installer.nsh's customRemoveFiles matches \"data\" by name off Win32 FindFirstFile, which enumerates hidden/system entries same as any other — 13.3's carve-out is unaffected.",
+      "New electron/datadirmark.test.cjs; it plus the existing writability/migrate/logger self-checks all pass (node electron/*.test.cjs)."
+    ]
+  },
+  {
+    "title": "16.2 — Mirror every backup outside the install directory",
+    "status": "completed",
+    "updated": "2026-08-12",
+    "seq": 177,
+    "details": [
+      "backend/app/settings.py: mirror_backups_dir defaults to %LOCALAPPDATA%\\CSCMS\\backups (CSCMS_MIRROR_DIR overrides), independent of db_path so relocating $INSTDIR doesn't relocate the mirror.",
+      "create_backup() gains mirror_dir=None (backward compatible); when set, copies the just-made backup there under the same _backup_lock and runs its own retention sweep over the mirror's own listing — same H.46 reasoning, own directory.",
+      "A mirror failure (bad OSError) is caught, logged, and returned as {ok, dir, error} via a new _mirror_status dict (same pattern as _backup_sizes); it never fails the primary backup.",
+      "create_backup_endpoint and restore_endpoint's safety copy both now pass MIRROR_DIR; the POST /api/backup response gained a \"mirror\" key. on_shutdown's auto-backup mirrors too.",
+      "4 new tests in test_backup.py: mirror gets a copy, mirror retention is independent, mirror_dir=None is a no-op, and a blocked mirror directory still lets the primary backup succeed while reporting the failure. Full backend suite (29 files) still passes.",
+      "Not built yet (not asked for in this step): a UI to browse/restore from the mirror, and 16.3/16.4's health display and operator-chosen location."
+    ]
+  },
+  {
+    "title": "16.3 — Surface the mirror's health",
+    "status": "completed",
+    "updated": "2026-08-12",
+    "seq": 178,
+    "details": [
+      "Scope fork resolved with the user first: no frontend Backup screen existed anywhere (Phase 8.5/8.6 only ever built the API) — built the full page (list, Backup Now, restore) rather than a health-only widget bolted onto another screen.",
+      "Backend: backup.py gained a standing _mirror_health dict (dir/ok/error/last_checked_at/last_success_at), updated on every mirrored create_backup() call and never popped — unlike the per-backup _mirror_status dict, so GET /api/backup can show it without a fresh backup just having happened. A failed attempt updates last_checked_at but deliberately leaves last_success_at where it was.",
+      "New src/pages/Backups.tsx: mirror-health card (status badge + path + last success/checked, or the error) above a backups table with Backup Now and a per-row Restore behind an AlertDialog confirm; restore invalidates the whole query cache since it swaps the live DB.",
+      "Wired into App.tsx (route + Insights sidebar entry) and queryKeys.backups added.",
+      "New test_mirror_health_reflects_the_most_recent_attempt_but_keeps_the_last_success in test_backup.py, encoding the phase's Verify directly: after a failure the badge goes red and last_checked_at moves, but last_success_at does not — never a false green tick, never a frozen check either. Full backend suite (29 files) passes; tsc --noEmit and npm run build are clean.",
+      "Not verified: an actual browser click-through — same login blocker noted on 14.2/15.5, no known app secret for the already-running dev backend."
+    ]
+  },
+  {
+    "title": "16.4 — Operator-chosen mirror location",
+    "status": "completed",
+    "updated": "2026-08-12",
+    "seq": 179,
+    "details": [
+      "Scope fork resolved with the user: \"a folder picker\" needs a native dialog, which needs a preload/IPC bridge that didn't exist yet (that's Phase 17.3) — user chose to build a minimal one now rather than fall back to a plain text path input.",
+      "New electron/preload.cjs: the app's first-ever preload, contextBridge-exposes exactly one call, window.cscms.pickFolder(). main.cjs wires webPreferences.preload and an ipcMain.handle('pick-folder') using dialog.showOpenDialog. 17.3 will add its own call to this same object later, not a second preload.",
+      "Backend: get_mirror_dir(conn) reads settings.backup_mirror_dir (falls back to the MIRROR_DIR default), read fresh on every backup so a change takes effect with no restart. GET/PATCH /api/backup/mirror-location (upsert via ON CONFLICT — atomic, no read-modify-write race to reopen H.21/H.46). create_backup_endpoint, restore_endpoint's safety copy, and on_shutdown's auto-backup all switched from the fixed MIRROR_DIR constant to this.",
+      "Frontend: Backups.tsx's mirror card gained a location row (path input + Save, plus a Browse… button that only renders when window.cscms exists, so the page still works outside Electron).",
+      "3 new backend tests (default fallback, GET/PATCH round-trip including clearing back to default, a changed location taking effect on the very next backup with no restart). Full backend suite (29 files) passes; tsc --noEmit and npm run build are clean.",
+      "Phase 16 verify (deleting $INSTDIR\\data outright, reinstalling, and restoring from the mirror) needs a packaged install cycle to actually run — not done in this dev session, same as the NSIS carve-out check noted on 16.1.",
+      "Not verified: browser click-through of the Browse… button or the Backups page — same login blocker as 16.3/15.5/14.2."
+    ]
+  },
+  {
+    "title": "16.5.1 — Schema: outlay columns on services and transactions",
+    "status": "completed",
+    "updated": "2026-08-13",
+    "seq": 180,
+    "details": [
+      "New backend/migrations/005_transaction_outlay.sql: services.has_outlay, transactions.outlay_paise, transactions.outlay_account_id — all additive ALTER TABLE, no ledger rebuild.",
+      "ARCHITECTURE.md §3's event→ledger mapping table gained the outlay row: three ledger rows (−outlay transfer, +recovery transfer, +fee service_income) per PLAN.md 16.5.2's split.",
+      "Verified on a copy of the real dev db (not the venv-relative /tmp — Git Bash's /tmp doesn't resolve for the native venv python, used the scratchpad path instead): PRAGMA user_version 4→5, all 18 seeded services show has_outlay=0, all 7 existing transactions unchanged (outlay_paise=0, outlay_account_id=NULL).",
+      "Full backend suite (30 files) passes with the venv python (.venv/Scripts/python.exe) — the system python lacks fastapi/bcrypt/etc."
+    ]
+  },
+  {
+    "title": "16.5.2 — The allocation rule as one pure function",
+    "status": "completed",
+    "updated": "2026-08-13",
+    "seq": 181,
+    "details": [
+      "Added split_receipt(outlay_paise, already_paid, amount) to backend/app/transactions.py, right after _compute_total.",
+      "New backend/tests/test_split_receipt.py: fully recovered, partially recovered, already recovered (already_paid > outlay), zero outlay (ordinary transaction path), amount exceeds remaining outlay.",
+      "Verified: new test passes (.venv/Scripts/python.exe); existing test_transactions.py, test_transaction_status.py, test_transaction_correction.py, test_transaction_list.py all still pass.",
+      "Not wired into create_transaction or create_payment yet — that's 16.5.3 and 16.5.5."
+    ]
+  },
+  {
+    "title": "16.5.3 — Post the outlay leg on create",
+    "status": "completed",
+    "updated": "2026-08-13",
+    "seq": 182,
+    "details": [
+      "create_transaction accepts outlay_paise/outlay_account_id, folds outlay into _compute_total (now outlay+fee+charge−discount), posts −outlay transfer plus split_receipt's recovery/income legs via insert_entry.",
+      "Guards: non-zero outlay requires an account, must be active, must differ from the receiving account, service's has_outlay flag enforced server-side — all before begin_write (existence checks, no race); balance check (account_balance < outlay) inside begin_write per H.11, matching create_banking's settlement-vs-cash pattern.",
+      "correct_transaction's _compute_total call updated to carry the existing outlay_paise forward unchanged — 16.5.6 will let a correction change it.",
+      "transactions table INSERT extended with outlay_paise/outlay_account_id columns.",
+      "Verified: new tests in test_transactions.py — outlay leg posts 3 ledger rows (−outlay/+recovery/+income transfer+service_income), wallet balance drops by exactly the outlay, GET /reports/profit-loss reports only the fee as income; outlay exceeding wallet balance returns 400 and writes nothing; missing outlay_account_id, outlay account == receiving account, and has_outlay=0 all rejected with 400. Full backend suite (all test_*.py) passes.",
+      "Deviation: plan's guard list is headed 'all inside begin_write' but only the balance check actually needs the write lock (H.11 is specifically about read-check-write races) — followed create_banking's existing precedent of existence/differ checks before begin_write, balance check after."
+    ]
+  },
+  {
+    "title": "16.5.4 — Fix the two paid-amount derivations",
+    "status": "completed",
+    "updated": "2026-08-13",
+    "seq": 183,
+    "details": [
+      "recompute_status and list_transactions's walk-in branches now also sum transfer rows (source_type='transaction', amount_paise > 0) alongside service_income, so the recovery leg of a split receipt counts toward paid_paise.",
+      "Customer branch untouched — its paid_paise already comes from the payments table, unaffected by the ledger split.",
+      "New tests in test_transaction_status.py: a walk-in outlay paid in full derives 'completed' with paid_paise == total_paise; a customer outlay with a part payment still derives 'partial' with paid_paise equal to the amount actually taken (regression check).",
+      "Verified: all 31 backend test scripts pass (.venv/Scripts/python.exe), including test_transactions.py, test_transaction_correction.py, test_payments.py.",
+      "No deviations from the plan."
+    ]
+  },
+  {
+    "title": "16.5.5 — Split later settlement, closing the credit-income gap",
+    "status": "completed",
+    "updated": "2026-08-13",
+    "seq": 184,
+    "details": [
+      "create_payment now splits each bill's applied amount via split_receipt inside the existing oldest-first loop, instead of posting one customer_payment row after it — recovery (transfer) and income (service_income) legs posted per bill, both source_type='transaction'/source_id=that bill's id, matching what creation writes.",
+      "Closes the credit-income gap: a bill settled later now counts toward income_expenses() since service_income is counted there (customer_payment was deliberately excluded). closing.py's received_paise bucket already includes service_income, so unaffected.",
+      "Updated ARCHITECTURE.md's stale 'Customer settles old dues' row to describe the split.",
+      "Deliberate behaviour change surfaced two pre-existing hardcoded-figure tests that assumed the old exclude-from-income behaviour: test_reconciliation.py's scripted month (Bob's ₹243 settlement now counts as income) and its service-wise cert income assertion — both updated with the new expected figures.",
+      "New tests in test_payments.py: the plan's exact Verify numbers (₹5,050 outlay bill recovered across two settlements before any income), and an explicit assertion of the no-outlay behaviour change (full fee now counts as income once collected, previously ₹0).",
+      "Verified: full backend suite (29 files) passes."
+    ]
+  },
+  {
+    "title": "16.5.6 — Correction across up to three live entries",
+    "status": "completed",
+    "updated": "2026-08-13",
+    "seq": 185,
+    "details": [
+      "correct_transaction now finds ALL live ledger rows for the transaction (source_type='transaction', entry_type != 'reversal', not already reversed — same shape banking.py's _live_ledger_entries uses), not just the single service_income row.",
+      "TransactionCorrection gained outlay_paise/outlay_account_id with the same guards create_transaction applies — outlay requires an account, must differ from the receiving account, service's has_outlay flag enforced; balance checked AFTER the reversals per update_banking's ordering.",
+      "Whenever account/date/outlay changes (or a walk-in's total changes), every live row is reversed and split_receipt re-run from scratch against the corrected outlay: a walk-in's reposted amount resyncs to the new total (H.14, unchanged), a customer's already-collected amount carries forward unchanged with only its outlay split redone.",
+      "Fee/charge/discount-only corrections on a customer bill still never touch the ledger — preserved via a needs_repost condition kept separate from the outer closed-day-check gate, which stays unconditional per H.29/H.30.",
+      "New tests in test_transaction_correction.py matching the plan's exact Verify: outlay ₹5,000→₹4,500 reverses+reposts all 3 entries (original rows asserted untouched, never UPDATEd), correcting only the outlay account moves the outflow and leaves recovery/income on the receiving account, and a correction on a closed day 409s.",
+      "Verified: full backend suite (29 files) passes, no regressions."
+    ]
+  },
+  {
+    "title": "16.5.7 — The catalog flag on Services",
+    "status": "completed",
+    "updated": "2026-08-13",
+    "seq": 186,
+    "details": [
+      "has_outlay added to ServiceCreate (default False) and ServiceUpdate in backend/app/services.py, with the _not_null validator the other non-null fields use and the int() coercion is_active already needs; create_service's INSERT and update_service's set-clause both extended.",
+      "Frontend: added shadcn Checkbox component (npx shadcn add checkbox — no new npm dependency, @base-ui/react was already installed), a 'Requires an outlay' checkbox in Services.tsx's create/edit form, and an Outlay column in the services table (Yes/— per row).",
+      "New backend test (test_has_outlay_flag_round_trips): create default-false, create with the flag set, PATCH round-trip through GET; has_outlay=None folded into the existing null-rejection loop test.",
+      "Verified: full backend suite (29 files) passes; tsc --noEmit and npm run build both clean.",
+      "Not verified: browser click-through (no login access this session, same caveat as other frontend-only steps in this plan).",
+      "16.5.8 (transaction form fields) and 16.5.9 (report labeling) remain pending — out of scope for this session's requested range (16.5.5-16.5.7)."
+    ]
+  },
+  {
+    "title": "16.5.8 — Outlay fields in the transaction form",
+    "status": "completed",
+    "updated": "2026-08-13",
+    "seq": 190,
+    "details": [
+      "TransactionForm.tsx: Service type gains has_outlay; conditional 'Paid out by you (₹)' + 'Paid from' fields render when the selected service requires an outlay.",
+      "Outlay amount defaults to blank (not \"0\") so it must be explicitly typed; both fields reset on every service switch so a stale value can't survive onto a non-outlay service.",
+      "Running total = outlay + fee + charge - discount. Inline guards mirror create_transaction: blank outlay rejected, outlay account required once amount > 0, outlay account must differ from the receiving account.",
+      "Shared by Transactions.tsx and the Dashboard quick-action modal (one component, one edit) — confirmed both render identically in the browser.",
+      "Verified live: created a real ₹5,000-outlay/₹50-fee transaction end to end — Ledger posted Outlay -₹5,000 (SBI MANTU SB), Outlay recovery +₹5,000 and Service Income +₹50 (CASH AT BOX); all three inline guards fired correctly before that.",
+      "tsc --noEmit and npm run build (vite build) both clean; full backend regression suite (test_split_receipt, test_transactions, test_transaction_status, test_payments, test_transaction_correction, test_services, test_reports, test_reconciliation, test_edge_cases) passes."
+    ]
+  },
+  {
+    "title": "16.5.9 — Make the reports say what they mean",
+    "status": "completed",
+    "updated": "2026-08-13",
+    "seq": 191,
+    "details": [
+      "backend/app/reports.py: service-wise and customer-wise reports now sum outlay_paise alongside billed_paise.",
+      "Reports.tsx: new sortable 'Outlay' column on the service-wise table (and in the CSV export).",
+      "Ledger.tsx: rows with entry_type='transfer' and source_type='transaction' now display as 'Outlay' (negative) / 'Outlay recovery' (positive) instead of generic 'Transfer'; genuine account/banking transfers unaffected.",
+      "New backend test test_service_wise_report_separates_billed_from_outlay in test_reports.py, matching the plan's ₹5,050 billed / ₹5,000 outlay / ₹50 income example.",
+      "Verified live: service-wise report showed Billed ₹6,050 / Outlay ₹6,000 / Income Collected ₹50 across two real transactions; Ledger screen showed the Outlay/Outlay recovery/Transfer labels correctly.",
+      "Full backend regression suite passes, including test_reports.py."
+    ]
+  },
+  {
+    "title": "16.5 revision — Outlay no longer added on top of the fee",
+    "status": "completed",
+    "updated": "2026-08-13",
+    "seq": 192,
+    "details": [
+      "Reported defect: an outlay service billed double. Fee ₹100 + 'Paid out by you' ₹100 produced a ₹200 bill, because _compute_total was outlay + fee + charge − discount while operators enter the fee as the full amount they charge — so the outlay was added to money that already contained it.",
+      "Model changed to banking parity (the user's requested framing): total_paise = fee + charge − discount. The fee is the whole amount charged; the outlay is the operator's own money passing through it, exactly as insert_banking_entries treats an AEPS principal — out of one account, back into another, inflating nothing. Income = fee − outlay.",
+      "backend/app/transactions.py:_compute_total is the only formula change — one function, and both create_transaction and correct_transaction already route through it, so no per-caller patching.",
+      "New guard in the same function: outlay_paise > total_paise returns 400. Unreachable under the additive model; under this one it is money the customer is never billed for and can never repay, and split_receipt caps recovery at what actually arrives so nothing else would ever surface the loss. banking.py needs no equivalent because its principal leg is symmetric.",
+      "TransactionForm.tsx: running total drops the outlay; inline guard mirrors the server; FieldDescription added under both the outlay field ('recovered out of the fee below — not added to it') and the fee field ('the full amount you charge the customer, including the ₹X paid out above'), since the bare labels are what caused the misreading.",
+      "Tests rebased rather than rewritten: every outlay test moved from fee_paise=5000 to 505000, keeping total_paise at 505000 so all ledger assertions hold unchanged. test_outlay_correction_reverses_and_reposts_all_three_entries now asserts the corrected total stays ₹5,050 with income rising ₹500 to ₹550 (the split moved, the bill did not). New test_outlay_exceeding_the_total_rejected covers the 400 plus the break-even outlay == total case.",
+      "New migration 006_outlay_inside_fee.sql — one UPDATE folding the outlay into fee_paise for rows already written under the additive model. total_paise deliberately untouched, so bills, ledger rows, outstanding and every report are bit-identical before and after. Not optional: without it _compute_total re-derives a legacy row's total as the ₹50 margin and the new guard rejects every correction, leaving existing outlay transactions permanently uneditable.",
+      "Verify: all 31 backend test scripts pass; tsc --noEmit and npm run build clean. Scripted check against a real migrated+seeded DB reproduced the report: fee ₹100 / outlay ₹100 now bills ₹100 (was ₹200) with ₹0 income and the wallet down exactly ₹100; fee ₹150 / outlay ₹100 bills ₹150 with ₹50 income; fee ₹100 / outlay ₹5,000 returns 400.",
+      "Migration verified by test_migration_006_re_expresses_legacy_outlay_rows_without_moving_money: builds a v5 row with its three real ledger legs, snapshots balances/status/profit-loss either side of the migration and asserts they are unchanged, corrects the row (which 400s without 006), and re-runs migrations to confirm the fee is not doubled.",
+      "Docs: PLAN.md 16.5 'The model' rewritten with a dated revision note explaining why the original additive model was wrong, plus 16.5.3/16.5.8/16.5.9 Verify lines and the risk note (the outlay field is now the only thing separating a correct premium entry from one booked wholly as income). ARCHITECTURE.md §3 mapping row updated; §168's total_paise = fee + charge − discount is correct again unchanged."
+    ]
+  },
+  {
+    "title": "Phase 17 — Shell lockdown & manual update check",
+    "status": "pending",
+    "updated": "2026-08-12",
+    "details": [
+      "17.1 fullscreenable:false + Menu.setApplicationMenu(null) — the default menu is what binds F11, F12 and Ctrl+Shift+I, so dropping it removes all three. Dev runs open DevTools programmatically instead.",
+      "17.2 webPreferences.devTools = !app.isPackaged — the hard switch, so openDevTools() and right-click Inspect are also no-ops. No escape hatch by design; data\\logs\\ (Phase 12) becomes the sole diagnostic channel.",
+      "17.3 New electron/preload.cjs exposing exactly one contextBridge object (checkForUpdates, onUpdateState). No preload exists today; contextIsolation is on by default in Electron 43.",
+      "17.4 'Check for updates' button in the sidebar footer beside Phase 14's version string. Five states off autoUpdater's existing events. Wording is 'Update ready — applies when you close CSCMS', because 11.5 sets autoInstallOnAppQuit.",
+      "17.5 'Restart & install' via quitAndInstall(). Verify asserts a backup landed at the restart, not just that the version changed — 11.5's risk note says the updater's restart can pre-empt main.py's shutdown backup, and this button arms that on demand mid-day.",
+      "Covers the operator's 'disable full screen', 'disable developer tools' and 'button to fetch the update from the latest release' requests."
+    ]
+  },
+  {
+    "title": "Phase 18 — Editable account balances",
+    "status": "pending",
+    "updated": "2026-08-12",
+    "details": [
+      "Chosen shape: operator types the correct balance, system computes the delta and posts ONE adjustment ledger entry. ARCHITECTURE.md section 2 forbids a writable balance column, so this is the only form 'edit the balance' can take and still reconcile.",
+      "18.1 POST /api/accounts/{id}/adjust — entry_type='adjustment', source_type='manual'. begin_write BEFORE the balance read (H.11/H.21/H.23), ensure_business_day_open called unconditionally (H.29-H.31), validate_business_date at the boundary (H.13), zero delta rejected 400, reason mandatory, int64 bound (H.32), deactivated account 400 (H.15).",
+      "18.1 Verify carries a parallel probe: 8 concurrent adjusts to the same target must leave one row and a balance equal to the target, not a multiple of the delta.",
+      "18.2 write_audit(action='adjust') in the same transaction, carrying before/after balance and the reason; verify neither row survives a forced mid-transaction failure.",
+      "18.3 Adjust button per row in Accounts.tsx with a live difference preview — typing 12650 must show +₹250 before saving.",
+      "18.4 Confirm a manual adjust shows in the day report's adjustment_paise but NOT in cash_variance_paise, which H.38 deliberately filters to source_type='closing'."
+    ]
+  },
+  {
+    "title": "Phase 19 — Close yesterday before trading today; verify bank balances at close",
+    "status": "pending",
+    "updated": "2026-08-12",
+    "details": [
+      "Part A (19.1-19.3) — the unclosed previous day. 19.1 GET /api/day/unclosed returns the earliest pre-today date with ledger activity that isn't closed; a day the shop was shut is not an unclosed day.",
+      "19.2 Dismissible Dashboard banner, explicitly NOT a modal and NOT a write block — the operator asked to be able to proceed with today's work. Real work in this step is making DailyClosing.tsx accept a date from the query string; it hardcodes localDateISO() today.",
+      "19.3 Same one-line notice at the top of the Quick Actions modal — a banner on a dashboard nobody looked at is not a prompt.",
+      "Part B (19.4-19.6) — bank balance verification. 19.4 extends CloseDayRequest from a single physical_cash_paise to per-account declared balances, GENERALISING the existing cash variance path rather than adding a second copy of it.",
+      "19.5 Per-account variance in the report and a column in ClosedReport; cash_variance_paise stays in the response because the printed report and summary card read it.",
+      "19.6 Wizard step 3 (already labelled 'Verify Bank Balances', currently display-only) becomes an input step. Fields start BLANK, not prefilled with the system figure — a prefilled field is one the operator tabs past, and the point is an independent second reading. Blank = not verified, posts nothing."
+    ]
+  },
+  {
+    "title": "Phase 20 — New Customer inside the Quick Actions modal",
+    "status": "pending",
+    "updated": "2026-08-12",
+    "details": [
+      "Deliberately reverses 15.5, which made New Customer a navigation to /customers. That reasoning was about the page; the operator's need is about the form. 15.4 explicitly accepted losing the in-progress transaction on that navigation — this phase stops accepting it.",
+      "20.1 Lift the inline create/edit form out of Customers.tsx into src/components/forms/CustomerForm.tsx with the same onSuccess/onCancel contract the other three forms use. A move, not a rewrite — same reasoning that put 15.3's guard in TransactionForm.tsx rather than in each caller.",
+      "20.2 Fourth tab in Dashboard.tsx's Quick Actions modal; the card entry switches from path:'/customers' to tab:'customer'. 15.5's a.path === '/closing' variant check already survives the change.",
+      "20.3 15.4's suggestion row and Alert action switch tabs instead of navigating. TabsContent keepMounted is already in place, so the half-filled transaction survives. This is the phase's whole justification — if the transaction doesn't survive the round trip, it hasn't shipped.",
+      "20.4 Remove Customers.tsx's now-orphaned location.state ({ create: true, name }) handling — orphans this change created, per CLAUDE.md section 3."
+    ]
+  },
+  {
+    "title": "Phase 21 — Dashboard charts",
+    "status": "pending",
+    "updated": "2026-08-12",
+    "details": [
+      "Operator chose shadcn charts (npx shadcn@latest add chart, wraps Recharts) over hand-rolled SVG — axes, tooltips and resize handling are the parts that are actually work.",
+      "21.1 Install; the wiring risk is the palette, not the library — ChartContainer's CSS-variable scheme must point at index.css's tokens. Verify includes printing the closing report unchanged (the component injects its own <style>, and index.css's @media print block is an undeclared coupling this plan already got bitten by once).",
+      "21.2 GET /api/dashboard/trend?days=7 — one request, not seven (H.1). A date with no activity returns a ZERO row, not a missing row: a gap in a line chart reads as missing data, here it means a quiet day.",
+      "21.3 Income vs expenses trend, full width above the existing two-column layout; rightmost point must match today's stat cards exactly.",
+      "21.4 Service mix donut on the serviceBreakdown the card already computes — no new endpoint, no new query.",
+      "21.5 Every chart routed through BlockState. H.8 exists because data=[] turns a failed fetch into a confident ₹0, and an empty chart is the most confident zero in the app."
+    ]
+  },
+  {
+    "title": "Phase 22 — Encryption at rest",
+    "status": "pending",
+    "updated": "2026-08-12",
+    "details": [
+      "Answers the 'casual snooping' half of the DB-protection request. 11.1's risk note already named this step: don't harden the app secret before raising the DB's own protection, or the work buys nothing.",
+      "22.1 SPIKE FIRST, timeboxed, go/no-go. pysqlcipher3/sqlcipher3 need a compiled OpenSSL + SQLCipher toolchain, Windows wheels for current CPython are unreliable, and PyInstaller then has to bundle the native extension into build_exe.bat's --onedir output. Deliverable is a written yes or no; the spike code is not kept.",
+      "22.2 (on yes) Key in Windows DPAPI, handed to the backend the same way 11.2 already hands over CSCMS_APP_SECRET — that path exists and doesn't need inventing.",
+      "22.3 (on yes) Migrate existing plaintext installs: back up to Phase 16's mirror first (outside the folder being rewritten), sqlcipher_export in place, interruptible without data loss. 11.6 already established there is no downgrade path to fall back to.",
+      "22.4 (on no) Windows EFS (cipher /e) on data\\ — native, no dependency, no migration. Protects against other Windows accounts only, NOT against the operator's own session. That limit goes in the release notes rather than letting 'encrypted' imply more.",
+      "Cross-phase risk: an unencrypted 16.2 mirror defeats this entirely. Whichever branch 22.1 takes must cover the mirrored copies."
+    ]
+  },
+  {
+    "title": "Phase 23 — Motion polish (optional)",
+    "status": "pending",
+    "updated": "2026-08-12",
+    "details": [
+      "Marked optional by the operator. Listed so it doesn't get done by accident inside another phase.",
+      "tw-animate-css is already a dependency and shadcn's Dialog/Tabs/AlertDialog/Sheet already animate. The gap is route changes, stat cards and table rows appearing instantly.",
+      "23.1 Short fade on the routed outlet in App.tsx. CSS only, no new animation dependency.",
+      "23.2 Stat cards animate on mount; changed figures transition. H.8's constraint is the real risk — a number in motion must still read as a settled number, and a skeleton must never animate into something readable as a real zero.",
+      "23.3 Everything wrapped in prefers-reduced-motion. Not a nicety: this is a till operated eight hours a day."
+    ]
+  },
+  {
+    "title": "Phase 24 — Deferred scope",
+    "status": "pending",
+    "updated": "2026-08-12",
+    "details": [
+      "Renumbered 16 → 24 when the eight operator-requested phases were inserted ahead of it, so PLAN.md's document order still matches its phase order. Previously renumbered 14 → 16 for the same reason.",
       "Left unbroken deliberately. NEW Printing.tsx screen, attachments, receipt printing, and PRD section 11 future work (multi-user, cloud sync, GST, mobile)."
     ]
   },
