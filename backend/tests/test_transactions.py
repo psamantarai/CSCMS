@@ -56,7 +56,7 @@ def test_total_computed_from_fee_charge_discount():
     with tempfile.TemporaryDirectory() as tmp:
         conn = _seeded_conn(Path(tmp))
         cash_id, service_id = _cash_and_service(conn)
-        customer = create_customer(CustomerCreate(name="Test Customer"), conn)
+        customer = create_customer(CustomerCreate(name="Test Customer", phone="9800000021"), conn)
 
         txn = create_transaction(
             TransactionCreate(business_date="2026-08-04", customer_id=customer["id"],
@@ -174,7 +174,7 @@ def test_walk_in_left_unpaid_is_rejected():
         assert walk_in["status"] == "completed"
 
         # unpaid, but with a customer to carry it: still fine
-        customer = create_customer(CustomerCreate(name="Credit Customer"), conn)
+        customer = create_customer(CustomerCreate(name="Credit Customer", phone="9800000022"), conn)
         billed = create_transaction(
             TransactionCreate(business_date="2026-08-04", customer_id=customer["id"],
                                service_id=service_id, fee_paise=10000, account_id=cash_id),
@@ -218,7 +218,7 @@ def test_partial_payment_posts_only_the_amount_paid():
     with tempfile.TemporaryDirectory() as tmp:
         conn = _seeded_conn(Path(tmp))
         cash_id, service_id = _cash_and_service(conn)
-        customer = create_customer(CustomerCreate(name="Test Customer"), conn)
+        customer = create_customer(CustomerCreate(name="Test Customer", phone="9800000021"), conn)
         balance_before = account_balance(conn, cash_id)
 
         txn = create_transaction(
@@ -237,7 +237,7 @@ def test_unpaid_transaction_posts_nothing_to_ledger():
     with tempfile.TemporaryDirectory() as tmp:
         conn = _seeded_conn(Path(tmp))
         cash_id, service_id = _cash_and_service(conn)
-        customer = create_customer(CustomerCreate(name="Test Customer"), conn)
+        customer = create_customer(CustomerCreate(name="Test Customer", phone="9800000021"), conn)
         balance_before = account_balance(conn, cash_id)
 
         txn = create_transaction(
@@ -696,7 +696,7 @@ def test_concurrent_close_never_lets_an_unpaid_create_slip_through():
             # PLAN 15.1: the unpaid path is the whole point of this test
             # (insert_entry is skipped, so its re-verified guard never runs),
             # and an unpaid bill now has to name a customer.
-            customer_id = create_customer(CustomerCreate(name="Credit Customer"), setup)["id"]
+            customer_id = create_customer(CustomerCreate(name="Credit Customer", phone="9800000022"), setup)["id"]
             setup.close()
 
             business_date = "2026-08-05"

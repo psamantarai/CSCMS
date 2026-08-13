@@ -30,10 +30,10 @@ def _seeded_conn(tmp: Path):
     return conn
 
 
-def _cash_service_customer(conn, name="Ramesh"):
+def _cash_service_customer(conn, name="Ramesh", phone="9800000040"):
     cash_id = conn.execute("SELECT id FROM accounts WHERE name = 'Cash Drawer'").fetchone()[0]
     service = create_service(ServiceCreate(name="PAN Card", category="PAN", default_fee_paise=10000), conn)
-    customer = create_customer(CustomerCreate(name=name), conn)
+    customer = create_customer(CustomerCreate(name=name, phone=phone), conn)
     return cash_id, service["id"], customer["id"]
 
 
@@ -47,7 +47,7 @@ def _cash_wallet_outlay_service_customer(conn, wallet_balance_paise=1000000):
     service = create_service(ServiceCreate(name="Insurance Premium", category="Insurance", default_fee_paise=5000), conn)
     conn.execute("UPDATE services SET has_outlay = 1 WHERE id = ?", (service["id"],))
     conn.commit()
-    customer = create_customer(CustomerCreate(name="Ramesh"), conn)
+    customer = create_customer(CustomerCreate(name="Ramesh", phone="9800000040"), conn)
     return cash_id, wallet["id"], service["id"], customer["id"]
 
 
@@ -347,6 +347,117 @@ def test_no_outlay_settlement_now_counts_as_income():
         conn.close()
 
 
+def test_auto_remark_fully_paid_with_username():
+    # PLAN 16.6.5: settling a customer's full outstanding writes "Fully Paid
+    # by <username>" on both the payments row and the ledger description.
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id, service_id, customer_id = _cash_service_customer(conn)
+
+        txn = create_transaction(
+            TransactionCreate(business_date="2026-08-01", customer_id=customer_id, service_id=service_id,
+                               fee_paise=100, account_id=cash_id),
+            conn,
+        )
+
+        payments = create_payment(
+            PaymentCreate(business_date="2026-08-04", customer_id=customer_id, amount_paise=100,
+                          account_id=cash_id, username="Priya"),
+            conn,
+        )
+        assert payments[0]["remarks"] == "Fully Paid by Priya"
+
+        ledger_row = conn.execute(
+            "SELECT description FROM ledger WHERE source_type = 'transaction' AND source_id = ? "
+            "ORDER BY id DESC LIMIT 1",
+            (txn["id"],),
+        ).fetchone()
+        assert ledger_row["description"] == "Fully Paid by Priya"
+
+        conn.close()
+
+
+def test_auto_remark_partially_paid_with_username():
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id, service_id, customer_id = _cash_service_customer(conn)
+
+        create_transaction(
+            TransactionCreate(business_date="2026-08-01", customer_id=customer_id, service_id=service_id,
+                               fee_paise=357, account_id=cash_id),
+            conn,
+        )
+
+        payments = create_payment(
+            PaymentCreate(business_date="2026-08-04", customer_id=customer_id, amount_paise=107,
+                          account_id=cash_id, username="Priya"),
+            conn,
+        )
+        assert payments[0]["remarks"] == "Partially Paid by Priya"
+
+        conn.close()
+
+
+def test_auto_remark_kind_reflects_total_outstanding_not_one_bill():
+    # A payment clearing two bills at once is "Fully"; one that clears only
+    # one of two open bills is "Partially" — the total across the customer's
+    # open bills decides, not whether any single bill closed.
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id, service_id, customer_id = _cash_service_customer(conn)
+
+        bill1 = create_transaction(
+            TransactionCreate(business_date="2026-08-01", customer_id=customer_id, service_id=service_id,
+                               fee_paise=200, account_id=cash_id),
+            conn,
+        )
+        create_transaction(
+            TransactionCreate(business_date="2026-08-02", customer_id=customer_id, service_id=service_id,
+                               fee_paise=150, account_id=cash_id),
+            conn,
+        )
+
+        partial = create_payment(
+            PaymentCreate(business_date="2026-08-03", customer_id=customer_id, amount_paise=200,
+                          account_id=cash_id, username="Priya"),
+            conn,
+        )
+        assert conn.execute("SELECT status FROM transactions WHERE id = ?", (bill1["id"],)).fetchone()[0] == "completed"
+        assert partial[0]["remarks"] == "Partially Paid by Priya"
+
+        full = create_payment(
+            PaymentCreate(business_date="2026-08-04", customer_id=customer_id, amount_paise=150,
+                          account_id=cash_id, username="Priya"),
+            conn,
+        )
+        assert full[0]["remarks"] == "Fully Paid by Priya"
+
+        conn.close()
+
+
+def test_auto_remark_keeps_operator_note():
+    # Blank operator note -> auto remark alone (covered by the tests above).
+    # A typed note is appended, not replaced.
+    with tempfile.TemporaryDirectory() as tmp:
+        conn = _seeded_conn(Path(tmp))
+        cash_id, service_id, customer_id = _cash_service_customer(conn)
+
+        create_transaction(
+            TransactionCreate(business_date="2026-08-01", customer_id=customer_id, service_id=service_id,
+                               fee_paise=100, account_id=cash_id),
+            conn,
+        )
+
+        payments = create_payment(
+            PaymentCreate(business_date="2026-08-04", customer_id=customer_id, amount_paise=100,
+                          account_id=cash_id, username="Priya", remarks="cash at counter"),
+            conn,
+        )
+        assert payments[0]["remarks"] == "Fully Paid by Priya — cash at counter"
+
+        conn.close()
+
+
 if __name__ == "__main__":
     test_one_payment_clears_two_separate_outstanding_bills()
     test_payment_smaller_than_one_bill_leaves_it_partial()
@@ -357,4 +468,8 @@ if __name__ == "__main__":
     test_concurrent_payments_against_one_bill_only_one_succeeds()
     test_outlay_bill_settled_later_splits_recovery_before_income()
     test_no_outlay_settlement_now_counts_as_income()
+    test_auto_remark_fully_paid_with_username()
+    test_auto_remark_partially_paid_with_username()
+    test_auto_remark_kind_reflects_total_outstanding_not_one_bill()
+    test_auto_remark_keeps_operator_note()
     print("OK")

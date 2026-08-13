@@ -1,6 +1,6 @@
 # CSCMS — Implementation Plan
 
-37 phases, 198 steps. Phases run in order; each depends on the one before.
+41 phases, 215 steps. Phases run in order; each depends on the one before.
 (Phase 2.5 was inserted after an edge-case audit of the shipped Phase 0–2
 code — see that phase for what it found and why it blocks Phase 3. Phase 3.5
 came from the same pass repeated over the shipped Phase 3 code. Phase 4.5
@@ -15,7 +15,12 @@ came from an operator request list after the 1.2.0 release; Deferred was
 renumbered 16 → 24 to keep document order matching phase order, as it was once
 before. Phase 16.5 was inserted rather than appended because it is the
 highest-priority work outstanding: Phase 16 is the last phase built, so 16.5
-is next in the queue without renumbering anything.)
+is next in the queue without renumbering anything. **Phases 16.6–16.9 came from
+a second operator request list gathered after 16.5, and were inserted for the
+same reason** — they run ahead of 17–23 and inserting here renumbers nothing.
+Two items on that list are not in 16.6–16.9: entering the operator's real bank
+balance at close, and the alignment of those balances. Both already belonged to
+Phase 19.6, and were folded into it rather than planned twice.)
 
 **A step is the unit of work.** Each is one sitting, independently verifiable,
 and leaves the app in a working state. Per `CLAUDE.md`, work stops after each
@@ -268,6 +273,22 @@ service names, and two customers sharing a phone number are all accepted. These
 are plausibly *correct* for a village shop (two family members, one phone), so
 they are listed as findings rather than steps — decide before Phase 3 whether
 the customer picker needs a duplicate warning.
+
+**AMENDED 2026-08-13** (operator request, after 16.6.4 shipped
+warn-and-suggest): the *same* name **and** phone together must now be
+rejected outright, not just suggested — the operator hit this directly (a
+second "Pritesh" got created through the suggestion banner) and phone is how
+a customer carrying a balance gets chased later, so a silent exact duplicate
+defeats that. `POST /api/customers` now 400s when an active customer already
+has the identical (name, phone) combo (`_find_duplicate_by_name_phone`,
+`backend/app/customers.py`); `PATCH` checks the same on the row's merged
+post-update state, excluding itself. The original call still holds for what
+it was actually deciding — a phone shared by two *different* names (family
+members) still passes, no `UNIQUE` index on `customers.phone`. `phone` also
+became required on create only (not on edit — H.4's "phone stays clearable"
+holds there), so the combo check always has a phone to compare on for new
+rows. Pre-existing duplicates from before this landed are not retroactively
+merged.
 
 ---
 
@@ -2660,6 +2681,382 @@ must hold per account and in total.
 
 ---
 
+## Phase 16.6 — What the customer actually owes
+
+First of four phases from a second operator request list, gathered after Phase
+16 shipped. Numbered `16.6`–`16.9` rather than appended past 23 because the
+operator wants them ahead of Phases 17–23, and inserting here puts them next in
+the queue without renumbering anything — the same reasoning that placed 16.5.
+
+Three requests, one subject: the Customers page is where credit is managed, and
+it is currently the page that says least about it.
+
+**16.6.1 `paid_paise` on the customer history endpoint** —
+`get_customer_history` (`backend/app/customers.py:132`) is a bare
+`SELECT t.*`, so every row it returns carries `total_paise` and `status` but no
+paid figure. `Customers.tsx:110` therefore renders the total and nothing else:
+a ₹357 bill with ₹107 against it reads "₹357" on the one screen built to answer
+"how much is still owed".
+
+`list_transactions` (`backend/app/transactions.py`) already derives exactly this
+figure, and its derivation is not trivial — PLAN 16.5.4 had to teach it that a
+walk-in's paid figure must also count the `entry_type='transfer'` recovery leg
+an outlay splits off. **Extract that CASE expression into one shared SQL
+fragment and have both call sites use it**, rather than pasting it a third time.
+It has already had to be corrected in two places at once once
+(`recompute_status` and `list_transactions`); a third copy is the one that gets
+missed.
+*Verify:* `GET /customers/{id}/history` returns `paid_paise` and
+`balance_paise` per transaction, and for every row
+`balance_paise == total_paise - paid_paise`; for a customer holding one ₹357
+bill paid ₹107, the endpoint's summed `balance_paise` equals
+`GET /customers/{id}/outstanding`. A bill carrying an outlay reports the same
+`paid_paise` through both `/customers/{id}/history` and `/transactions`.
+
+**16.6.2 The customer page shows paid and balance** — add Paid and Balance
+columns to the Service History table in `Customers.tsx`, and give the balance
+the same visual weight the Outstanding card has. The status badge stays: it says
+*whether* the bill is settled, the balance says *by how much*, and the operator
+asking a customer for money needs the second.
+*Verify:* a customer with one ₹357 bill paid ₹107 shows Total ₹357.00, Paid
+₹107.00, Balance ₹250.00 and status `partial`; after settling ₹250 the row reads
+Balance ₹0.00 and `completed`, and the Outstanding card reads ₹0.00 — all
+without a manual refresh (the settle mutation already invalidates
+`customerHistory`).
+
+**16.6.3 Phone lookup, normalised** — `GET /api/customers?phone=<number>` for an
+exact match, beside the existing `q=` partial search. Not `q=` reused: `q`
+matches name, phone *and* village (`customers.py:77`), so a numeric fragment can
+hit a village name and the dedupe would fire on the wrong customer.
+
+**The normalisation is the whole step, not a detail.** `9876543210`,
+`+91 98765 43210`, `098765-43210` and `98765 43210` are the same phone to the
+operator and four different strings to SQLite. Compare on a normalised form —
+digits only, last 10 kept — or the feature silently never fires and looks
+implemented. Store what the operator typed; normalise only for comparison, so no
+existing row is rewritten.
+*Verify:* with a customer stored as `+91 98765 43210`, querying
+`phone=9876543210`, `phone=098765-43210` and `phone=98765 43210` all return that
+customer; `phone=987654321` (nine digits) returns nothing; `phone=%` returns
+nothing rather than everything (H.7's escaping still applies on this path).
+
+**16.6.4 Duplicate suggestion in the customer form** — when the phone field in
+`Customers.tsx`'s create form matches an existing customer via 16.6.3, show
+their name, village and outstanding inline with two actions: `Use this customer`
+(select them and drop the half-typed form) and `Add anyway`.
+
+**A suggestion, not a constraint, and that is a decision this plan already
+recorded.** Phase 2.5's *"Not scheduled, recorded deliberately"* note flagged
+two customers sharing a phone number as *plausibly correct* for a village shop —
+two family members, one phone — and left the call to the operator. This is that
+call, and it lands on warn-and-suggest, so no `UNIQUE` index goes on
+`customers.phone` and no existing duplicate becomes unsaveable.
+*Verify:* typing an existing customer's number in the create form surfaces that
+customer before Save is pressed; `Use this customer` selects them without
+creating a row; `Add anyway` creates the duplicate; a customer with no phone, and
+a phone matching nothing, both create silently with no suggestion shown. Editing
+an existing customer does not suggest *themselves*.
+
+**16.6.5 Auto remark on settlement** — a settlement's ledger row and `payments`
+row currently carry whatever the operator typed in the free-text Remarks box
+(`Customers.tsx:412`), which is usually nothing. Compose one automatically:
+`"<Fully|Partially> Paid by <operator>"`.
+
+Two things make this less trivial than it reads:
+
+- **Fully vs. partially is a server fact, not a client one.** `create_payment`
+  applies a single amount across the customer's open bills oldest-first, inside
+  `begin_write` (H.11). Whether the customer is now clear is only known after
+  that application, in that transaction — a frontend comparing the typed amount
+  against a previously-fetched outstanding is reading pre-state, which is the
+  exact shape of every defect H.11 catalogued. Compose the string server-side,
+  inside the lock. Define it explicitly: **"Fully" means the customer's total
+  outstanding is zero after this payment**, not that one bill closed.
+- **The operator's name is not available on the server today.**
+  `_system_user_id` (`backend/app/accounts.py:94`) carries a `ponytail:` note
+  saying so — every writer attributes to the first admin because
+  `get_current_user` was never threaded through. Rather than thread it for one
+  remark, have the settle request send the logged-in `username`
+  (`src/lib/auth.tsx` already holds it) and have the server use it only for this
+  string. Say plainly in the step that this is a display name on a remark, not
+  an authorisation claim, and that the audit row's `user_id` is unchanged.
+
+An operator note is kept, not replaced: blank → the auto remark alone; typed →
+`"<auto> — <their note>"`.
+*Verify:* settling a customer's full outstanding writes remark
+`"Fully Paid by <username>"` on the `payments` row and the ledger description;
+a part payment writes `"Partially Paid by <username>"`; a payment that clears
+two bills at once is "Fully", and one that clears one of two is "Partially";
+typing "cash at counter" yields `"Fully Paid by <username> — cash at counter"`.
+The remark is visible on the Ledger page without opening anything.
+
+*Verify (phase):* an operator looking at a customer can see, without arithmetic,
+what each bill cost, what was paid against it and what is left; cannot create a
+second record of someone whose number is already on file without being told; and
+every settlement in the ledger says who took the money and whether it cleared
+the account.
+
+---
+
+## Phase 16.7 — Plain words and no dead ends on the entry forms
+
+Two requests, both about a form telling the operator something they can act on.
+
+**16.7.1 Rename the banking account fields** — `Settlement Account` and
+`Cash Account` (`src/components/forms/BankingEntryForm.tsx:216` and `:231`) name
+the *system's* model, not the operator's action.
+
+Checked before renaming, because a label that flips meaning per transaction type
+would be worse than the current one: `insert_banking_entries`
+(`backend/app/ledger.py:215-225`) posts `-principal` to the settlement account
+and `+principal` to the cash account **unconditionally, for every `txn_type`** —
+a deposit moves money the same direction as a withdrawal, because in both the
+operator's own wallet funds the transaction and the cash drawer receives.
+ARCHITECTURE.md §3's event table agrees. So one fixed label pair is correct for
+all five types:
+
+| Today | Becomes |
+|---|---|
+| Settlement Account | **Money paid from** (your bank / wallet) |
+| Cash Account | **Money received into** (cash drawer) |
+
+**Display layer only.** No column rename, no API field rename, no migration —
+`settlement_account_id` and `cash_account_id` stay exactly as they are. The
+precedent is 16.5.9, which renamed the outlay legs in the Ledger view by sign
+without touching a ledger row. Rename every user-visible occurrence, found by
+grep, not just the two form fields: `Banking.tsx`'s table headers and detail
+view, and the form's own `"Settlement and cash accounts must differ"` validation
+message (`BankingEntryForm.tsx:146`), which would otherwise name two fields that
+no longer exist on screen.
+*Verify:* `grep -rin "settlement account\|cash account" src/` returns no
+user-visible string; the two `<Select>` fields, the Banking table headers and
+every validation message read in the new wording; a ₹5,000 AEPS withdrawal with
+₹50 commission still posts identical ledger rows to before the rename, byte for
+byte in `entry_type`, `account_id` and `amount_paise`.
+
+**16.7.2 Hide the "paid from" field on a balance enquiry** — surfaced by the
+rename rather than caused by it. `submitForm` requires a settlement account for
+every type (`BankingEntryForm.tsx:143`), but a `balance_enquiry` has no
+principal and `insert_banking_entries` never touches that account — the form
+demands a mandatory answer it then discards. Under the old label that was merely
+odd; under "Money paid from" it is wrong on its face.
+
+Hide the field for `balance_enquiry` and drop it from the validation, exactly as
+the Amount field is already hidden for that type (`:205`).
+*Verify:* selecting Balance Enquiry hides "Money paid from" and lets the entry
+save with only a commission and a receiving account; the resulting ledger rows
+are one `commission` row, unchanged from today. Switching back to AEPS restores
+the field and its requirement.
+
+**16.7.3 Add an expense category from the expense form** — `POST
+/api/expenses/categories` has existed since PLAN 4.2 and has been hardened twice
+(H.21's write lock, H.22's JSON storage). `grep -rn "expenses/categories" src/`
+shows **two callers, both `GET`** — no code path in the application has ever
+created a category. The operator's only route to one is a curl command.
+
+Smallest fix: a `+ New category` item at the foot of the category `<Select>` in
+`ExpenseForm.tsx:120`, revealing an inline input. No settings screen, no
+management UI — the moment an operator needs a new category is the moment they
+are recording an expense under it.
+
+One guard the API does not have: `add_category` is idempotent on an exact
+string match only, so `"Rent"`, `"rent"` and `"Rent "` become three categories
+that all read as Rent in the dropdown. Trim, and reject a case-insensitive match
+against an existing name by selecting that one instead.
+*Verify:* adding "Stationery" from the form makes it the form's selected value
+immediately, persists to `GET /expenses/categories`, and appears in the Expenses
+page filter dropdown without a reload; adding `" stationery "` afterwards selects
+the existing "Stationery" and leaves the list length unchanged; the category
+survives an app restart.
+
+*Verify (phase):* an operator recording a banking entry can tell from the labels
+alone which account loses money and which gains it, is not asked for an account a
+balance enquiry never uses, and can record an expense under a category that did
+not exist when they opened the form.
+
+---
+
+## Phase 16.8 — Tables that filter, scroll and search
+
+Four requests, one subject: every list screen in the app shares the same table,
+sort hook and filter shape, so these change once each and apply everywhere.
+
+**16.8.1 Ledger opens on today, newest first** — two defects in one screen.
+`Ledger.tsx:67` initialises `businessDate` to `""`, so opening the page fetches
+the whole history from the beginning of time; and `list_ledger`
+(`backend/app/ledger.py:304`) closes with `ORDER BY business_date, id` ascending,
+so page 1 of that history is the **oldest** 50 rows. The entry an operator opens
+the Ledger to check is the one they just made, and today it is the last row of
+the last page.
+
+The ordering fix has one trap that must not be got wrong: the running balance is
+a window function, `SUM(...) OVER (PARTITION BY account_id ORDER BY
+business_date, id)` at `ledger.py:302`. **Only the outer `ORDER BY` flips to
+`DESC`** — invert the window's own ordering and every running balance in the
+table becomes a backwards-accumulated figure that still looks plausible. H.6
+already had to correct this column once for a different reason.
+
+The default date is `localDateISO()`, not `toISOString().slice(0,10)` (H.3: the
+UTC date stamps anything before 05:30 IST to yesterday), and it is read at
+render, not frozen at module scope (H.18: a session left open across midnight
+keeps showing the previous day).
+*Verify:* opening `/ledger` shows only today's entries with the most recent
+first, and the newest entry made in the app appears at the top without paging;
+clearing the date filter shows the full history, still newest first, and its
+last page holds the oldest entries; for any single account under any filter, the
+running balance on the topmost row still equals
+`GET /api/accounts/{id}/balance` (H.6's invariant, now read top-down). With the
+clock at 00:30 IST the page opens on the local date, not yesterday's.
+
+**16.8.2 Repeated filter values on the list endpoints** — `list_ledger`,
+`list_transactions`, `list_expenses` and `list_banking` each take scalars
+(`entry_type: str | None`, `status: str | None`, `category: str | None`,
+`txn_type: str | None`, …) and build `column = ?`. Accept repeated query
+parameters and build `column IN (?, ?, …)` instead, with the single-value form
+still working unchanged so nothing already calling them breaks.
+
+Bound the list length. H.6 is the record of what unbounded list parameters do
+here — `limit=-1` was passed straight to SQLite and returned the whole table —
+and an unbounded `IN` clause is the same mistake with a different column.
+*Verify:* `?status=partial&status=pending` returns exactly the union of the two
+single-value results, with `total` matching; one value behaves identically to
+today; zero values is the same as omitting the parameter; a list past the
+documented cap returns 400 rather than a multi-thousand-term `IN` clause.
+Filtered sums still equal unfiltered sums when nothing is filtered (PLAN 1.5).
+
+**16.8.3 A multi-select filter control** — one `MultiSelectFilter` component
+used by all four pages, replacing the single `<Select>` per column. Enumerable
+columns only — type, status, category, service, account. **Dates stay a from/to
+pair, not a set**: "multiple filters on the date column" means a range in every
+real use, and a multi-select of individual dates is a control nobody can drive.
+
+Two mechanical traps, both silent:
+- `Ledger.tsx:86` builds its query string with
+  `new URLSearchParams(filters as Record<string, string>)`. Hand that an array
+  and it stringifies to `type=a,b` — one malformed value, no error, an empty
+  table. Every call site needs the repeated-key form.
+- `queryKeys.ledger(filters)` and its siblings hash the filter object. An array
+  whose order varies between renders is a different cache key each time,
+  refetching on every keystroke. Sort the values before they reach the key.
+*Verify:* selecting Service Income and Commission on the Ledger shows both and
+nothing else, with the Network tab showing `entry_type=service_income&entry_type=commission`;
+deselecting back to one matches the single-filter result exactly; selecting all
+options equals selecting none; re-selecting the same two in the opposite order
+fires no new request. `Clear filters` empties every column at once.
+
+**16.8.4 Services search and filters** — `Services.tsx` has a sortable table
+already but no way to find anything in it: the catalog is a flat list and the
+operator scrolls. Add a search box over name and category, plus category and
+active/inactive filters.
+
+Client-side over the already-fetched list, not a new endpoint: `GET /services`
+returns the whole catalog in one request today and the catalog is tens of rows,
+so filtering it in the browser is smaller than adding a search API and cheaper
+than a round trip per keystroke.
+*Verify:* typing "aadh" narrows to Aadhaar services as the letters are typed
+with no network request; the category filter and the active filter compose with
+the search rather than replacing it; clearing all three restores the full list;
+sorting still works over the filtered rows and the count reflects what is shown.
+
+**16.8.5 Tables scroll inside themselves** — every page is
+`h-full overflow-y-auto px-8 py-7` (12 of them, `src/pages/*.tsx`), so a long
+table scrolls the whole page and takes the filters, the summary cards and the
+column headers off screen. Move the scroll into the table container and make the
+header row `sticky`.
+
+**The print stylesheet is the risk here, and it is a coupling this plan has
+already been bitten by once.** `DailyClosing.tsx:55` and `Reports.tsx:219` carry
+`print-report`, and `index.css`'s `@media print` block from PLAN 6.7 assumes
+page-flow content; a fixed-height scroll container prints one screenful and
+silently drops the rest. The Phase 9.5.5 risk note records the last time a
+selector in that file stopped matching and nothing but a print *Verify* caught
+it. Reset the height and overflow inside `@media print`.
+*Verify:* with 200 ledger rows on screen the filter card, the summary cards and
+the column headers all stay visible while the rows scroll, and the page itself
+does not scroll; the closing report and a full Reports table each print complete
+on A4 with every row present and no sidebar; the Customers page's existing
+two-panel scroll (`Customers.tsx:293`) is unaffected.
+
+*Verify (phase):* an operator can open the Ledger and see what they just did,
+narrow any list by more than one value per column, find a service by typing part
+of its name, and read a long table without losing the controls above it.
+
+---
+
+## Phase 16.9 — Dashboard drill-downs and a Settings home
+
+Three requests: two dashboard figures that are dead ends, and a sidebar that has
+grown two administrative entries sitting beside the daily ones.
+
+**16.9.1 A pending-credits list endpoint** — `pending_credits_paise`
+(`backend/app/dashboard.py:38`) is a single `SUM` across all customers. The
+figure answers "how much is owed" and the operator's next question is always
+"by whom". Add `GET /api/customers/outstanding` returning every customer with a
+non-zero balance, largest first, with name, phone and amount.
+
+Derived the same way `get_customer_outstanding` (`customers.py:155`) derives one
+customer's figure — one query over all of them, not N+1 — and it must reconcile:
+this list's total is the dashboard's scalar, or one of the two is wrong. That is
+PRD acceptance criterion 6 applied to a new endpoint rather than assumed.
+*Verify:* the endpoint's summed `outstanding_paise` equals
+`/api/dashboard`'s `pending_credits_paise` exactly, for a seeded set including a
+partially-paid bill, a fully-unpaid bill and a settled one; a customer whose
+balance is zero is absent, not present with ₹0; a soft-deleted customer's live
+outstanding still appears (H.7's reachability rule).
+
+**16.9.2 Pending Credits opens the list** — the `Pending Credits` StatCard
+(`Dashboard.tsx:141`) becomes clickable, opening 16.9.1's list. A dialog rather
+than a route: it is a lookup the operator reads and dismisses, and a new page
+would need its own error and empty states for data the Dashboard already has a
+card for. Each row links through to that customer's page, where 16.6.2's Paid
+and Balance columns say what the debt is made of.
+*Verify:* clicking the card lists the customers owing money with the total
+matching the card's own figure; a row navigates to that customer; with nothing
+outstanding the card is not clickable and reads ₹0.00 rather than opening an
+empty dialog. With the endpoint failing, the dialog shows the failure state and
+no monetary figure (H.8) — the card behind it keeps showing the dashboard's own
+figure, which came from a different query that may still be good.
+
+**16.9.3 "View All" actually goes somewhere** — `Dashboard.tsx:164` renders
+`View All →` as a bare `<span>`. It has never been a link. Make it navigate to
+`/transactions?business_date=<today>`, and have `Transactions.tsx` seed its
+filter state from the query string — it initialises from `useState("")` today
+(`Transactions.tsx:50`) with no URL sync, so a link alone would land on an
+unfiltered list showing every transaction ever made.
+
+Read the parameter once as initial state, not in an effect: `Customers.tsx:173`
+carries a comment explaining why that distinction mattered the last time
+navigation state seeded a page, and the same reasoning applies.
+*Verify:* clicking `View All →` lands on the Transactions page filtered to
+today, showing the same count the Dashboard's "N transactions" subtitle showed;
+the date is visible in the filter control, not just applied invisibly; changing
+the filter afterwards works normally and browser back returns to the Dashboard;
+opening `/transactions` directly is still unfiltered.
+
+**16.9.4 A Settings page** — `Audit Log` and `Backups` sit in the sidebar's
+`Insights` group (`src/App.tsx:68-69`) beside Reports and Daily Closing, which
+are daily work. They are administration, consulted rarely. Add `/settings` with
+both as tabs, and drop the two entries from the sidebar.
+
+Old paths must **redirect**, not fall through: `App.tsx:198` ends the route table
+with `<Route path="*" element={<Navigate to="/dashboard" replace />} />`, so
+deleting `/audit-log` silently lands every existing bookmark and every
+in-app link on the Dashboard with no indication anything moved. Add explicit
+redirects from `/audit-log` and `/backups`. Check `activePath`'s
+`pathname.startsWith(n.path)` still highlights correctly with one nav entry
+covering two sub-views.
+*Verify:* `/settings` shows both tools as tabs and each behaves exactly as its
+old page did — a backup can be taken and restored, the audit log filters and
+pages; `/audit-log` and `/backups` redirect to the right tab rather than the
+Dashboard; the sidebar shows one Settings entry and highlights it on both tabs;
+`grep -rn "/audit-log\|/backups" src/` finds no stale in-app link.
+
+*Verify (phase):* the two dashboard figures an operator most often needs to act
+on lead to the thing they need to act on, and the sidebar's daily and
+administrative tools are no longer interleaved.
+
+---
+
 ## Phase 17 — Shell lockdown & manual update check
 
 Three requests that all land in `electron/main.cjs`, so they ship as one phase.
@@ -2897,10 +3294,33 @@ figure beside it with the difference computed live, the same shape as 18.3.
 
 A blank field means "not verified" and posts nothing, so a shop that reconciles
 its bank monthly is not blocked from closing daily.
+
+**This step also carries two items from the second operator request list** (the
+one that produced Phases 16.6–16.9), rather than duplicating them there, because
+both land on the markup this step already rewrites:
+
+- *"Add the operator's actual bank balance to Verify Bank Balances"* is this
+  step and 19.4, already planned in full — recorded here so the request is
+  traceable, not re-planned.
+- *"The bank balances are not perfectly aligned."* `DailyClosing.tsx:368-375`
+  lays each account out as `flex … justify-between` over three children of
+  varying width, so the amount column wobbles row to row with the length of the
+  account name. Replace the flex row with a grid whose columns are fixed across
+  rows, and right-align the figures with `tabular-nums` as every other money
+  column in the app does.
+
+While rewriting it, **drop the hardcoded `✓ Verified` badge** at
+`DailyClosing.tsx:374`. It is rendered unconditionally for every account and
+nothing has been verified — it is a green tick asserting a check the operator has
+not performed, on the one screen whose purpose is that check. This step is what
+makes the badge mean something; until an account's declared figure is entered, it
+must not appear.
 *Verify:* close a day entering one bank balance and leaving another blank — only
 the entered one produces an adjustment. Entering a differing figure with no
 remark blocks the wizard's final step inline, before the request leaves the
-browser (empty Network tab).
+browser (empty Network tab). With three accounts whose names differ in length,
+the amounts sit on one right-aligned column; the verified tick shows only against
+accounts whose balance was actually entered.
 
 *Verify (phase):* an operator opening the app on a day when yesterday was never
 closed is told so without being blocked from trading, and closing any day
@@ -2929,7 +3349,11 @@ that drift apart — which is the same reasoning that put the transaction guard 
 `TransactionForm.tsx` rather than in each of its two callers (15.3).
 *Verify:* the Customers page creates and edits exactly as before; `tsc --noEmit`
 and `npm run build` clean; the diff adds no validation and removes none. Per the
-Phase 9.5 risk note, a refactor is the easiest place to lose a rule quietly.
+Phase 9.5 risk note, a refactor is the easiest place to lose a rule quietly —
+and 16.6.4 will by then have put the duplicate-phone suggestion inside this very
+form, so **that guard firing after the extraction is part of this step's
+*Verify*, not an afterthought**: typing an existing customer's number in the
+extracted form must still surface them before Save.
 
 **20.2 Fourth tab** — add `customer` to `QuickTab` and a fourth
 `TabsTrigger`/`TabsContent` in `Dashboard.tsx` rendering `CustomerForm`. The
@@ -3318,6 +3742,42 @@ check the closed-day rule from derived state. `POST /accounts/{id}/adjust` is a
 read-then-write against a balance, on a business date, from a new file — the
 exact shape both defects took. Its *Verify* carries a parallel probe because a
 sequentially-verified guard here is decorative (H.11).
+
+**A display-only change is only display-only if the derivation is shared
+(16.6.1).** `list_transactions` derives `paid_paise` with a CASE expression that
+PLAN 16.5.4 had to correct in two places simultaneously — `recompute_status` and
+the list query — because a walk-in's paid figure must also count the outlay
+recovery leg. 16.6.1 needs the same figure on a third endpoint. Pasting it is
+the obvious move and the wrong one: the next correction to that expression will
+be applied to the two call sites someone remembers. The step says *extract to one
+fragment* for that reason, and its *Verify* compares the two endpoints' figures
+on an outlay bill precisely because that is the case a stale third copy gets
+wrong while every no-outlay bill still agrees.
+
+**"Fully paid" is pre-state unless the server says it (16.6.5).** The auto-remark
+looks like a string-formatting task, and the string contains a fact — whether the
+customer is now clear — that only exists after `create_payment` has applied the
+amount across their open bills inside `begin_write`. A frontend that compares the
+typed amount against the outstanding figure it fetched earlier will be right
+almost always and wrong exactly when two entries overlap, which is the failure
+shape H.11 catalogued three times over. The remark is also the first thing in
+this codebase to want the *logged-in operator's name* on the server, which
+`_system_user_id`'s own `ponytail:` note records as unavailable — 16.6.5 passes
+the username for display rather than threading `get_current_user`, and that is a
+deliberate limit, not an oversight: the audit row's `user_id` is unchanged, so
+the remark is a label and not an authorisation record. Any future step that needs
+the real acting user still has to do the threading properly.
+
+**Flipping a sort order can silently invert a window function (16.8.1).**
+`list_ledger` computes its running balance as `SUM(...) OVER (PARTITION BY
+account_id ORDER BY business_date, id)` and then orders the outer result the same
+way. Only the outer clause is meant to become `DESC`. Changing both produces a
+running balance accumulated from the newest row backwards — a column of plausible
+figures, in the right format, that reconciles against nothing. H.6 already had to
+correct this exact column once, when a filtered window restarted mid-history; the
+*Verify* still ends on `GET /api/accounts/{id}/balance`, now read from the top
+row rather than the bottom, because that comparison is the only thing that
+catches it.
 
 **19.4 generalises the one function H.38 already had to correct.**
 `_cash_variance_paise` filters to `source_type='closing'` precisely so unrelated

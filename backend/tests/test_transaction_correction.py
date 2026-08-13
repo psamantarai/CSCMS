@@ -94,7 +94,7 @@ def test_customer_bill_correction_does_not_touch_ledger():
     with tempfile.TemporaryDirectory() as tmp:
         conn = _seeded_conn(Path(tmp))
         cash_id, service_id = _cash_and_service(conn)
-        customer = create_customer(CustomerCreate(name="Ramesh"), conn)
+        customer = create_customer(CustomerCreate(name="Ramesh", phone="9800000020"), conn)
 
         txn = create_transaction(
             TransactionCreate(business_date="2026-08-04", customer_id=customer["id"], service_id=service_id,
@@ -213,7 +213,7 @@ def test_correction_of_unpaid_transaction_is_a_plain_update():
         cash_id, service_id = _cash_and_service(conn)
         sbi_id = create_account(AccountCreate(name="SBI", account_type="savings"), conn)["id"]
         # PLAN 15.1: unpaid is the point of this test, so it names a customer.
-        customer = create_customer(CustomerCreate(name="Test Customer"), conn)
+        customer = create_customer(CustomerCreate(name="Test Customer", phone="9800000021"), conn)
 
         txn = create_transaction(
             TransactionCreate(business_date="2026-08-04", customer_id=customer["id"],
@@ -347,7 +347,7 @@ def test_correction_of_pending_transaction_on_closed_day_rejected():
         conn = _seeded_conn(Path(tmp))
         cash_id, service_id = _cash_and_service(conn)
         # PLAN 15.1: pending is the point of this test, so it names a customer.
-        customer = create_customer(CustomerCreate(name="Test Customer"), conn)
+        customer = create_customer(CustomerCreate(name="Test Customer", phone="9800000021"), conn)
 
         txn = create_transaction(
             TransactionCreate(business_date="2026-08-04", customer_id=customer["id"],
@@ -379,7 +379,7 @@ def test_correction_of_partially_paid_transaction_on_closed_day_rejected():
     with tempfile.TemporaryDirectory() as tmp:
         conn = _seeded_conn(Path(tmp))
         cash_id, service_id = _cash_and_service(conn)
-        customer = create_customer(CustomerCreate(name="Ramesh"), conn)
+        customer = create_customer(CustomerCreate(name="Ramesh", phone="9800000020"), conn)
 
         txn = create_transaction(
             TransactionCreate(business_date="2026-08-04", customer_id=customer["id"], service_id=service_id,

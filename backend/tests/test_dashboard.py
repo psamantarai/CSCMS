@@ -77,8 +77,8 @@ def test_pending_credits_sums_every_customers_outstanding():
         conn = _seeded_conn(Path(tmp))
         cash_id = conn.execute("SELECT id FROM accounts WHERE name = 'Cash Drawer'").fetchone()[0]
         service = create_service(ServiceCreate(name="Certificate", category="Certificates", default_fee_paise=35000), conn)
-        alice = create_customer(CustomerCreate(name="Alice"), conn)
-        bob = create_customer(CustomerCreate(name="Bob"), conn)
+        alice = create_customer(CustomerCreate(name="Alice", phone="9800000010"), conn)
+        bob = create_customer(CustomerCreate(name="Bob", phone="9800000011"), conn)
         # Alice: 350 billed, 100 paid at creation -> 250 outstanding.
         create_transaction(
             TransactionCreate(business_date="2026-09-01", customer_id=alice["id"], service_id=service["id"],
@@ -108,7 +108,7 @@ def test_todays_customers_counts_distinct_customers_not_walkins():
         conn = _seeded_conn(Path(tmp))
         cash_id = conn.execute("SELECT id FROM accounts WHERE name = 'Cash Drawer'").fetchone()[0]
         service = create_service(ServiceCreate(name="Printing", category="Printing", default_fee_paise=1000), conn)
-        alice = create_customer(CustomerCreate(name="Alice"), conn)
+        alice = create_customer(CustomerCreate(name="Alice", phone="9800000010"), conn)
         # Alice transacts twice today -> counted once.
         create_transaction(TransactionCreate(business_date="2026-09-01", customer_id=alice["id"], service_id=service["id"], fee_paise=1000, account_id=cash_id), conn)
         create_transaction(TransactionCreate(business_date="2026-09-01", customer_id=alice["id"], service_id=service["id"], fee_paise=1000, account_id=cash_id), conn)

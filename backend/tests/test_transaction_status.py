@@ -52,7 +52,7 @@ def test_status_flips_to_completed_on_final_payment_with_no_explicit_write():
     with tempfile.TemporaryDirectory() as tmp:
         conn = _seeded_conn(Path(tmp))
         cash_id, service_id = _cash_and_service(conn)
-        customer = create_customer(CustomerCreate(name="Sita"), conn)
+        customer = create_customer(CustomerCreate(name="Sita", phone="9800000030"), conn)
 
         txn = create_transaction(
             TransactionCreate(business_date="2026-08-01", customer_id=customer["id"], service_id=service_id,
@@ -139,7 +139,7 @@ def test_customer_outlay_partial_payment_derives_partial():
     with tempfile.TemporaryDirectory() as tmp:
         conn = _seeded_conn(Path(tmp))
         cash_id, wallet_id, service_id = _cash_wallet_and_outlay_service(conn)
-        customer = create_customer(CustomerCreate(name="Gita"), conn)
+        customer = create_customer(CustomerCreate(name="Gita", phone="9800000031"), conn)
 
         txn = create_transaction(
             TransactionCreate(business_date="2026-08-01", customer_id=customer["id"], service_id=service_id,

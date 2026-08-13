@@ -3,6 +3,7 @@ import { useLocation } from "react-router-dom"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { Search, Users } from "lucide-react"
 import { api } from "../lib/api"
+import { useAuth } from "../lib/auth"
 import { queryKeys } from "../lib/queries"
 import { fmt, formatDate, fromPaise, localDateISO, toPaise } from "../lib/format"
 import { BlockState, InlineState } from "../components/QueryState"
@@ -33,6 +34,8 @@ type Transaction = {
   business_date: string
   service_name: string
   total_paise: number
+  paid_paise: number
+  balance_paise: number
   status: "completed" | "partial" | "pending"
 }
 
@@ -55,7 +58,7 @@ const statusClass: Record<Transaction["status"], string> = {
   pending: "bg-warning/15 text-warning",
 }
 
-const serviceColumns = ["ID", "Date", "Service", "Total", "Status"]
+const serviceColumns = ["ID", "Date", "Service", "Total", "Paid", "Balance", "Status"]
 const bankingColumns = ["ID", "Date", "Type", "Principal", "Commission"]
 
 function CustomerHistory({ id }: { id: number }) {
@@ -72,6 +75,8 @@ function CustomerHistory({ id }: { id: number }) {
     date: t => t.business_date,
     service: t => t.service_name,
     total: t => t.total_paise,
+    paid: t => t.paid_paise,
+    balance: t => t.balance_paise,
   })
   const { sorted: sortedBanking, sort: bankingSort, toggleSort: toggleBankingSort } = useSort(banking, {
     id: b => b.id,
@@ -98,6 +103,8 @@ function CustomerHistory({ id }: { id: number }) {
                   <SortableTableHead sortKey="date" sort={txnSort} onSort={toggleTxnSort}>Date</SortableTableHead>
                   <SortableTableHead sortKey="service" sort={txnSort} onSort={toggleTxnSort}>Service</SortableTableHead>
                   <SortableTableHead sortKey="total" sort={txnSort} onSort={toggleTxnSort}>Total</SortableTableHead>
+                  <SortableTableHead sortKey="paid" sort={txnSort} onSort={toggleTxnSort}>Paid</SortableTableHead>
+                  <SortableTableHead sortKey="balance" sort={txnSort} onSort={toggleTxnSort}>Balance</SortableTableHead>
                   <TableHead>Status</TableHead>
                 </TableRow>
               </TableHeader>
@@ -108,6 +115,8 @@ function CustomerHistory({ id }: { id: number }) {
                     <TableCell className="text-muted-foreground">{formatDate(t.business_date)}</TableCell>
                     <TableCell>{t.service_name}</TableCell>
                     <TableCell className="font-mono font-semibold tabular-nums">{fmt(fromPaise(t.total_paise))}</TableCell>
+                    <TableCell className="font-mono tabular-nums">{fmt(fromPaise(t.paid_paise))}</TableCell>
+                    <TableCell className="font-mono text-[15px] font-semibold tabular-nums">{fmt(fromPaise(t.balance_paise))}</TableCell>
                     <TableCell><Badge className={cn("capitalize", statusClass[t.status])}>{t.status}</Badge></TableCell>
                   </TableRow>
                 ))}
@@ -178,7 +187,9 @@ export default function Customers() {
   const [showSettle, setShowSettle] = useState(false)
   const [settleForm, setSettleForm] = useState(emptySettleForm)
   const [settleError, setSettleError] = useState("")
+  const [formError, setFormError] = useState("")
   const queryClient = useQueryClient()
+  const { user } = useAuth()
 
   const { data: customers = [], isLoading: customersLoading, error: customersError } = useQuery({
     queryKey: queryKeys.customers(search),
@@ -192,6 +203,17 @@ export default function Customers() {
   const activeAccounts = accounts.filter(a => a.is_active)
 
   const customer = selected !== null ? customers.find(c => c.id === selected) ?? null : null
+
+  // PLAN 16.6.4: scoped to the create form only — selected is always null
+  // while creating, so there's no self-match to exclude, and editing an
+  // existing customer never runs this query at all.
+  const phoneQuery = form.phone.trim()
+  const { data: phoneMatches = [] } = useQuery({
+    queryKey: queryKeys.customerByPhone(phoneQuery),
+    queryFn: () => api.get<Customer[]>(`/customers?phone=${encodeURIComponent(phoneQuery)}`),
+    enabled: formMode === "create" && phoneQuery.length > 0,
+  })
+  const duplicate = phoneMatches[0] ?? null
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ["customers"] })
 
@@ -209,6 +231,7 @@ export default function Customers() {
       setSelected(created.id)
       setFormMode("view")
     },
+    onError: (e: Error) => setFormError(e.message),
   })
 
   const updateMutation = useMutation({
@@ -224,6 +247,7 @@ export default function Customers() {
       invalidate()
       setFormMode("view")
     },
+    onError: (e: Error) => setFormError(e.message),
   })
 
   // H.19: settles the customer's outstanding via POST /api/payments — oldest
@@ -237,6 +261,10 @@ export default function Customers() {
         amount_paise: toPaise(Number(settleForm.amount) || 0),
         account_id: Number(settleForm.accountId),
         remarks: settleForm.remarks || null,
+        // 16.6.5: display name for the server-composed auto remark only —
+        // not an authorisation claim, the audit row still attributes to
+        // _system_user_id.
+        username: user?.username ?? null,
       }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: queryKeys.customerOutstanding(selected!) })
@@ -255,6 +283,7 @@ export default function Customers() {
     setForm(emptyForm)
     setFormMode("create")
     setShowSettle(false)
+    setFormError("")
   }
 
   function openEdit() {
@@ -267,11 +296,17 @@ export default function Customers() {
       notes: customer.notes ?? "",
     })
     setFormMode("edit")
+    setFormError("")
     setShowSettle(false)
   }
 
   function submitForm() {
-    if (!form.name.trim()) return
+    if (!form.name.trim()) { setFormError("Name is required"); return }
+    // Operator request 2026-08-13: phone is how a customer carrying a
+    // balance gets chased later, so it's required at create time. Editing
+    // stays as-is (H.4: phone remains clearable on update).
+    if (formMode !== "edit" && !form.phone.trim()) { setFormError("Phone is required"); return }
+    setFormError("")
     if (formMode === "edit") updateMutation.mutate()
     else createMutation.mutate()
   }
@@ -343,22 +378,62 @@ export default function Customers() {
                   <Input id="customer-name" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
                 </Field>
                 <Field>
-                  <FieldLabel htmlFor="customer-phone">Phone</FieldLabel>
-                  <Input id="customer-phone" value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} />
+                  <FieldLabel htmlFor="customer-phone">Phone{formMode === "create" && " *"}</FieldLabel>
+                  <Input
+                    id="customer-phone"
+                    inputMode="numeric"
+                    value={form.phone}
+                    onChange={e => setForm({ ...form, phone: e.target.value.replace(/\D/g, "") })}
+                    required={formMode === "create"}
+                  />
                 </Field>
                 <Field>
                   <FieldLabel htmlFor="customer-village">Village</FieldLabel>
                   <Input id="customer-village" value={form.village} onChange={e => setForm({ ...form, village: e.target.value })} />
                 </Field>
                 <Field>
-                  <FieldLabel htmlFor="customer-aadhaar">Aadhaar (masked)</FieldLabel>
-                  <Input id="customer-aadhaar" value={form.aadhaar_masked} onChange={e => setForm({ ...form, aadhaar_masked: e.target.value })} />
+                  <FieldLabel htmlFor="customer-aadhaar">Aadhaar (last 4 digits)</FieldLabel>
+                  <Input
+                    id="customer-aadhaar"
+                    inputMode="numeric"
+                    maxLength={4}
+                    value={form.aadhaar_masked}
+                    onChange={e => setForm({ ...form, aadhaar_masked: e.target.value.replace(/\D/g, "").slice(0, 4) })}
+                  />
                 </Field>
                 <Field className="col-span-2">
                   <FieldLabel htmlFor="customer-notes">Notes</FieldLabel>
                   <Input id="customer-notes" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} />
                 </Field>
               </div>
+
+              {/* PLAN 16.6.4: a suggestion, not a constraint — Save/Create
+                  below still works untouched; this just offers a shortcut. */}
+              {duplicate && (
+                <Alert className="mt-3.5">
+                  <AlertDescription className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-semibold">{duplicate.name} is already a customer</div>
+                      <div className="text-xs text-muted-foreground">
+                        {duplicate.village || "—"} · Outstanding <CustomerOutstanding id={duplicate.id} />
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 gap-2">
+                      <Button size="sm" variant="outline" onClick={() => { setSelected(duplicate.id); setFormMode("view") }}>
+                        Use this customer
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={submitForm}>Add anyway</Button>
+                    </div>
+                  </AlertDescription>
+                </Alert>
+              )}
+
+              {formError && (
+                <Alert variant="destructive" className="mt-3.5">
+                  <AlertDescription>{formError}</AlertDescription>
+                </Alert>
+              )}
+
               <div className="mt-3.5 flex gap-2.5">
                 <Button onClick={submitForm}>{formMode === "edit" ? "Save Changes" : "Create Customer"}</Button>
                 <Button variant="outline" onClick={() => setFormMode("view")}>Cancel</Button>
@@ -431,7 +506,7 @@ export default function Customers() {
             {/* Profile cards */}
             <div className="rs-grid mb-6 grid grid-cols-3 gap-3.5">
               {[
-                { label: "Aadhaar", value: customer.aadhaar_masked || "—" },
+                { label: "Aadhaar", value: customer.aadhaar_masked ? `XXXX XXXX ${customer.aadhaar_masked}` : "—" },
                 { label: "Outstanding Balance", value: <CustomerOutstanding id={customer.id} /> },
                 { label: "Notes", value: customer.notes || "—" },
               ].map(f => (

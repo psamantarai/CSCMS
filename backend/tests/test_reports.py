@@ -102,7 +102,7 @@ def test_service_wise_report_reconciles_with_ledger():
         printing = create_service(ServiceCreate(name="Printing", category="Printing", default_fee_paise=500), conn)
         # H.50: a walk-in can't be left partially paid, so the partial one
         # below needs a registered customer to attach the remainder to.
-        alice = create_customer(CustomerCreate(name="Alice"), conn)
+        alice = create_customer(CustomerCreate(name="Alice", phone="9800000010"), conn)
         create_transaction(TransactionCreate(business_date="2026-09-01", service_id=pan["id"], fee_paise=10000, account_id=cash_id, amount_paid_paise=10000), conn)
         create_transaction(TransactionCreate(business_date="2026-09-02", customer_id=alice["id"], service_id=pan["id"], fee_paise=10000, account_id=cash_id, amount_paid_paise=5000), conn)
         create_transaction(TransactionCreate(business_date="2026-09-02", service_id=printing["id"], fee_paise=500, account_id=cash_id, amount_paid_paise=500), conn)
@@ -155,7 +155,7 @@ def test_customer_wise_report_includes_later_settlement():
         conn = _seeded_conn(Path(tmp))
         cash_id = conn.execute("SELECT id FROM accounts WHERE name = 'Cash Drawer'").fetchone()[0]
         service = create_service(ServiceCreate(name="Certificate", category="Certificates", default_fee_paise=35000), conn)
-        alice = create_customer(CustomerCreate(name="Alice"), conn)
+        alice = create_customer(CustomerCreate(name="Alice", phone="9800000010"), conn)
         create_transaction(
             TransactionCreate(business_date="2026-09-01", customer_id=alice["id"], service_id=service["id"], fee_paise=35000, account_id=cash_id, amount_paid_paise=10700),
             conn,

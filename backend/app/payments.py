@@ -32,6 +32,9 @@ class PaymentCreate(BaseModel):
     amount_paise: int = Field(gt=0, le=_INT64_MAX)
     account_id: int
     remarks: str | None = None
+    # 16.6.5: the operator's display name for the auto remark below. Not an
+    # authorisation claim — write_audit still attributes to _system_user_id.
+    username: str | None = None
 
 
 def _row_to_dict(row: sqlite3.Row) -> dict:
@@ -64,8 +67,16 @@ def create_payment(body: PaymentCreate, conn: sqlite3.Connection = Depends(get_d
         dues = [(t, _outstanding_paise(conn, t["id"], t["total_paise"])) for t in open_txns]
         dues = [(t, due) for t, due in dues if due > 0]
 
-        if body.amount_paise > sum(due for _, due in dues):
+        total_due = sum(due for _, due in dues)
+        if body.amount_paise > total_due:
             raise HTTPException(status_code=400, detail="amount exceeds the customer's outstanding balance")
+
+        # 16.6.5: "Fully" means the customer's total outstanding is zero
+        # after this payment, not that one bill closed — total_due is every
+        # open bill's due, computed before this payment, inside the H.11 lock.
+        kind = "Fully" if body.amount_paise == total_due else "Partially"
+        auto_remark = f"{kind} Paid by {body.username}" if body.username else f"{kind} Paid"
+        remark = f"{auto_remark} — {body.remarks}" if body.remarks else auto_remark
 
         user_id = _system_user_id(conn)
         remaining = body.amount_paise
@@ -77,7 +88,7 @@ def create_payment(body: PaymentCreate, conn: sqlite3.Connection = Depends(get_d
             cur = conn.execute(
                 "INSERT INTO payments (business_date, customer_id, amount_paise, account_id, transaction_id, remarks) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
-                (body.business_date, body.customer_id, applied, body.account_id, txn["id"], body.remarks),
+                (body.business_date, body.customer_id, applied, body.account_id, txn["id"], remark),
             )
             created_ids.append(cur.lastrowid)
 
@@ -93,14 +104,14 @@ def create_payment(body: PaymentCreate, conn: sqlite3.Connection = Depends(get_d
                     conn, business_date=body.business_date, account_id=body.account_id,
                     amount_paise=recovery_paise, entry_type="transfer",
                     source_type="transaction", source_id=txn["id"],
-                    description=body.remarks, created_by=user_id,
+                    description=remark, created_by=user_id,
                 )
             if income_paise > 0:
                 insert_entry(
                     conn, business_date=body.business_date, account_id=body.account_id,
                     amount_paise=income_paise, entry_type="service_income",
                     source_type="transaction", source_id=txn["id"],
-                    description=body.remarks, created_by=user_id,
+                    description=remark, created_by=user_id,
                 )
 
             recompute_status(conn, txn["id"])

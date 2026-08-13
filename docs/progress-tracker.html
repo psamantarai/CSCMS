@@ -15,20 +15,36 @@
     background: none; cursor: pointer; font-size: 0.85rem;
   }
   .filters button.active { background: #444; color: #fff; border-color: #444; }
+  .now-banner { display: none; align-items: center; gap: 0.6rem; padding: 0.7rem 1.1rem; margin-bottom: 1.25rem; border-radius: 6px; background: rgba(224,162,0,0.15); border: 1px solid #e0a200; font-size: 0.95rem; }
+  .now-banner.show { display: flex; }
+  .now-banner .dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; background: #e0a200; flex-shrink: 0; }
+  .now-banner strong { color: #e0a200; }
   .task { border-left: 4px solid #ccc; padding: 0.6rem 1rem; margin-bottom: 0.7rem; border-radius: 4px; background: rgba(128,128,128,0.06); }
-  .task.in-progress { border-left-color: #e0a200; }
+  .task.in-progress { border-left-width: 6px; border-left-color: #e0a200; background: rgba(224,162,0,0.1); }
   .task.pending { border-left-color: #888; }
   .task.completed { border-left-color: #2ea05e; opacity: 0.75; }
   .task-title { font-weight: 600; }
   .task-status { font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em; color: #888; margin-left: 0.5rem; }
+  .task.in-progress .task-status { color: #e0a200; font-weight: 700; }
+  .task.completed .task-status { color: #2ea05e; }
   .task-detail { font-size: 0.9rem; color: #666; margin: 0.3rem 0 0; padding-left: 1.1rem; }
   .task-detail li { margin-top: 0.15rem; }
   .empty { color: #888; font-style: italic; }
+  .phase-group { margin-bottom: 1.75rem; }
+  .phase-header { display: flex; align-items: baseline; gap: 0.6rem; font-size: 1.05rem; font-weight: 700; margin-bottom: 0.6rem; padding-bottom: 0.3rem; border-bottom: 2px solid rgba(128,128,128,0.25); }
+  .phase-header.has-current { border-bottom-color: #e0a200; }
+  .phase-count { font-size: 0.8rem; font-weight: 400; color: #888; }
+  .subtasks { list-style: none; padding: 0; margin: 0.5rem 0 0.6rem; font-size: 0.9rem; }
+  .subtasks li { display: flex; gap: 0.45rem; padding: 0.1rem 0; }
+  .subtasks li.done { color: #2ea05e; }
+  .subtasks li.todo { color: #888; }
+  .subtasks .box { flex-shrink: 0; }
 </style>
 </head>
 <body>
 <h1>Progress Tracker</h1>
 <div class="updated" id="updated"></div>
+<div class="now-banner" id="now-banner"><span class="dot"></span><span>Currently working on: <strong id="now-title"></strong></span></div>
 <div class="filters" id="filters">
   <button data-filter="all" class="active">All</button>
   <button data-filter="in-progress">In Progress</button>
@@ -41,6 +57,7 @@
 [
   {
     "title": "0.1 — Backend skeleton",
+    "phase": "Phase 0",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 7,
@@ -53,6 +70,7 @@
   },
   {
     "title": "0.2 — DB layer & migration runner",
+    "phase": "Phase 0",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 8,
@@ -66,6 +84,7 @@
   },
   {
     "title": "0.3 — Migration 001, full schema",
+    "phase": "Phase 0",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 9,
@@ -78,6 +97,7 @@
   },
   {
     "title": "0.4 — Seed data",
+    "phase": "Phase 0",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 10,
@@ -91,6 +111,7 @@
   },
   {
     "title": "0.5 — Frontend router",
+    "phase": "Phase 0",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 11,
@@ -102,6 +123,7 @@
   },
   {
     "title": "0.6 — Frontend data layer",
+    "phase": "Phase 0",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 12,
@@ -116,6 +138,7 @@
   },
   {
     "title": "0.7 — Shared formatting",
+    "phase": "Phase 0",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 13,
@@ -129,6 +152,7 @@
   },
   {
     "title": "1.1 — Ledger core",
+    "phase": "Phase 1",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 14,
@@ -141,6 +165,7 @@
   },
   {
     "title": "1.2 — Accounts CRUD API",
+    "phase": "Phase 1",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 15,
@@ -156,6 +181,7 @@
   },
   {
     "title": "1.3 — Transfers API",
+    "phase": "Phase 1",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 16,
@@ -170,6 +196,7 @@
   },
   {
     "title": "1.4 — Reversal entries",
+    "phase": "Phase 1",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 17,
@@ -182,6 +209,7 @@
   },
   {
     "title": "1.5 — Ledger read API",
+    "phase": "Phase 1",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 18,
@@ -194,6 +222,7 @@
   },
   {
     "title": "1.6 — Accounts page wiring",
+    "phase": "Phase 1",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 19,
@@ -209,6 +238,7 @@
   },
   {
     "title": "1.7 — Ledger page wiring",
+    "phase": "Phase 1",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 20,
@@ -220,6 +250,7 @@
   },
   {
     "title": "1.8 — Transfer UI",
+    "phase": "Phase 1",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 21,
@@ -232,6 +263,7 @@
   },
   {
     "title": "2.1 — Services CRUD API",
+    "phase": "Phase 2",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 22,
@@ -246,6 +278,7 @@
   },
   {
     "title": "2.2 — Customers CRUD API",
+    "phase": "Phase 2",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 23,
@@ -259,6 +292,7 @@
   },
   {
     "title": "2.3 — Customer search",
+    "phase": "Phase 2",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 24,
@@ -270,6 +304,7 @@
   },
   {
     "title": "2.4 — Customer detail endpoint",
+    "phase": "Phase 2",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 25,
@@ -282,6 +317,7 @@
   },
   {
     "title": "2.5 — Customers page wiring",
+    "phase": "Phase 2",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 26,
@@ -293,6 +329,7 @@
   },
   {
     "title": "2.6 — Customer detail view + NEW Services page",
+    "phase": "Phase 2",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 27,
@@ -307,6 +344,7 @@
   },
   {
     "title": "Edge-case audit of Phase 0-2",
+    "phase": "Phase 2",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 28,
@@ -321,6 +359,7 @@
   },
   {
     "title": "H.1 — Per-request connection thread safety",
+    "phase": "Phase 2",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 30,
@@ -334,6 +373,7 @@
   },
   {
     "title": "H.2 — business_date validation on the write path",
+    "phase": "Phase 2",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 31,
@@ -347,6 +387,7 @@
   },
   {
     "title": "H.3 — Local business date, and paise in the UI",
+    "phase": "Phase 2",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 32,
@@ -360,6 +401,7 @@
   },
   {
     "title": "H.4 — Reject invalid writes instead of 500ing",
+    "phase": "Phase 2",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 33,
@@ -373,6 +415,7 @@
   },
   {
     "title": "H.5 — Inactive accounts and overdrafts in transfers",
+    "phase": "Phase 2",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 34,
@@ -386,6 +429,7 @@
   },
   {
     "title": "H.6 — Ledger read hardening",
+    "phase": "Phase 2",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 35,
@@ -398,6 +442,7 @@
   },
   {
     "title": "H.7 — Customer search escaping + soft-delete reachability",
+    "phase": "Phase 2",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 37,
@@ -410,6 +455,7 @@
   },
   {
     "title": "H.8 — Frontend loading and error states",
+    "phase": "Phase 2",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 38,
@@ -422,6 +468,7 @@
   },
   {
     "title": "H.9 — Reversal chain guard",
+    "phase": "Phase 2",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 40,
@@ -433,6 +480,7 @@
   },
   {
     "title": "H.10 — Regression tests for Phase 2.5",
+    "phase": "Phase 2",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 41,
@@ -445,6 +493,7 @@
   },
   {
     "title": "3.1 — Transaction create API",
+    "phase": "Phase 3",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 42,
@@ -458,6 +507,7 @@
   },
   {
     "title": "3.2 — Transaction ledger posting",
+    "phase": "Phase 3",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 44,
@@ -470,6 +520,7 @@
   },
   {
     "title": "3.3 — Payments API",
+    "phase": "Phase 3",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 46,
@@ -482,6 +533,7 @@
   },
   {
     "title": "3.4 — Derived transaction status",
+    "phase": "Phase 3",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 48,
@@ -494,6 +546,7 @@
   },
   {
     "title": "3.5 — Transaction list API",
+    "phase": "Phase 3",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 49,
@@ -505,6 +558,7 @@
   },
   {
     "title": "3.6 — Transaction correction",
+    "phase": "Phase 3",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 50,
@@ -517,6 +571,7 @@
   },
   {
     "title": "3.7 — Transactions page wiring",
+    "phase": "Phase 3",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 51,
@@ -531,6 +586,7 @@
   },
   {
     "title": "3.8 — Real transaction form",
+    "phase": "Phase 3",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 52,
@@ -544,6 +600,7 @@
   },
   {
     "title": "H.11 - Serialise the read-check-write money guards",
+    "phase": "Phase 3",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 52,
@@ -555,6 +612,7 @@
   },
   {
     "title": "H.12 - Reject a payment larger than the bill at create time",
+    "phase": "Phase 3",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 53,
@@ -565,6 +623,7 @@
   },
   {
     "title": "H.13 - business_date validation on the transactions write path",
+    "phase": "Phase 3",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 54,
@@ -575,6 +634,7 @@
   },
   {
     "title": "H.14 - Corrections must move the ledger, not just the bill",
+    "phase": "Phase 3",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 55,
@@ -586,6 +646,7 @@
   },
   {
     "title": "H.15 - Deactivated accounts and services still take new money",
+    "phase": "Phase 3",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 56,
@@ -597,6 +658,7 @@
   },
   {
     "title": "H.16 - Reject non-positive transaction totals",
+    "phase": "Phase 3",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 57,
@@ -608,6 +670,7 @@
   },
   {
     "title": "H.17 - Integer overflow returns 500",
+    "phase": "Phase 3",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 58,
@@ -619,6 +682,7 @@
   },
   {
     "title": "H.18 - Frontend: rejections are unreadable, and the form's date goes stale",
+    "phase": "Phase 3",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 59,
@@ -632,6 +696,7 @@
   },
   {
     "title": "H.19 - Payments have no path through the UI",
+    "phase": "Phase 3",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 60,
@@ -645,6 +710,7 @@
   },
   {
     "title": "H.20 - Regression tests for Phase 3.5",
+    "phase": "Phase 3",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 61,
@@ -658,6 +724,7 @@
   },
   {
     "title": "4.1 — Expenses CRUD API",
+    "phase": "Phase 4",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 63,
@@ -672,6 +739,7 @@
   },
   {
     "title": "4.2 — Expense categories in settings",
+    "phase": "Phase 4",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 62,
@@ -684,6 +752,7 @@
   },
   {
     "title": "4.3 — Expenses page wiring",
+    "phase": "Phase 4",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 65,
@@ -699,6 +768,7 @@
   },
   {
     "title": "H.21 — Concurrent category writes silently lose data",
+    "phase": "Phase 4",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 64,
@@ -710,6 +780,7 @@
   },
   {
     "title": "H.22 — A comma in a category name corrupts the stored list",
+    "phase": "Phase 4",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 66,
@@ -722,6 +793,7 @@
   },
   {
     "title": "H.23 — Concurrent or edit-racing delete returns 500 instead of 204/404",
+    "phase": "Phase 4",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 67,
@@ -734,6 +806,7 @@
   },
   {
     "title": "H.24 — PATCH bypasses the H.15 deactivated-account guard when account_id is omitted",
+    "phase": "Phase 4",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 68,
@@ -746,6 +819,7 @@
   },
   {
     "title": "H.25 — UI cannot edit any field of an expense once its account is deactivated",
+    "phase": "Phase 4",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 69,
@@ -757,6 +831,7 @@
   },
   {
     "title": "H.26 — Out-of-range expense id returns 500",
+    "phase": "Phase 4",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 70,
@@ -768,6 +843,7 @@
   },
   {
     "title": "H.27 — Ledger keeps the pre-edit note after a later money edit",
+    "phase": "Phase 4",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 71,
@@ -779,6 +855,7 @@
   },
   {
     "title": "H.28 — Regression tests for H.21-H.27",
+    "phase": "Phase 4",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 72,
@@ -791,6 +868,7 @@
   },
   {
     "title": "5.1 — Banking ledger mapping",
+    "phase": "Phase 5",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 73,
@@ -802,6 +880,7 @@
   },
   {
     "title": "5.2 — Banking CRUD API",
+    "phase": "Phase 5",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 74,
@@ -814,6 +893,7 @@
   },
   {
     "title": "5.3 — Commission tracking",
+    "phase": "Phase 5",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 75,
@@ -825,6 +905,7 @@
   },
   {
     "title": "5.4 — Banking page wiring",
+    "phase": "Phase 5",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 76,
@@ -837,6 +918,7 @@
   },
   {
     "title": "5.5 — Banking entry form",
+    "phase": "Phase 5",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 77,
@@ -853,6 +935,7 @@
   },
   {
     "title": "6.1 — business_days table & auto-open",
+    "phase": "Phase 6",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 78,
@@ -864,6 +947,7 @@
   },
   {
     "title": "6.2 — Opening balance derivation",
+    "phase": "Phase 6",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 79,
@@ -874,6 +958,7 @@
   },
   {
     "title": "6.3 — Closed-day write guard",
+    "phase": "Phase 6",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 80,
@@ -887,6 +972,7 @@
   },
   {
     "title": "6.4 — Close-day API",
+    "phase": "Phase 6",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 81,
@@ -899,6 +985,7 @@
   },
   {
     "title": "6.5 — Closing report generation",
+    "phase": "Phase 6",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 82,
@@ -909,6 +996,7 @@
   },
   {
     "title": "6.6 — DailyClosing page wiring",
+    "phase": "Phase 6",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 83,
@@ -922,6 +1010,7 @@
   },
   {
     "title": "6.7 — Closing report print view",
+    "phase": "Phase 6",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 84,
@@ -934,6 +1023,7 @@
   },
   {
     "title": "7.1 — Dashboard API",
+    "phase": "Phase 7",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 85,
@@ -948,6 +1038,7 @@
   },
   {
     "title": "7.2 — Dashboard page wiring",
+    "phase": "Phase 7",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 86,
@@ -961,6 +1052,7 @@
   },
   {
     "title": "7.3 — Daily & monthly reports",
+    "phase": "Phase 7",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 87,
@@ -972,6 +1064,7 @@
   },
   {
     "title": "7.4 — Customer & service reports",
+    "phase": "Phase 7",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 88,
@@ -984,6 +1077,7 @@
   },
   {
     "title": "7.5 — Commission & P&L reports",
+    "phase": "Phase 7",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 89,
@@ -996,6 +1090,7 @@
   },
   {
     "title": "7.6 — Reports page wiring",
+    "phase": "Phase 7",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 90,
@@ -1012,6 +1107,7 @@
   },
   {
     "title": "7.7 — CSV export & print layout",
+    "phase": "Phase 7",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 91,
@@ -1024,6 +1120,7 @@
   },
   {
     "title": "7.8 — Reconciliation test suite",
+    "phase": "Phase 7",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 92,
@@ -1035,6 +1132,7 @@
   },
   {
     "title": "H.29 — correct_transaction skips closed-day guard when no live entry / amount unchanged",
+    "phase": "Phase 7",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 93,
@@ -1048,6 +1146,7 @@
   },
   {
     "title": "H.30 — Correction/deletion can post new ledger rows onto an already-closed date",
+    "phase": "Phase 7",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 94,
@@ -1063,6 +1162,7 @@
   },
   {
     "title": "H.31 — create_transaction closed-day check is an unlocked TOCTOU race",
+    "phase": "Phase 7",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 95,
@@ -1075,6 +1175,7 @@
   },
   {
     "title": "H.32 — physical_cash_paise has no bound",
+    "phase": "Phase 7",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 96,
@@ -1087,6 +1188,7 @@
   },
   {
     "title": "H.33 — Reports page throws uncaught TypeError and white-screens the app",
+    "phase": "Phase 7",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 97,
@@ -1100,6 +1202,7 @@
   },
   {
     "title": "H.34 — Out-of-range id (10**19) returns 500 on 6 write paths",
+    "phase": "Phase 7",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 98,
@@ -1111,6 +1214,7 @@
   },
   {
     "title": "H.35 — Closing an untouched future date locks it permanently",
+    "phase": "Phase 7",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 99,
@@ -1122,6 +1226,7 @@
   },
   {
     "title": "H.36 — /api/banking/commission-summary double-counts reversed commission",
+    "phase": "Phase 7",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 100,
@@ -1133,6 +1238,7 @@
   },
   {
     "title": "H.37 — Daily Closing \"Total Income\"/\"Net Profit\" tiles include opening balances and customer settlements",
+    "phase": "Phase 7",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 101,
@@ -1144,6 +1250,7 @@
   },
   {
     "title": "H.38 — cash_variance_paise folds unrelated reversal rows into the physical-count variance",
+    "phase": "Phase 7",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 102,
@@ -1157,6 +1264,7 @@
   },
   {
     "title": "H.39 — Dashboard \"Cash in Hand\" sums the whole ledger with no date bound",
+    "phase": "Phase 7",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 103,
@@ -1170,6 +1278,7 @@
   },
   {
     "title": "H.40 — Reports Daily Cash Summary and its CSV export omit transfer/adjustment rows",
+    "phase": "Phase 7",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 104,
@@ -1182,6 +1291,7 @@
   },
   {
     "title": "H.41 — Dashboard panels show \"no data\" instead of an error state when the API is offline",
+    "phase": "Phase 7",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 105,
@@ -1194,6 +1304,7 @@
   },
   {
     "title": "H.42 — /api/reports/monthly accepts nonsense years",
+    "phase": "Phase 7",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 106,
@@ -1205,6 +1316,7 @@
   },
   {
     "title": "H.43 — Regression tests for H.29-H.32, H.34-H.36, H.39, H.42",
+    "phase": "Phase 7",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 107,
@@ -1215,6 +1327,7 @@
   },
   {
     "title": "8.1 — Auth API",
+    "phase": "Phase 8",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 108,
@@ -1226,6 +1339,7 @@
   },
   {
     "title": "8.2 — Auth enforcement",
+    "phase": "Phase 8",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 109,
@@ -1237,6 +1351,7 @@
   },
   {
     "title": "8.3 — Audit log writer",
+    "phase": "Phase 8",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 110,
@@ -1250,6 +1365,7 @@
   },
   {
     "title": "8.4 — Audit log viewer",
+    "phase": "Phase 8",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 111,
@@ -1263,6 +1379,7 @@
   },
   {
     "title": "8.5 — Automatic backup",
+    "phase": "Phase 8",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 112,
@@ -1275,6 +1392,7 @@
   },
   {
     "title": "8.6 — Restore flow",
+    "phase": "Phase 8",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 113,
@@ -1287,6 +1405,7 @@
   },
   {
     "title": "8.7 — Day reopen override",
+    "phase": "Phase 8",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 114,
@@ -1298,6 +1417,7 @@
   },
   {
     "title": "H.44 — Duplicate daily_account_balance snapshot rows on reopen",
+    "phase": "Phase 8",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 115,
@@ -1309,6 +1429,7 @@
   },
   {
     "title": "H.45 — Restoring the oldest kept backup always 404s at retention cap",
+    "phase": "Phase 8",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 116,
@@ -1320,6 +1441,7 @@
   },
   {
     "title": "H.46 — Concurrent backup creation 500s under load",
+    "phase": "Phase 8",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 117,
@@ -1332,6 +1454,7 @@
   },
   {
     "title": "H.47 — Regression tests for H.44-H.46",
+    "phase": "Phase 8",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 118,
@@ -1343,6 +1466,7 @@
   },
   {
     "title": "H.48 — Dashboard Quick Actions do nothing",
+    "phase": "Phase 8",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 119,
@@ -1354,6 +1478,7 @@
   },
   {
     "title": "H.49 — Dashboard shows raw transaction id instead of a same-day serial number",
+    "phase": "Phase 8",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 120,
@@ -1365,6 +1490,7 @@
   },
   {
     "title": "H.50 — Walk-in customer can be left with an uncollectable partial payment",
+    "phase": "Phase 8",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 121,
@@ -1378,6 +1504,7 @@
   },
   {
     "title": "H.51 — Regression tests for H.48-H.50",
+    "phase": "Phase 8",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 122,
@@ -1390,6 +1517,7 @@
   },
   {
     "title": "Phase 9 — Dashboard quick-action modals",
+    "phase": "Phase 9",
     "status": "completed",
     "updated": "2026-08-05",
     "seq": 123,
@@ -1406,6 +1534,7 @@
   },
   {
     "title": "9.5.1 — Initialize shadcn",
+    "phase": "Phase 9",
     "status": "completed",
     "updated": "2026-08-06",
     "seq": 124,
@@ -1419,6 +1548,7 @@
   },
   {
     "title": "9.5.2 — Theme tokens: CSCMS palette, light + dark",
+    "phase": "Phase 9",
     "status": "completed",
     "updated": "2026-08-06",
     "seq": 125,
@@ -1432,6 +1562,7 @@
   },
   {
     "title": "9.5.3 — Add the component set",
+    "phase": "Phase 9",
     "status": "completed",
     "updated": "2026-08-06",
     "seq": 126,
@@ -1446,6 +1577,7 @@
   },
   {
     "title": "9.5.4 — Shared primitives: StatCard, QueryState, Modal→Dialog",
+    "phase": "Phase 9",
     "status": "completed",
     "updated": "2026-08-06",
     "seq": 127,
@@ -1458,6 +1590,7 @@
   },
   {
     "title": "9.5.5 — App shell: Sidebar, topbar, lucide icons",
+    "phase": "Phase 9",
     "status": "completed",
     "updated": "2026-08-06",
     "seq": 128,
@@ -1471,6 +1604,7 @@
   },
   {
     "title": "9.5.6 — Login",
+    "phase": "Phase 9",
     "status": "completed",
     "updated": "2026-08-06",
     "seq": 129,
@@ -1482,6 +1616,7 @@
   },
   {
     "title": "9.5.7 — The three extracted forms",
+    "phase": "Phase 9",
     "status": "completed",
     "updated": "2026-08-06",
     "seq": 130,
@@ -1495,6 +1630,7 @@
   },
   {
     "title": "9.5.8 — Transactions: establish the canonical table pattern",
+    "phase": "Phase 9",
     "status": "completed",
     "updated": "2026-08-06",
     "seq": 131,
@@ -1509,6 +1645,7 @@
   },
   {
     "title": "9.5.9 — Customers + Services",
+    "phase": "Phase 9",
     "status": "completed",
     "updated": "2026-08-06",
     "seq": 132,
@@ -1524,6 +1661,7 @@
   },
   {
     "title": "9.5.10 — Banking + Expenses",
+    "phase": "Phase 9",
     "status": "completed",
     "updated": "2026-08-06",
     "seq": 133,
@@ -1538,6 +1676,7 @@
   },
   {
     "title": "9.5.11 — Accounts + Ledger",
+    "phase": "Phase 9",
     "status": "completed",
     "updated": "2026-08-07",
     "seq": 134,
@@ -1551,6 +1690,7 @@
   },
   {
     "title": "9.5.12 — AuditLog + Reports",
+    "phase": "Phase 9",
     "status": "completed",
     "updated": "2026-08-07",
     "seq": 135,
@@ -1563,6 +1703,7 @@
   },
   {
     "title": "9.5.13 — Dashboard",
+    "phase": "Phase 9",
     "status": "completed",
     "updated": "2026-08-07",
     "seq": 136,
@@ -1575,6 +1716,7 @@
   },
   {
     "title": "9.5.14 — DailyClosing",
+    "phase": "Phase 9",
     "status": "completed",
     "updated": "2026-08-08",
     "seq": 137,
@@ -1590,6 +1732,7 @@
   },
   {
     "title": "9.5.15 — Dark mode",
+    "phase": "Phase 9",
     "status": "completed",
     "updated": "2026-08-08",
     "seq": 138,
@@ -1604,6 +1747,7 @@
   },
   {
     "title": "9.5.16 — Sweep",
+    "phase": "Phase 9",
     "status": "completed",
     "updated": "2026-08-08",
     "seq": 139,
@@ -1618,6 +1762,7 @@
   },
   {
     "title": "9.6 — Table sorting",
+    "phase": "Phase 9",
     "status": "completed",
     "updated": "2026-08-08",
     "seq": 140,
@@ -1633,6 +1778,7 @@
   },
   {
     "title": "9.7 — Quick Actions modal rework",
+    "phase": "Phase 9",
     "status": "completed",
     "updated": "2026-08-08",
     "seq": 141,
@@ -1649,6 +1795,7 @@
   },
   {
     "title": "9.8 — First-run onboarding (account creation + setup wizard)",
+    "phase": "Phase 9",
     "status": "completed",
     "updated": "2026-08-08",
     "seq": 142,
@@ -1663,6 +1810,7 @@
   },
   {
     "title": "9.9 — Session persistence across reload (httpOnly cookie auth)",
+    "phase": "Phase 9",
     "status": "completed",
     "updated": "2026-08-10",
     "seq": 143,
@@ -1679,6 +1827,7 @@
   },
   {
     "title": "10.1 — Electron shell",
+    "phase": "Phase 10",
     "status": "completed",
     "updated": "2026-08-10",
     "seq": 144,
@@ -1691,6 +1840,7 @@
   },
   {
     "title": "10.2 — Backend bundling & lifecycle",
+    "phase": "Phase 10",
     "status": "completed",
     "updated": "2026-08-10",
     "seq": 145,
@@ -1704,6 +1854,7 @@
   },
   {
     "title": "10.3 — App data paths",
+    "phase": "Phase 10",
     "status": "completed",
     "updated": "2026-08-10",
     "seq": 146,
@@ -1717,6 +1868,7 @@
   },
   {
     "title": "10.4 — Windows installer",
+    "phase": "Phase 10",
     "status": "completed",
     "updated": "2026-08-10",
     "seq": 147,
@@ -1729,6 +1881,7 @@
   },
   {
     "title": "10.5 — First-run setup wizard",
+    "phase": "Phase 10",
     "status": "completed",
     "updated": "2026-08-10",
     "seq": 148,
@@ -1739,6 +1892,7 @@
   },
   {
     "title": "10.6 — Clean-machine acceptance test",
+    "phase": "Phase 10",
     "status": "completed",
     "updated": "2026-08-10",
     "seq": 149,
@@ -1751,6 +1905,7 @@
   },
   {
     "title": "11.1 — Backend: shared-secret gate",
+    "phase": "Phase 11",
     "status": "completed",
     "updated": "2026-08-11",
     "seq": 150,
@@ -1763,6 +1918,7 @@
   },
   {
     "title": "11.2 — Electron: generate and inject the secret",
+    "phase": "Phase 11",
     "status": "completed",
     "updated": "2026-08-11",
     "seq": 151,
@@ -1773,6 +1929,7 @@
   },
   {
     "title": "11.3 — Single-instance lock",
+    "phase": "Phase 11",
     "status": "completed",
     "updated": "2026-08-11",
     "seq": 152,
@@ -1783,6 +1940,7 @@
   },
   {
     "title": "11.4 — Publish config and release command",
+    "phase": "Phase 11",
     "status": "completed",
     "updated": "2026-08-11",
     "seq": 155,
@@ -1799,6 +1957,7 @@
   },
   {
     "title": "11.5 — Background download, install on quit",
+    "phase": "Phase 11",
     "status": "completed",
     "updated": "2026-08-11",
     "seq": 154,
@@ -1810,6 +1969,7 @@
   },
   {
     "title": "11.6 — Upgrade-with-data acceptance",
+    "phase": "Phase 11",
     "status": "completed",
     "updated": "2026-08-11",
     "seq": 156,
@@ -1819,6 +1979,7 @@
   },
   {
     "title": "12.1 — Backend file logging with 5-day retention",
+    "phase": "Phase 12",
     "status": "completed",
     "updated": "2026-08-11",
     "seq": 158,
@@ -1834,6 +1995,7 @@
   },
   {
     "title": "12.2 — Unhandled-exception handler with redacted payloads",
+    "phase": "Phase 12",
     "status": "completed",
     "updated": "2026-08-11",
     "seq": 159,
@@ -1848,6 +2010,7 @@
   },
   {
     "title": "12.3 — Electron main-process log file with 5-day retention",
+    "phase": "Phase 12",
     "status": "completed",
     "updated": "2026-08-11",
     "seq": 160,
@@ -1861,6 +2024,7 @@
   },
   {
     "title": "12.4 — Renderer error capture",
+    "phase": "Phase 12",
     "status": "completed",
     "updated": "2026-08-11",
     "seq": 161,
@@ -1875,6 +2039,7 @@
   },
   {
     "title": "12.5 — Packaged-build acceptance",
+    "phase": "Phase 12",
     "status": "completed",
     "updated": "2026-08-11",
     "seq": 163,
@@ -1893,6 +2058,7 @@
   },
   {
     "title": "13.1 — Single data root derived from the install directory",
+    "phase": "Phase 13",
     "status": "completed",
     "updated": "2026-08-11",
     "seq": 164,
@@ -1907,6 +2073,7 @@
   },
   {
     "title": "13.2 — Writability preflight",
+    "phase": "Phase 13",
     "status": "completed",
     "updated": "2026-08-11",
     "seq": 166,
@@ -1920,6 +2087,7 @@
   },
   {
     "title": "13.3 — NSIS carve-out so update and uninstall never delete data\\",
+    "phase": "Phase 13",
     "status": "completed",
     "updated": "2026-08-11",
     "seq": 167,
@@ -1936,6 +2104,7 @@
   },
   {
     "title": "13.4 — Migration from %APPDATA%\\CSCMS",
+    "phase": "Phase 13",
     "status": "completed",
     "updated": "2026-08-11",
     "seq": 168,
@@ -1949,6 +2118,7 @@
   },
   {
     "title": "13.5 — Acceptance: nothing outside the folder",
+    "phase": "Phase 13",
     "status": "pending",
     "updated": "2026-08-11",
     "details": [
@@ -1961,6 +2131,7 @@
   },
   {
     "title": "14.1 — Inject the app version at build time",
+    "phase": "Phase 14",
     "status": "completed",
     "updated": "2026-08-11",
     "seq": 169,
@@ -1973,6 +2144,7 @@
   },
   {
     "title": "14.2 — Render the version in the sidebar footer",
+    "phase": "Phase 14",
     "status": "completed",
     "updated": "2026-08-11",
     "seq": 170,
@@ -1985,6 +2157,7 @@
   },
   {
     "title": "15.1 — Tighten the server guard: an unpaid transaction must name a customer",
+    "phase": "Phase 15",
     "status": "completed",
     "updated": "2026-08-11",
     "seq": 171,
@@ -1998,6 +2171,7 @@
   },
   {
     "title": "15.2 — Repair the test fixtures the old rule allowed",
+    "phase": "Phase 15",
     "status": "completed",
     "updated": "2026-08-11",
     "seq": 172,
@@ -2011,6 +2185,7 @@
   },
   {
     "title": "15.3 — Match the guard in the transaction form",
+    "phase": "Phase 15",
     "status": "completed",
     "updated": "2026-08-11",
     "seq": 173,
@@ -2022,6 +2197,7 @@
   },
   {
     "title": "15.4 — Offer customer creation from where the block happens",
+    "phase": "Phase 15",
     "status": "completed",
     "updated": "2026-08-11",
     "seq": 174,
@@ -2036,6 +2212,7 @@
   },
   {
     "title": "15.5 — New Customer in Quick Actions",
+    "phase": "Phase 15",
     "status": "completed",
     "updated": "2026-08-11",
     "seq": 175,
@@ -2048,6 +2225,7 @@
   },
   {
     "title": "16.1 — Hide and mark the data directory",
+    "phase": "Phase 16",
     "status": "completed",
     "updated": "2026-08-12",
     "seq": 176,
@@ -2061,6 +2239,7 @@
   },
   {
     "title": "16.2 — Mirror every backup outside the install directory",
+    "phase": "Phase 16",
     "status": "completed",
     "updated": "2026-08-12",
     "seq": 177,
@@ -2075,6 +2254,7 @@
   },
   {
     "title": "16.3 — Surface the mirror's health",
+    "phase": "Phase 16",
     "status": "completed",
     "updated": "2026-08-12",
     "seq": 178,
@@ -2089,6 +2269,7 @@
   },
   {
     "title": "16.4 — Operator-chosen mirror location",
+    "phase": "Phase 16",
     "status": "completed",
     "updated": "2026-08-12",
     "seq": 179,
@@ -2104,6 +2285,7 @@
   },
   {
     "title": "16.5.1 — Schema: outlay columns on services and transactions",
+    "phase": "Phase 16",
     "status": "completed",
     "updated": "2026-08-13",
     "seq": 180,
@@ -2116,6 +2298,7 @@
   },
   {
     "title": "16.5.2 — The allocation rule as one pure function",
+    "phase": "Phase 16",
     "status": "completed",
     "updated": "2026-08-13",
     "seq": 181,
@@ -2128,6 +2311,7 @@
   },
   {
     "title": "16.5.3 — Post the outlay leg on create",
+    "phase": "Phase 16",
     "status": "completed",
     "updated": "2026-08-13",
     "seq": 182,
@@ -2142,6 +2326,7 @@
   },
   {
     "title": "16.5.4 — Fix the two paid-amount derivations",
+    "phase": "Phase 16",
     "status": "completed",
     "updated": "2026-08-13",
     "seq": 183,
@@ -2155,6 +2340,7 @@
   },
   {
     "title": "16.5.5 — Split later settlement, closing the credit-income gap",
+    "phase": "Phase 16",
     "status": "completed",
     "updated": "2026-08-13",
     "seq": 184,
@@ -2169,6 +2355,7 @@
   },
   {
     "title": "16.5.6 — Correction across up to three live entries",
+    "phase": "Phase 16",
     "status": "completed",
     "updated": "2026-08-13",
     "seq": 185,
@@ -2183,6 +2370,7 @@
   },
   {
     "title": "16.5.7 — The catalog flag on Services",
+    "phase": "Phase 16",
     "status": "completed",
     "updated": "2026-08-13",
     "seq": 186,
@@ -2197,6 +2385,7 @@
   },
   {
     "title": "16.5.8 — Outlay fields in the transaction form",
+    "phase": "Phase 16",
     "status": "completed",
     "updated": "2026-08-13",
     "seq": 190,
@@ -2211,6 +2400,7 @@
   },
   {
     "title": "16.5.9 — Make the reports say what they mean",
+    "phase": "Phase 16",
     "status": "completed",
     "updated": "2026-08-13",
     "seq": 191,
@@ -2225,6 +2415,7 @@
   },
   {
     "title": "16.5 revision — Outlay no longer added on top of the fee",
+    "phase": "Phase 16",
     "status": "completed",
     "updated": "2026-08-13",
     "seq": 192,
@@ -2242,7 +2433,88 @@
     ]
   },
   {
+    "title": "Phase 16.6 — What the customer actually owes",
+    "phase": "Phase 16",
+    "status": "completed",
+    "updated": "2026-08-13",
+    "seq": 199,
+    "subtasks": [
+      { "id": "16.6.1", "label": "Shared paid_paise SQL fragment + balance_paise on customer history", "done": true },
+      { "id": "16.6.2", "label": "Paid and Balance columns on the Service History table", "done": true },
+      { "id": "16.6.3", "label": "Phone-number lookup for customer search", "done": true },
+      { "id": "16.6.4", "label": "Duplicate-customer suggestion in the create form", "done": true },
+      { "id": "16.6.5", "label": "Auto remark on settled payments", "done": true }
+    ],
+    "details": [
+      "Extracted the paid_paise CASE expression into PAID_PAISE_CASE_SQL (backend/app/customers.py) — a shared SQL fragment used by both list_transactions (backend/app/transactions.py) and the new get_customer_history query, avoiding a third pasted copy (PLAN 16.5.4 already had to fix the same expression in two places for the outlay recovery leg). Lives in customers.py rather than transactions.py to keep the existing import direction (transactions.py already imports from customers.py) and avoid a circular import.",
+      "get_customer_history now returns paid_paise per transaction row plus a computed balance_paise = total_paise - paid_paise.",
+      "New test test_history_reports_paid_and_balance_matching_outstanding_and_transactions in backend/tests/test_customers.py: covers a partial ₹357/₹107 bill and a fully-paid bill carrying an outlay; asserts balance_paise == total_paise - paid_paise per row, summed balance_paise matches GET /customers/{id}/outstanding, and paid_paise agrees between /customers/{id}/history and /transactions for the outlay bill.",
+      "Paid and Balance columns added to the Service History table in Customers.tsx (Transaction type, serviceColumns, useSort keys, header and body cells). Balance styled font-mono text-[15px] font-semibold to match the Outstanding Balance card's visual weight; Paid uses the plain font-mono tabular-nums other numeric cells use. Both columns are sortable via the existing SortableTableHead pattern. Status says WHETHER a bill is settled, balance says BY HOW MUCH — the operator asking for money needs the second.",
+      "Verify (browser, against the running dev servers): an existing ABC customer with a ₹50.00 bill paid ₹25.00 showed Total ₹50.00, Paid ₹25.00, Balance ₹25.00, status Partial, and an Outstanding Balance card of ₹25.00 — same shape as the plan's ₹357/₹107/₹250 example. Settling the remaining ₹25.00 via the existing Settle Payment control flipped the row to Balance ₹0.00 / Completed and the Outstanding card to ₹0.00 with no manual refresh, confirming the settle mutation's existing customerHistory invalidation covers the new columns.",
+      "npx tsc --noEmit clean; backend regression (test_customers.py, test_transactions.py) still OK — no backend change this step.",
+      "First of four phases (16.6-16.9) planned from a second operator request list. Inserted before Phase 17 rather than appended past 23, per the user's choice — same reasoning that placed 16.5, and renumbers nothing.",
+      "16.6.3 done: GET /api/customers?phone=<number> added as an exact-match lookup alongside q= (backend/app/customers.py), not q= reused — q also matches village, so a numeric fragment could hit the wrong customer. New _normalize_phone() strips non-digits and keeps the last 10 (fewer than 10 is kept as-is so it can never coincidentally equal a normalised 10-digit number); both the query and each stored phone are normalised before comparing, so '9876543210', '+91 98765 43210', '098765-43210' and '98765 43210' all match the same customer, and stored values are never rewritten.",
+      "New test test_phone_lookup_matches_normalised_variants in backend/tests/test_customers.py: the four format variants all match, a 9-digit fragment matches nothing, and phone='%' returns nothing rather than everyone.",
+      "Verify: backend/tests/test_customers.py and backend/tests/test_edge_cases.py both pass (72 checks).",
+      "16.6.4 done: Customers.tsx queries GET /customers?phone=<value> (via a new customerByPhone key in lib/queries.ts) whenever formMode is 'create' and Phone is non-empty. Scoped to create only — selected is always null while creating so there's no self-match to exclude, and the query never runs in edit mode at all, which trivially satisfies 'editing an existing customer does not suggest themselves' with no extra guard code.",
+      "A match renders an inline Alert with the existing customer's name, village and outstanding (reusing the CustomerOutstanding component already in this file) plus 'Use this customer' (setSelected + close the form, no create call) and 'Add anyway' (calls the same submitForm/createMutation the main Create button uses). Warn-and-suggest, not a constraint — Name/Phone/... and the plain Create Customer button are untouched and work regardless of whether a suggestion is showing; no UNIQUE index on customers.phone.",
+      "Verify (browser, against the running dev servers): typing customer 'lll'''s stored phone (5454545) into the create form surfaced 'lll is already a customer — Outstanding ₹0.00' before Save. 'Use this customer' selected lll and closed the form with no new row (list stayed at 4). Reopening the form and retyping the same phone re-surfaced the suggestion; 'Add anyway' created 'Test Duplicate Two' with the same phone (5 customers, confirming duplicates still allowed). Test customer then soft-deleted directly in the dev DB (deleted_at set, matching the app's own pattern) to leave it as found.",
+      "npx tsc --noEmit clean; no backend change this step (16.6.3 already shipped the endpoint).",
+      "16.6.5 done: create_payment (backend/app/payments.py) composes the remark server-side, inside the existing H.11 begin_write lock, right after total_due is computed and before the settle loop applies it — 'Fully' iff amount_paise == total_due (every open bill's due, summed pre-payment), else 'Partially'. The same composed string is written to the new payments row's remarks column AND every insert_entry call in the settle loop (both the transfer/outlay-recovery leg and the service_income leg), replacing the raw body.remarks that used to go straight through.",
+      "PaymentCreate gained username: str | None = None — display-only, never touches write_audit's user_id (still _system_user_id, ponytail note at accounts.py:94 unchanged). Customers.tsx's settleMutation now imports useAuth and sends user?.username. Missing username (e.g. a direct API call, or the existing tests that don't pass one) degrades to 'Fully Paid' / 'Partially Paid' with no 'by <who>' rather than erroring.",
+      "Operator's typed note kept, not replaced: blank -> auto remark alone; typed -> '<auto> — <their note>' (em dash). No frontend change needed for the ledger visibility requirement — Ledger.tsx already renders entry.description directly (H.8/16.7 predate this).",
+      "Four new tests in backend/tests/test_payments.py: full settlement writes 'Fully Paid by Priya' on both the payments row and the matching ledger row's description; a partial payment writes 'Partially Paid by Priya'; clearing two bills at once is 'Fully' even though clearing only one of two is 'Partially' (kind tracks total outstanding, not one bill); a typed note appends as 'Fully Paid by Priya — cash at counter'.",
+      "Verify: all touched backend test files pass (test_payments.py, test_customers.py, test_transactions.py, test_transaction_status.py, test_transaction_correction.py, test_transaction_list.py, test_reconciliation.py, test_reports.py, test_dashboard.py, test_edge_cases.py — 72 checks); npx tsc --noEmit clean.",
+      "Phase 16.6 complete: all four operator requests from the second request list's first phase are done — the customer page shows what's owed per bill, phone lookup and duplicate suggestion prevent silent double-entry, and every settlement's ledger row now says who took the money and whether it cleared the account."
+    ]
+  },
+  {
+    "title": "Phase 16.7 — Plain words and no dead ends on the entry forms",
+    "phase": "Phase 16",
+    "status": "pending",
+    "updated": "2026-08-13",
+    "details": [
+      "16.7.1 'Settlement Account' → 'Money paid from', 'Cash Account' → 'Money received into'. Checked before renaming: insert_banking_entries (ledger.py:215-225) posts -principal to settlement and +principal to cash UNCONDITIONALLY for every txn_type — a deposit moves the same direction as a withdrawal — so one fixed label pair is correct for all five types and doesn't need to flip.",
+      "16.7.1 is display-layer only: no column rename, no API field rename, no migration. Precedent is 16.5.9, which renamed the outlay legs in the Ledger view by sign without touching a ledger row. Rename by grep, not just the two fields — Banking.tsx headers and the 'Settlement and cash accounts must differ' validation message would otherwise name fields no longer on screen.",
+      "16.7.2 Hide 'Money paid from' for balance_enquiry. Surfaced by the rename, not caused by it: submitForm requires it for every type (BankingEntryForm.tsx:143) but insert_banking_entries never touches that account for an enquiry — a mandatory answer the system discards. Odd under the old label, wrong on its face under the new one.",
+      "16.7.3 Add-category control in the expense form. POST /api/expenses/categories has existed since PLAN 4.2 and been hardened twice (H.21 write lock, H.22 JSON storage), but grep -rn 'expenses/categories' src/ shows two callers, BOTH GET — no code path in the app has ever created a category. The operator's only route is curl.",
+      "16.7.3 guard the API lacks: add_category is idempotent on exact string match only, so 'Rent', 'rent' and 'Rent ' become three entries that all read as Rent. Trim and match case-insensitively, selecting the existing one."
+    ]
+  },
+  {
+    "title": "Phase 16.8 — Tables that filter, scroll and search",
+    "phase": "Phase 16",
+    "status": "pending",
+    "updated": "2026-08-13",
+    "details": [
+      "16.8.1 Ledger opens on today, newest first. Two defects: Ledger.tsx:67 initialises businessDate to '' (fetches all history) and ledger.py:304 orders ASC (so page 1 is the OLDEST 50). The entry the operator opens the Ledger to check is currently the last row of the last page.",
+      "16.8.1 TRAP: the running balance is SUM(...) OVER (PARTITION BY account_id ORDER BY business_date, id) at ledger.py:302. ONLY the outer ORDER BY flips to DESC — inverting the window's own ordering produces a backwards-accumulated balance that still looks plausible. Verify ends on GET /accounts/{id}/balance read from the top row, because that comparison is the only thing that catches it.",
+      "16.8.1 default date via localDateISO() (H.3 — the UTC date stamps pre-05:30 IST to yesterday), read at render not module scope (H.18).",
+      "16.8.2 Repeated query params → column IN (?,?,…) on list_ledger / list_transactions / list_expenses / list_banking, scalar form still working. Bound the list length: H.6 is the record of what unbounded list params do here (limit=-1 returned the whole table).",
+      "16.8.3 One MultiSelectFilter for all four pages. Enumerable columns only — dates stay a from/to pair, because a multi-select of individual dates is a control nobody can drive.",
+      "16.8.3 two silent traps: Ledger.tsx:86 builds its query with new URLSearchParams(filters as Record<string,string>) — hand that an array and it stringifies to 'type=a,b', one malformed value, no error, empty table. And queryKeys hashes the filter object, so an array whose order varies is a new cache key each render — sort before it reaches the key.",
+      "16.8.4 Services search + category/active filters, CLIENT-side over the already-fetched list. GET /services returns the whole catalog in one request and it's tens of rows — a search API would be more code and a round trip per keystroke.",
+      "16.8.5 Move the scroll into the table container with a sticky header row. Every page is h-full overflow-y-auto today (12 of them), so a long table takes the filters, summary cards and headers off screen.",
+      "16.8.5 RISK: DailyClosing.tsx:55 and Reports.tsx:219 carry print-report, and index.css's @media print block (PLAN 6.7) assumes page-flow content — a fixed-height scroll container prints one screenful and drops the rest. The Phase 9.5.5 risk note records the last time a selector in that file stopped matching and only a print Verify caught it. Reset height/overflow inside @media print."
+    ]
+  },
+  {
+    "title": "Phase 16.9 — Dashboard drill-downs and a Settings home",
+    "phase": "Phase 16",
+    "status": "pending",
+    "updated": "2026-08-13",
+    "details": [
+      "16.9.1 GET /api/customers/outstanding — every customer with a non-zero balance, largest first. pending_credits_paise (dashboard.py:38) is a single SUM; it answers 'how much' and the operator's next question is always 'by whom'. One query over all customers, not N+1, derived the same way get_customer_outstanding does for one.",
+      "16.9.1 Verify is a reconciliation: this list's total EQUALS the dashboard's scalar, or one of the two is wrong. PRD acceptance criterion 6 applied to a new endpoint rather than assumed.",
+      "16.9.2 Pending Credits StatCard (Dashboard.tsx:141) becomes clickable, opening the list in a dialog — a lookup the operator reads and dismisses, not a route needing its own error/empty states. Rows link to the customer, where 16.6.2's Paid/Balance columns say what the debt is made of.",
+      "16.9.3 'View All →' (Dashboard.tsx:164) is a bare <span> and has never been a link. Make it navigate to /transactions?business_date=<today>, AND have Transactions.tsx seed its filter from the query string — it initialises from useState('') (Transactions.tsx:50) with no URL sync, so a link alone would land on every transaction ever made. Read the param as initial state, not in an effect (Customers.tsx:173 documents why that mattered last time).",
+      "16.9.4 /settings with Audit Log and Backups as tabs; both drop out of the sidebar's Insights group (App.tsx:68-69), where they sit beside Reports and Daily Closing — daily work next to rarely-consulted administration.",
+      "16.9.4 old paths must REDIRECT: App.tsx:198 ends with <Route path='*' → Navigate to /dashboard>, so deleting /audit-log silently lands every bookmark on the Dashboard with no indication anything moved."
+    ]
+  },
+  {
     "title": "Phase 17 — Shell lockdown & manual update check",
+    "phase": "Phase 17",
     "status": "pending",
     "updated": "2026-08-12",
     "details": [
@@ -2256,6 +2528,7 @@
   },
   {
     "title": "Phase 18 — Editable account balances",
+    "phase": "Phase 18",
     "status": "pending",
     "updated": "2026-08-12",
     "details": [
@@ -2269,6 +2542,7 @@
   },
   {
     "title": "Phase 19 — Close yesterday before trading today; verify bank balances at close",
+    "phase": "Phase 19",
     "status": "pending",
     "updated": "2026-08-12",
     "details": [
@@ -2277,11 +2551,14 @@
       "19.3 Same one-line notice at the top of the Quick Actions modal — a banner on a dashboard nobody looked at is not a prompt.",
       "Part B (19.4-19.6) — bank balance verification. 19.4 extends CloseDayRequest from a single physical_cash_paise to per-account declared balances, GENERALISING the existing cash variance path rather than adding a second copy of it.",
       "19.5 Per-account variance in the report and a column in ClosedReport; cash_variance_paise stays in the response because the printed report and summary card read it.",
-      "19.6 Wizard step 3 (already labelled 'Verify Bank Balances', currently display-only) becomes an input step. Fields start BLANK, not prefilled with the system figure — a prefilled field is one the operator tabs past, and the point is an independent second reading. Blank = not verified, posts nothing."
+      "19.6 Wizard step 3 (already labelled 'Verify Bank Balances', currently display-only) becomes an input step. Fields start BLANK, not prefilled with the system figure — a prefilled field is one the operator tabs past, and the point is an independent second reading. Blank = not verified, posts nothing.",
+      "FOLDED IN 2026-08-13: two items from the second operator request list land here rather than being planned twice in 16.6-16.9. (a) 'Add the operator's actual bank balance to Verify Bank Balances' IS 19.4+19.6, already planned in full. (b) 'The bank balances are not perfectly aligned' — DailyClosing.tsx:368-375 is flex justify-between over three children of varying width, so the amount column wobbles with the length of the account name; replace with a fixed-column grid, right-aligned tabular-nums.",
+      "19.6 also DROPS the hardcoded '✓ Verified' badge at DailyClosing.tsx:374 — rendered unconditionally for every account, asserting a check the operator has not performed, on the one screen whose purpose is that check. It may only appear once an account's declared figure is actually entered."
     ]
   },
   {
     "title": "Phase 20 — New Customer inside the Quick Actions modal",
+    "phase": "Phase 20",
     "status": "pending",
     "updated": "2026-08-12",
     "details": [
@@ -2289,11 +2566,13 @@
       "20.1 Lift the inline create/edit form out of Customers.tsx into src/components/forms/CustomerForm.tsx with the same onSuccess/onCancel contract the other three forms use. A move, not a rewrite — same reasoning that put 15.3's guard in TransactionForm.tsx rather than in each caller.",
       "20.2 Fourth tab in Dashboard.tsx's Quick Actions modal; the card entry switches from path:'/customers' to tab:'customer'. 15.5's a.path === '/closing' variant check already survives the change.",
       "20.3 15.4's suggestion row and Alert action switch tabs instead of navigating. TabsContent keepMounted is already in place, so the half-filled transaction survives. This is the phase's whole justification — if the transaction doesn't survive the round trip, it hasn't shipped.",
-      "20.4 Remove Customers.tsx's now-orphaned location.state ({ create: true, name }) handling — orphans this change created, per CLAUDE.md section 3."
+      "20.4 Remove Customers.tsx's now-orphaned location.state ({ create: true, name }) handling — orphans this change created, per CLAUDE.md section 3.",
+      "AMENDED 2026-08-13: 16.6.4 puts the duplicate-phone suggestion inside this very form before Phase 20 runs, so 20.1's Verify now explicitly requires that guard to still fire after the extraction. Exactly the Phase 9.5 risk-note shape — all the validation moves, none of it should change, and 'the page still looks right' will not catch a rule that quietly stopped firing."
     ]
   },
   {
     "title": "Phase 21 — Dashboard charts",
+    "phase": "Phase 21",
     "status": "pending",
     "updated": "2026-08-12",
     "details": [
@@ -2307,6 +2586,7 @@
   },
   {
     "title": "Phase 22 — Encryption at rest",
+    "phase": "Phase 22",
     "status": "pending",
     "updated": "2026-08-12",
     "details": [
@@ -2320,6 +2600,7 @@
   },
   {
     "title": "Phase 23 — Motion polish (optional)",
+    "phase": "Phase 23",
     "status": "pending",
     "updated": "2026-08-12",
     "details": [
@@ -2332,6 +2613,7 @@
   },
   {
     "title": "Phase 24 — Deferred scope",
+    "phase": "Phase 24",
     "status": "pending",
     "updated": "2026-08-12",
     "details": [
@@ -2341,6 +2623,7 @@
   },
   {
     "title": "Plan & architecture docs",
+    "phase": "Other",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 1,
@@ -2350,6 +2633,7 @@
   },
   {
     "title": "Codebase analysis",
+    "phase": "Other",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 2,
@@ -2359,6 +2643,7 @@
   },
   {
     "title": "Resolve PRD stack conflict",
+    "phase": "Other",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 3,
@@ -2368,6 +2653,7 @@
   },
   {
     "title": "Build progress-tracker skill",
+    "phase": "Other",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 4,
@@ -2377,6 +2663,7 @@
   },
   {
     "title": "Document skill + workflow in CLAUDE.md",
+    "phase": "Other",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 5,
@@ -2386,6 +2673,7 @@
   },
   {
     "title": "Basic mobile responsiveness pass",
+    "phase": "Other",
     "status": "completed",
     "updated": "2026-08-04",
     "seq": 6,
@@ -2399,12 +2687,43 @@
       "Verified: tsc --noEmit clean",
       "Scope checked with the user first: app stays desktop-first per PRD/PLAN (Electron packaging is Phase 9, mobile companion is explicitly deferred in PRD section 11) — this is a basic responsive pass, not a mobile-first redesign"
     ]
+  },
+  {
+    "title": "Customer name+phone duplicate is now rejected, phone required on create",
+    "phase": "Other",
+    "status": "completed",
+    "updated": "2026-08-13",
+    "seq": 197,
+    "details": [
+      "Ad-hoc operator request (not a numbered PLAN.md step) — operator could still create an exact duplicate customer through 16.6.4's warn-and-suggest banner (a second 'Pritesh' got created), and asked for phone to be mandatory so a customer carrying a balance can always be chased.",
+      "Clarified scope with the operator first: phone required on CREATE only, not on edit — H.4's existing 'phone is clearable on update' behaviour is untouched, since changing that would also block editing any other field on the ~3 legacy no-phone customers already in the dev DB, which wasn't what was asked.",
+      "backend/app/customers.py: CustomerCreate.phone is now required and non-blank (same _required_str validator pattern as name). New _find_duplicate_by_name_phone() rejects POST /api/customers and PATCH /api/customers/{id} with 400 when an existing active customer already has the identical (name, phone) combo — name compared trimmed/case-insensitively, phone via the existing 16.6.3 normaliser. PATCH excludes its own row and checks the merged post-update name+phone, so editing an unrelated field never self-collides.",
+      "Deliberately narrower than 'phone must be globally unique': Phase 2.5's original call — two family members sharing one phone under different names — still passes; only the exact same name+phone combo is rejected. No UNIQUE index added.",
+      "Fixed ~27 call sites across 9 backend test files (test_dashboard, test_reconciliation, test_payments, test_reports, test_transaction_correction, test_transaction_list, test_transactions, test_transaction_status, test_customers) that created customers with no phone, now required. Added two new tests to test_customers.py: phone-required-on-create (still optional on update), and the duplicate-combo guard (exact duplicate rejected across phone formatting variants, shared-phone-different-name allowed, same-name-different-phone allowed, PATCH-into-a-collision rejected, self-edit not mistaken for a collision).",
+      "Frontend (Customers.tsx): Phone labeled 'Phone *' and required in the create form only; submitForm blocks with an inline 'Phone is required' error before any request when blank in create mode. New formError state also surfaces backend rejections (e.g. 'X already exists with this phone number') on both create and update — the form previously had no error display at all.",
+      "Verify: full backend suite green (all test_*.py, including the 2 new tests). npx tsc --noEmit clean. Browser-verified against the running dev servers: submitting with no phone shows 'Phone is required' and sends no request; typing existing customer 'lll'''s exact name+phone and clicking 'Add anyway' is rejected with 'lll already exists with this phone number', no row created; the same phone under a different name ('lll Family Member') still creates successfully, confirming the family-sharing-a-phone case is preserved. Test customers cleaned up (soft-deleted) afterward, except the pre-existing duplicate 'Pritesh' pair, which predates this fix and was left as the operator's own data — not retroactively merged.",
+      "docs/PLAN.md: added an 'AMENDED 2026-08-13' note under Phase 2.5's original 'Not scheduled, recorded deliberately' call."
+    ]
+  },
+  {
+    "title": "Numeric-only Phone/Aadhaar fields, spinner arrows removed from all number inputs",
+    "phase": "Other",
+    "status": "completed",
+    "updated": "2026-08-13",
+    "seq": 198,
+    "details": [
+      "Ad-hoc operator request — Phone and Aadhaar fields on the customer form accepted arbitrary text, and increment/decrement spinner arrows on number fields should go app-wide.",
+      "Phone (Customers.tsx): onChange strips non-digit characters as the operator types; added inputMode=\"numeric\" for a numeric mobile keyboard. Matches the digit normalisation the 16.6.3 phone-lookup already does, so typed input and matching now agree.",
+      "Aadhaar: flagged a real conflict before touching it — ARCHITECTURE.md documents Aadhaar as 'stored masked only, full numbers not retained' and the field was labeled '(masked)', implying non-digit masking characters were expected, which a strict digits-only filter would break. Asked the operator directly; they chose digits-only strictly. Checked the dev DB first: the one existing aadhaar_masked value was already just 6 plain digits with no mask characters in use, so there was no real convention to preserve.",
+      "Implemented: the input now takes only the LAST 4 digits (digits-only filter + maxLength=4), label changed to 'Aadhaar (last 4 digits)', and the read-only profile card now prefixes the display as 'XXXX XXXX <last4>' — the masked appearance lives at display time instead of relying on the operator typing mask characters. Smallest way to make the documented 'never retain the full number' claim actually true, since the app now only ever collects 4 digits in the first place.",
+      "Number spinners: one global CSS rule in src/index.css (input[type=\"number\"] spin-button rule, -webkit and -moz) rather than touching the 9 files using type=\"number\" individually (TransactionForm, ExpenseForm, BankingEntryForm, Accounts, Services, Setup, Reports, DailyClosing, Customers).",
+      "Verify: npx tsc --noEmit clean. Browser-verified against the running dev servers: typing 'ab98cd76ef54' into Phone produced '987654' (letters stripped); typing 'xy12ab34' into Aadhaar produced '1234' (letters stripped, capped at 4 digits). Spinner removal confirmed visually via a zoomed screenshot of the Accounts page's Opening Balance field showing no up/down arrows (a computed-style JS check on the ::-webkit-inner-spin-button pseudo-element was tried first but proved unreliable in this environment and was discarded for the direct visual check). No test records left behind — both forms were cancelled after verification."
+    ]
   }
 ]
 </script>
 
 <script>
-  const STATUS_ORDER = { "in-progress": 0, "pending": 1, "completed": 2 };
   const data = JSON.parse(document.getElementById("tracker-data").textContent);
   const list = document.getElementById("list");
   const filters = document.getElementById("filters");
@@ -2412,19 +2731,57 @@
   const latest = data.map(t => t.updated).filter(Boolean).sort().pop();
   document.getElementById("updated").textContent = latest ? `Last updated: ${latest}` : "";
 
-  function render(filter) {
-    const sorted = [...data].sort((a, b) => {
-      const byStatus = (STATUS_ORDER[a.status] ?? 9) - (STATUS_ORDER[b.status] ?? 9);
-      if (byStatus !== 0) return byStatus;
-      return (b.seq ?? 0) - (a.seq ?? 0); // higher seq = touched more recently, shown first
-    });
-    const shown = filter === "all" ? sorted : sorted.filter(t => t.status === filter);
-    list.innerHTML = shown.length
-      ? shown.map(t => `
+  const current = data.find(t => t.status === "in-progress");
+  if (current) {
+    document.getElementById("now-title").textContent = current.title;
+    document.getElementById("now-banner").classList.add("show");
+  }
+
+  // Tasks group by phase (plan order within each phase); phases sort numerically, "Other" last.
+  function phaseNumber(phase) {
+    const m = /^Phase (\d+)/.exec(phase);
+    return m ? Number(m[1]) : Infinity;
+  }
+
+  function taskHtml(t) {
+    const subtasks = t.subtasks && t.subtasks.length
+      ? `<ul class="subtasks">${t.subtasks.map(s => `<li class="${s.done ? "done" : "todo"}"><span class="box">${s.done ? "☑" : "☐"}</span><span>${s.id} — ${s.label}</span></li>`).join("")}</ul>`
+      : "";
+    const details = t.details && t.details.length
+      ? `<ul class="task-detail">${t.details.map(d => `<li>${d}</li>`).join("")}</ul>`
+      : "";
+    return `
         <div class="task ${t.status}">
           <span class="task-title">${t.title}</span><span class="task-status">${t.status.replace("-", " ")}</span>
-          ${t.details && t.details.length ? `<ul class="task-detail">${t.details.map(d => `<li>${d}</li>`).join("")}</ul>` : ""}
-        </div>`).join("")
+          ${subtasks}
+          ${details}
+        </div>`;
+  }
+
+  function render(filter) {
+    const shown = filter === "all" ? data : data.filter(t => t.status === filter);
+
+    const groups = new Map();
+    for (const t of shown) {
+      const key = t.phase || "Other";
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(t);
+    }
+    const phases = [...groups.keys()].sort((a, b) => phaseNumber(a) - phaseNumber(b));
+
+    list.innerHTML = phases.length
+      ? phases.map(phase => {
+          const tasks = groups.get(phase);
+          const done = tasks.filter(t => t.status === "completed").length;
+          const hasCurrent = tasks.some(t => t.status === "in-progress");
+          return `
+        <div class="phase-group">
+          <div class="phase-header${hasCurrent ? " has-current" : ""}">
+            ${phase}<span class="phase-count">${done}/${tasks.length} done</span>
+          </div>
+          ${tasks.map(taskHtml).join("")}
+        </div>`;
+        }).join("")
       : `<div class="empty">No tasks in this filter.</div>`;
   }
 

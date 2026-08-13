@@ -47,8 +47,8 @@ def test_reconciliation_suite_scripted_month():
 
         cash_id = conn.execute("SELECT id FROM accounts WHERE name = 'Cash Drawer'").fetchone()[0]
         sbi_id = create_account(AccountCreate(name="SBI", account_type="settlement", opening_balance_paise=1000000), conn)["id"]
-        alice = create_customer(CustomerCreate(name="Alice"), conn)
-        bob = create_customer(CustomerCreate(name="Bob"), conn)
+        alice = create_customer(CustomerCreate(name="Alice", phone="9800000010"), conn)
+        bob = create_customer(CustomerCreate(name="Bob", phone="9800000011"), conn)
         pan = create_service(ServiceCreate(name="PAN Card", category="PAN", default_fee_paise=10000), conn)
         cert = create_service(ServiceCreate(name="Certificate", category="Certificates", default_fee_paise=35000), conn)
         printing = create_service(ServiceCreate(name="Printing", category="Printing", default_fee_paise=500), conn)

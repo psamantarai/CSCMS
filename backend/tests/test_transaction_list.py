@@ -33,10 +33,10 @@ def test_filter_combinations_return_consistent_counts_and_totals():
         cash_id = _cash_id(conn)
         pan = create_service(ServiceCreate(name="PAN Card", category="PAN", default_fee_paise=10000), conn)
         aadhaar = create_service(ServiceCreate(name="Aadhaar Update", category="Aadhaar", default_fee_paise=5000), conn)
-        alice = create_customer(CustomerCreate(name="Alice"), conn)
+        alice = create_customer(CustomerCreate(name="Alice", phone="9800000010"), conn)
         # PLAN 15.1: a pending row needs a customer, and it must not be Alice
         # — the customer_id filter below counts exactly her two rows.
-        bob = create_customer(CustomerCreate(name="Bob"), conn)
+        bob = create_customer(CustomerCreate(name="Bob", phone="9800000011"), conn)
 
         # pending, Bob, PAN
         create_transaction(TransactionCreate(business_date="2026-08-01", service_id=pan["id"],
@@ -79,7 +79,7 @@ def test_rows_carry_names_and_paid_paise():
         conn = _seeded_conn(Path(tmp))
         cash_id = _cash_id(conn)
         pan = create_service(ServiceCreate(name="PAN Card", category="PAN", default_fee_paise=10000), conn)
-        alice = create_customer(CustomerCreate(name="Alice"), conn)
+        alice = create_customer(CustomerCreate(name="Alice", phone="9800000010"), conn)
 
         create_transaction(TransactionCreate(business_date="2026-08-01", service_id=pan["id"],
                                               fee_paise=100, account_id=cash_id, amount_paid_paise=100), conn)

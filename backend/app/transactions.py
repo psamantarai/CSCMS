@@ -30,7 +30,7 @@ from pydantic import BaseModel, Field, field_validator
 from app.accounts import _get_active_or_404 as _get_account_or_404
 from app.accounts import _system_user_id
 from app.audit import write_audit
-from app.customers import _get_or_404 as _get_customer_or_404
+from app.customers import PAID_PAISE_CASE_SQL, _get_or_404 as _get_customer_or_404
 from app.db import begin_write, get_db
 from app.ledger import account_balance, ensure_business_day_open, insert_entry, reverse_entry, validate_business_date
 from app.services import _get_active_or_404 as _get_service_or_404
@@ -219,15 +219,13 @@ def list_transactions(
 
     total = conn.execute(f"SELECT COUNT(*) FROM transactions t {clause}", params).fetchone()[0]
     rows = conn.execute(
+        # PLAN 16.6.1: paid_paise's CASE expression is shared with
+        # customers.get_customer_history via PAID_PAISE_CASE_SQL, not pasted
+        # here — same fix as recompute_status (PLAN 16.5.4: a walk-in's paid
+        # figure must also count the transfer recovery leg an outlay splits
+        # off), now with one place left to correct instead of three.
         f"SELECT t.*, s.name AS service_name, c.name AS customer_name, "
-        f"CASE WHEN t.customer_id IS NOT NULL THEN "
-        f"  COALESCE((SELECT SUM(amount_paise) FROM payments p WHERE p.transaction_id = t.id AND p.deleted_at IS NULL), 0) "
-        f"ELSE "
-        # PLAN 16.5.4: same fix as recompute_status — a walk-in's paid figure
-        # must also count the transfer recovery leg an outlay splits off.
-        f"  COALESCE((SELECT SUM(amount_paise) FROM ledger l WHERE l.source_type = 'transaction' AND l.source_id = t.id AND "
-        f"(l.entry_type = 'service_income' OR (l.entry_type = 'transfer' AND l.amount_paise > 0))), 0) "
-        f"END AS paid_paise "
+        f"{PAID_PAISE_CASE_SQL} AS paid_paise "
         f"FROM transactions t "
         f"JOIN services s ON s.id = t.service_id "
         f"LEFT JOIN customers c ON c.id = t.customer_id "

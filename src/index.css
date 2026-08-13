@@ -146,6 +146,17 @@ dialog::backdrop {
   background: rgba(0, 0, 0, 0.4);
 }
 
+/* Number inputs: no spin buttons anywhere in the app (money/amount fields
+   don't want increment/decrement arrows). */
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
 /* Scrollbar polish */
 ::-webkit-scrollbar {
   width: 5px;
