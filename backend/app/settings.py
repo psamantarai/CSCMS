@@ -12,6 +12,19 @@ else:
     BACKEND_DIR = Path(__file__).resolve().parent.parent
 
 
+def _default_mirror_dir() -> Path:
+    # PLAN 16.2: independent of db_path so relocating $INSTDIR (13.2) doesn't
+    # relocate the mirror too — the whole point is a copy outside the install
+    # directory. CSCMS_MIRROR_DIR overrides it outright (tests, and 16.4's
+    # later operator-chosen location); LOCALAPPDATA is Windows' per-user data
+    # root, inherited by the backend process through Electron's own
+    # `...process.env` spread in main.cjs.
+    override = os.environ.get("CSCMS_MIRROR_DIR")
+    if override:
+        return Path(override)
+    return Path(os.environ.get("LOCALAPPDATA", str(Path.home() / "AppData" / "Local"))) / "CSCMS" / "backups"
+
+
 @dataclass(frozen=True)
 class Settings:
     app_name: str = "CSCMS"
@@ -19,6 +32,7 @@ class Settings:
     port: int = int(os.environ.get("CSCMS_PORT", "8000"))
     debug: bool = os.environ.get("CSCMS_DEBUG", "false").lower() == "true"
     db_path: Path = Path(os.environ.get("CSCMS_DB_PATH", BACKEND_DIR / "data" / "cscms.db"))
+    mirror_backups_dir: Path = _default_mirror_dir()
     migrations_dir: Path = BACKEND_DIR / "migrations"
     # PLAN 10.1: the Electron shell points this at the built frontend it
     # spawned us from; dev (`python run.py` from source) falls back to the

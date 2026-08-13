@@ -2,7 +2,7 @@
 // process, waits for it to answer /api/health, then loads the built
 // frontend from that same origin (backend/app/main.py serves it) so
 // src/lib/api.ts's relative `/api` fetches work unchanged — no file://.
-const { app, BrowserWindow, session, Notification, dialog } = require("electron")
+const { app, BrowserWindow, session, Notification, dialog, ipcMain } = require("electron")
 const { autoUpdater } = require("electron-updater")
 const { spawn } = require("node:child_process")
 const crypto = require("node:crypto")
@@ -11,6 +11,7 @@ const path = require("node:path")
 const { log: logTo, sweepOldLogs: sweepOldLogsIn } = require("./logger.cjs")
 const { isWritable } = require("./writability.cjs")
 const { migrateOldData } = require("./migrate.cjs")
+const { hideDataDir, writeNotice } = require("./datadirmark.cjs")
 
 // PLAN 10.3: must run before any app.getPath() call — it's what makes
 // getPath("userData") resolve to %APPDATA%\CSCMS instead of the package.json
@@ -48,6 +49,18 @@ function checkDataDirWritable() {
       "per-user install path works for everyone), or run CSCMS as an administrator.",
   )
   return false
+}
+
+// PLAN 16.1: best-effort — a filesystem that refuses attrib (e.g. non-NTFS)
+// must not stop the app from starting. Called after the writability probe so
+// there's nothing to hide until DATA_DIR is known to be usable.
+function markDataDir() {
+  try {
+    hideDataDir(DATA_DIR)
+    writeNotice(DATA_DIR)
+  } catch (err) {
+    log("could not hide data directory:", err.message)
+  }
 }
 
 // PLAN 13.4: v1.0.0 is already published with its ledger at the old default
@@ -184,6 +197,14 @@ function stopBackend() {
   backendProcess = null
 }
 
+// PLAN 16.4: native folder picker for the backup mirror location
+// (src/pages/Backups.tsx). Registered once at module scope — mainWindow is
+// read lazily inside the handler, by which time it's already set.
+ipcMain.handle("pick-folder", async () => {
+  const result = await dialog.showOpenDialog(mainWindow, { properties: ["openDirectory"] })
+  return result.canceled ? null : result.filePaths[0]
+})
+
 async function createWindow() {
   // PLAN 11.2: every request the renderer's session makes (the app itself,
   // loaded from http://127.0.0.1:PORT) picks up the header here.
@@ -192,7 +213,15 @@ async function createWindow() {
     callback({ requestHeaders: details.requestHeaders })
   })
 
-  mainWindow = new BrowserWindow({ width: 1280, height: 800, icon: path.join(REPO_ROOT, "electron", "icon.png") })
+  mainWindow = new BrowserWindow({
+    width: 1280,
+    height: 800,
+    icon: path.join(REPO_ROOT, "electron", "icon.png"),
+    // PLAN 16.4: contextIsolation defaults on, so this is the only way the
+    // renderer (loaded over http://127.0.0.1:PORT, not file://) can reach
+    // window.cscms.
+    webPreferences: { preload: path.join(__dirname, "preload.cjs") },
+  })
   try {
     await waitForBackend()
   } catch (err) {
@@ -220,6 +249,7 @@ if (!app.requestSingleInstanceLock()) {
       app.exit(1)
       return
     }
+    markDataDir()
     if (!runMigration()) {
       app.exit(1)
       return

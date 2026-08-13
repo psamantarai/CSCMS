@@ -2,7 +2,7 @@ import { useEffect, useState } from "react"
 import { BrowserRouter, Routes, Route, Navigate, NavLink, useNavigate, useLocation } from "react-router-dom"
 import { useQuery } from "@tanstack/react-query"
 import {
-  Activity, BarChart3, BookOpen, Clock, CreditCard, FileText, IndianRupee,
+  Activity, BarChart3, BookOpen, Clock, CreditCard, DatabaseBackup, FileText, IndianRupee,
   LayoutDashboard, LogOut, MessageSquare, Moon, Sun, Tag, Users, type LucideIcon,
 } from "lucide-react"
 import { api } from "./lib/api"
@@ -34,6 +34,7 @@ import Ledger from "./pages/Ledger"
 import Reports from "./pages/Reports"
 import DailyClosing from "./pages/DailyClosing"
 import AuditLog from "./pages/AuditLog"
+import Backups from "./pages/Backups"
 
 type NavItem = { path: string; label: string; icon: LucideIcon }
 
@@ -65,6 +66,7 @@ const navGroups: { group: string; items: NavItem[] }[] = [
       { path: "/reports", label: "Reports", icon: BarChart3 },
       { path: "/closing", label: "Daily Closing", icon: MessageSquare },
       { path: "/audit-log", label: "Audit Log", icon: Clock },
+      { path: "/backups", label: "Backups", icon: DatabaseBackup },
     ],
   },
 ]
@@ -192,6 +194,7 @@ function AppShell({ dark, onToggleDark }: { dark: boolean; onToggleDark: () => v
             <Route path="/reports" element={<Reports />} />
             <Route path="/closing" element={<DailyClosing />} />
             <Route path="/audit-log" element={<AuditLog />} />
+            <Route path="/backups" element={<Backups />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </div>

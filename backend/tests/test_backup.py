@@ -1,4 +1,5 @@
 """Self-check for backup/restore (PLAN 8.5/8.6). Run: python tests/test_backup.py"""
+import shutil
 import sqlite3
 import sys
 import threading
@@ -12,7 +13,17 @@ import tempfile
 from fastapi import HTTPException
 
 from app.accounts import AccountCreate, create_account
-from app.backup import create_backup, restore_backup
+from app.backup import (
+    MIRROR_DIR,
+    MirrorLocationUpdate,
+    _mirror_health,
+    _mirror_status,
+    create_backup,
+    get_mirror_dir,
+    get_mirror_location,
+    restore_backup,
+    set_mirror_location,
+)
 from app.db import get_connection, run_migrations
 from app.ledger import closing_balance
 from app.seed import run_seed, seed_admin_user
@@ -184,6 +195,158 @@ def test_restore_rejects_a_path_outside_the_backups_dir():
         conn.close()
 
 
+def test_mirror_receives_a_copy_of_every_backup():
+    # PLAN 16.2
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        db_path = tmp / "cscms.db"
+        conn = _seeded_conn(db_path)
+        backups_dir = tmp / "backups"
+        mirror_dir = tmp / "mirror"
+
+        backup_path = create_backup(conn, db_path, backups_dir, mirror_dir=mirror_dir)
+        mirrored = mirror_dir / backup_path.name
+        assert mirrored.is_file()
+        assert mirrored.stat().st_size == backup_path.stat().st_size
+        assert _mirror_status.pop(backup_path) == {"ok": True, "dir": str(mirror_dir), "error": None}
+        conn.close()
+
+
+def test_mirror_retention_keeps_only_the_last_n_independently_of_the_primary():
+    # PLAN 16.2: its own sweep over its own directory listing, same retention count.
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        db_path = tmp / "cscms.db"
+        conn = _seeded_conn(db_path)
+        conn.execute("UPDATE settings SET value = '2' WHERE key = 'backup_retention_count'")
+        conn.commit()
+        backups_dir = tmp / "backups"
+        mirror_dir = tmp / "mirror"
+
+        for _ in range(4):
+            create_backup(conn, db_path, backups_dir, mirror_dir=mirror_dir)
+            time.sleep(0.001)
+
+        assert len(list(backups_dir.glob("*.db"))) == 2
+        assert len(list(mirror_dir.glob("*.db"))) == 2
+        conn.close()
+
+
+def test_mirror_not_requested_leaves_the_primary_backup_unaffected():
+    # mirror_dir defaults to None so existing callers (on_shutdown, other
+    # tests) are unaffected.
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        db_path = tmp / "cscms.db"
+        conn = _seeded_conn(db_path)
+        backups_dir = tmp / "backups"
+
+        backup_path = create_backup(conn, db_path, backups_dir)
+        assert backup_path.is_file()
+        assert backup_path not in _mirror_status
+        conn.close()
+
+
+def test_mirror_failure_does_not_fail_the_primary_backup():
+    # PLAN 16.2: a mirror directory that can't be created (here, blocked by a
+    # file occupying its parent's name — the cross-platform equivalent of a
+    # read-only mirror drive) must not stop the real backup from succeeding,
+    # and the failure must be reported, not swallowed.
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        db_path = tmp / "cscms.db"
+        conn = _seeded_conn(db_path)
+        backups_dir = tmp / "backups"
+        blocked = tmp / "blocked"
+        blocked.write_text("a file, not a directory")
+        mirror_dir = blocked / "mirror"  # mkdir(parents=True) under a file must fail
+
+        backup_path = create_backup(conn, db_path, backups_dir, mirror_dir=mirror_dir)
+        assert backup_path.is_file(), "the primary backup must still succeed"
+
+        status = _mirror_status.pop(backup_path)
+        assert status["ok"] is False
+        assert status["error"]
+        conn.close()
+
+
+def test_mirror_health_reflects_the_most_recent_attempt_but_keeps_the_last_success():
+    # PLAN 16.3: a mirror that has gone bad must not keep reporting the
+    # timestamp of a success that happened before it broke.
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        db_path = tmp / "cscms.db"
+        conn = _seeded_conn(db_path)
+        backups_dir = tmp / "backups"
+        mirror_dir = tmp / "mirror"
+
+        create_backup(conn, db_path, backups_dir, mirror_dir=mirror_dir)
+        assert _mirror_health["ok"] is True
+        assert _mirror_health["dir"] == str(mirror_dir)
+        assert _mirror_health["error"] is None
+        first_success = _mirror_health["last_success_at"]
+        assert first_success is not None
+
+        # mirror path becomes unreachable — a file now occupies it, so the
+        # next mkdir(parents=True, exist_ok=True) fails.
+        shutil.rmtree(mirror_dir)
+        mirror_dir.write_text("blocking file")
+        time.sleep(0.001)
+
+        create_backup(conn, db_path, backups_dir, mirror_dir=mirror_dir)
+        assert _mirror_health["ok"] is False
+        assert _mirror_health["error"]
+        assert _mirror_health["last_success_at"] == first_success, "must not look freshly healthy after a failed attempt"
+        conn.close()
+
+
+def test_get_mirror_dir_defaults_to_the_built_in_default_when_unset():
+    # PLAN 16.4
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = Path(tmp) / "cscms.db"
+        conn = _seeded_conn(db_path)
+        assert get_mirror_dir(conn) == MIRROR_DIR
+        conn.close()
+
+
+def test_mirror_location_round_trips_through_the_endpoints():
+    # PLAN 16.4
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        db_path = tmp / "cscms.db"
+        conn = _seeded_conn(db_path)
+        chosen = tmp / "usb-drive" / "cscms-mirror"
+
+        before = get_mirror_location(conn)
+        assert before == {"dir": str(MIRROR_DIR), "configured": None, "default": str(MIRROR_DIR)}
+
+        after = set_mirror_location(MirrorLocationUpdate(dir=str(chosen)), conn)
+        assert after == {"dir": str(chosen), "configured": str(chosen), "default": str(MIRROR_DIR)}
+        assert get_mirror_dir(conn) == chosen
+
+        cleared = set_mirror_location(MirrorLocationUpdate(dir=None), conn)
+        assert cleared == {"dir": str(MIRROR_DIR), "configured": None, "default": str(MIRROR_DIR)}
+        assert get_mirror_dir(conn) == MIRROR_DIR
+        conn.close()
+
+
+def test_mirror_location_change_takes_effect_on_the_next_backup():
+    # PLAN 16.4: "read at backup time" — no restart needed.
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        db_path = tmp / "cscms.db"
+        conn = _seeded_conn(db_path)
+        backups_dir = tmp / "backups"
+        chosen = tmp / "onedrive" / "cscms-mirror"
+
+        set_mirror_location(MirrorLocationUpdate(dir=str(chosen)), conn)
+        backup_path = create_backup(conn, db_path, backups_dir, mirror_dir=get_mirror_dir(conn))
+
+        mirrored = chosen / backup_path.name
+        assert mirrored.is_file()
+        conn.close()
+
+
 def test_restore_rejects_a_non_sqlite_file():
     with tempfile.TemporaryDirectory() as tmp:
         tmp = Path(tmp)
@@ -207,6 +370,14 @@ if __name__ == "__main__":
     test_restore_reproduces_balances_exactly()
     test_restore_of_the_oldest_backup_at_retention_cap_succeeds()
     test_concurrent_backup_creation_all_succeed()
+    test_mirror_receives_a_copy_of_every_backup()
+    test_mirror_retention_keeps_only_the_last_n_independently_of_the_primary()
+    test_mirror_not_requested_leaves_the_primary_backup_unaffected()
+    test_mirror_failure_does_not_fail_the_primary_backup()
+    test_mirror_health_reflects_the_most_recent_attempt_but_keeps_the_last_success()
+    test_get_mirror_dir_defaults_to_the_built_in_default_when_unset()
+    test_mirror_location_round_trips_through_the_endpoints()
+    test_mirror_location_change_takes_effect_on_the_next_backup()
     test_restore_rejects_a_path_outside_the_backups_dir()
     test_restore_rejects_a_non_sqlite_file()
     print("OK")

@@ -24,4 +24,6 @@ export const queryKeys = {
   reportProfitLoss: (filters: Record<string, string>) => ["reports", "profit-loss", filters] as const,
   reportBankingCommission: (filters: Record<string, string>) => ["reports", "banking-commission", filters] as const,
   auditLogs: (filters: Record<string, string | number>) => ["audit", filters] as const,
+  backups: ["backups"] as const,
+  backupMirrorLocation: ["backups", "mirror-location"] as const,
 }
